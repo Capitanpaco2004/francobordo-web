@@ -1,0 +1,96 @@
+.tableFooter {
+	width: 100%;
+	margin: 10px 0;
+	overflow: hidden;
+	height: 52px;
+}
+
+.ellipsis {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 160px;
+}
+
+.table-orders .xbutton.small {
+	font-size: 11px !important;
+	padding: 4px 8px !important;
+}
+
+.table-orders .hover {
+	display: block;
+	opacity: .5;
+	visibility: hidden;
+}
+
+.table-orders tr:hover .hover {
+	visibility: visible;
+}
+
+.toolbar {
+	position: relative;
+	background-color: #fff;
+	padding: 0px 0 0px 0;
+	min-height: 30px;
+	margin: 0 0 10px 0;
+}
+
+/*.toolbar img {
+	cursor: pointer;
+	position: absolute;
+	top: 0;
+	right: 0;
+	border: 1px solid #ddd;
+	padding: 9px 9px 10px 9px;
+	background-color: #fff;
+	border-radius: 2px;
+}*/
+
+/*.toolbar p {
+	display: none;
+}*/
+
+table a {
+	color: #292b3a;
+}
+
+.show-options {
+	float: right;
+}
+
+.options {
+	display: none;
+	width: 100%;
+}
+
+
+body .tableFooter {
+	margin: 0 0 20px 0;
+	padding: 0;
+	height: 20px;
+	background: #fff!important;
+}
+
+body .tableFooter .dataTables_info {
+	float: none;
+	padding: 0;
+}
+
+body .tableFooter .clear {
+	display: none;
+}
+
+.oeTitu img {
+	float: right;
+	cursor: pointer;
+}
+.oeTitu.logo .fa, .oeTitu.logo .fas, .oeTitu.logo .fab, .oeTitu.logo .far {
+    color: #33c3f0;
+    font-size: 42px;
+    left: 0;
+    line-height: 42px;
+    margin-right: 13px;
+    margin-top: -21px;
+    position: absolute;
+    top: 50%;
+}

@@ -1,0 +1,31 @@
+<?php
+
+define('NEWSLETTERS_SUBSCRIBERS_TITLE', 'Suscriptores');
+define('NEWSLETTERS_SUBSCRIBERS_SUBTITLE', 'Listado de clientes suscritos');
+define('NEWSLETTERS_SUBSCRIBERS_NO_RECORDS', 'No existe ningun registro para mostrar.');
+define('NEWSLETTERS_SUBSCRIBERS_FILTER_NO_RECORDS', 'El filtro establecido no contiene datos.');
+define('NEWSLETTERS_SUBSCRIBERS_TEXT_REMOVE_FILTER', 'Quitar filtro');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_NAME', 'Nombre');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_SURNAME', 'Apellidos');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_EMAIL', 'Email');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_STATUS', 'Estado');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_ACTIONS', 'Acciones');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_EDIT_RECORD', 'Editar registro');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_DELETE_RECORD', 'Eliminar registro');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_DELETE_RECORD_CONFIRM', '¿Realmente deseas eliminar el registro?');
+define('NEWSLETTERS_SUBSCRIBERS_TEXT_APPLY_ACTION', 'Aplicar acción');
+define('NEWSLETTERS_SUBSCRIBERS_TEXT_DELETE_RECORDS', 'Eliminar registros');
+define('NEWSLETTERS_SUBSCRIBERS_TEXT_DELETE_RECORDS_CONFIRM', '¿Realmente deseas eliminar los registros?');
+define('NEWSLETTERS_SUBSCRIBERS_NEW_EDIT_SUBSCRIBER', 'cliente suscrito');
+define('NEWSLETTERS_SUBSCRIBERS_EDIT_RECORD_NO_EXISTS', 'El registro que intentas editar no existe');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_NAME_HELP', 'Nombre del cliente.');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_SURNAME_HELP', 'Apellido del cliente.');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_EMAIL_HELP', 'Email del cliente.');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_ENABLED', 'Activado');
+define('NEWSLETTERS_SUBSCRIBERS_TABLE_ENABLED_HELP', 'Activa o desactiva.');
+define('NEWSLETTERS_SUBSCRIBERS_ERROR_NAME', 'Debes especificar un nombre.');
+define('NEWSLETTERS_SUBSCRIBERS_ERROR_SURNAME', 'Debes especificar un apellido.');
+define('NEWSLETTERS_SUBSCRIBERS_ERROR_EMAIL', 'Debes especificar un email.');
+define('NEWSLETTERS_SUBSCRIBERS_UPDATE_SUCCESS', 'El cliente suscrito se ha editado correctamente');
+define('NEWSLETTERS_SUBSCRIBERS_INSERT_SUCCESS', 'El cliente suscrito se ha añadido correctamente');
+define('NEWSLETTERS_SUBSCRIBERS_DELETE_SUCCESS', 'Los registros se han eliminado correctamente');

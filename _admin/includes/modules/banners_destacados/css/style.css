@@ -1,0 +1,151 @@
+.banner-imagen .pnto
+{
+	position: absolute;
+	top: 0px;
+	left: 0px;
+	width: 27px;
+	height: 100px;
+	z-index: 1;
+	cursor: pointer;
+}
+
+.banner-imagen .pnto a.pnt-pls
+{
+	background: #ffffff;
+    top: 0;
+    color: #932f6f;
+    font-size: 13px;
+    height: 16px;
+    line-height: 17px;
+    position: absolute;
+    left: 0;
+    text-align: center;
+    width: 16px;
+	z-index: 4;
+}
+
+.banner-imagen .pnto .bgc
+{
+	background: #00baf0 none repeat scroll 0 0;
+    height: 100%;
+    left: 0;
+    opacity: 0.75;
+    position: absolute;
+    top: 0;
+    width: 100%;
+}
+
+.banner-imagen .pnto span
+{
+	color: #fff;
+    display: block;
+    font-family: Verdana;
+    font-size: 11px;
+    font-weight: bold;
+    left: 0;
+    line-height: 14px;
+    padding: 6px 11px 0 20px;
+    position: relative;
+    z-index: 2;
+	height: 29px;
+    overflow: hidden;
+	height: 60%;
+}
+
+.banner-imagen .pnto span.prco
+{
+	height: 40%;
+	padding: 0px 11px;
+}
+
+.ui-dialog-titlebar-close:after
+{
+    color: #000;
+    content: "x";
+    font-size: 12px;
+    line-height: 12px;
+    position: relative;
+    top: -1px;
+}
+
+#dialog-products
+{
+	width: 100% !important;
+}
+
+#dialog-products-loading
+{
+	display: none;
+    position: absolute;
+    right: 27px;
+    top: 56px;
+}
+
+#autocomplete
+{
+	padding-right: 30px;
+}
+
+#dialog-products form
+{
+	padding: 10px 0px;
+}
+
+.ui-widget-overlay
+{
+	background: #0b0b0b none repeat scroll 0 0 !important;
+	opacity: 0.8 !important;
+}
+
+#autocomplete-target
+{
+	position: absolute;
+	top: 86px;
+	left: 0;
+	padding: 0px 20px;
+	width: 100%;
+	z-index: 500;
+	display: none;
+}
+
+#autocomplete-target ul
+{
+    display: block;
+    background-color: white;
+    border-top: 1px solid #e5e5e5;
+    padding: 0;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+    -webkit-box-shadow: 0 3px 7px rgba(0,0,0,.5);
+    -moz-box-shadow: 0 3px 7px rgba(0,0,0,.5);
+    box-shadow: 0 3px 7px rgba(0,0,0,.2);
+    z-index: 200;
+    border: solid #ccc;
+    border-width: 0 1px 1px;
+    cursor: default;
+    margin: 0px;
+    overflow-x: scroll;
+    max-height: 195px;
+}
+
+#autocomplete-target ul li
+{
+	padding: 10px 12px;
+    font-size: 12px;
+    line-height: 12px;
+    border-bottom: 1px solid #e5e5e5;
+    font-weight: bold;
+    color: #666;
+	cursor: pointer;
+}
+
+#autocomplete-target ul li:hover, #autocomplete-target ul li.actv
+{
+	background: #f8f8f8;
+}
+
+#dpl-img .down
+{
+	margin-left: 0 !important;
+	width: 328px !important;
+}

@@ -1,0 +1,69 @@
+{
+    "order": [
+        "kpis",
+        "quick-actions",
+        "sales-chart",
+        "orders-status",
+        "payment-methods",
+        "recent-orders",
+        "recent-customers",
+        "top-products",
+        "low-stock",
+        "whos-online"
+    ],
+    "widgets": {
+        "kpis": {
+            "size": 12,
+            "visible": true
+        },
+        "quick-actions": {
+            "size": 4,
+            "visible": true
+        },
+        "sales-chart": {
+            "size": 8,
+            "visible": true
+        },
+        "orders-status": {
+            "size": 4,
+            "visible": false
+        },
+        "payment-methods": {
+            "size": 8,
+            "visible": false
+        },
+        "recent-orders": {
+            "size": 12,
+            "visible": true
+        },
+        "recent-customers": {
+            "size": 8,
+            "visible": true
+        },
+        "top-products": {
+            "size": 4,
+            "visible": true
+        },
+        "low-stock": {
+            "size": 4,
+            "visible": true
+        },
+        "whos-online": {
+            "size": 12,
+            "visible": true
+        }
+    },
+    "kpis": {
+        "order": [
+            "sales-today",
+            "sales-month",
+            "orders-today",
+            "new-customers",
+            "products-active",
+            "users-online"
+        ],
+        "hidden": [],
+        "sizes": []
+    },
+    "autoRefresh": 5
+}

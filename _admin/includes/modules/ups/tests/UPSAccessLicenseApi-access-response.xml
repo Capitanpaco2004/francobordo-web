@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<AccessLicenseResponse>
+    <Response>
+        <TransactionReference/>
+        <ResponseStatusCode>1</ResponseStatusCode>
+        <ResponseStatusDescription>Success</ResponseStatusDescription>
+    </Response>
+    <AccessLicenseNumber>FCFAB7927A15FFF6</AccessLicenseNumber>
+</AccessLicenseResponse>

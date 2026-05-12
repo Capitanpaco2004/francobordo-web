@@ -1,0 +1,93 @@
+#admin_bar {
+	width: 40px;
+	position: fixed;
+	height: 40px;
+	right: 0px;
+	z-index: 9999;
+	background: #a5a5a5;
+	font-family: Arial, Helvetica, Sans-Serif;
+	font-size: 13px;
+	color: #FFF;
+	line-height: 13px;
+	overflow: hidden;
+	top: 0px;
+}
+
+#admin_bar.open {
+	width: 175px;
+	overflow: visible;
+}
+
+#admin_bar .admin_bar_close {
+	cursor: pointer;
+	background: #444444;
+	text-align: center;
+	position: absolute;
+	top: 0px;
+	right: 0px;
+	width: 40px;
+	z-index: 2;
+}
+
+#admin_bar .admin_bar_close .fa {
+	font-size: 17px;
+	color: #FFF;
+	line-height: 40px;
+}
+
+#admin_bar * {
+	-webkit-box-sizing: border-box;
+	-moz-box-sizing: border-box;
+	-ms-box-sizing: border-box;
+	box-sizing: border-box;
+}
+
+#admin_bar .admin_bar_vrsn {
+	position: absolute;
+	right: 53px;
+	top: 0px;
+	padding: 2px 0px 0px 29px;
+	line-height: 40px;
+}
+
+#admin_bar .admin_bar_vrsn img {
+	display: block;
+	position: absolute;
+	left: 0px;
+	top: 10px;
+}
+
+#admin_bar .admin_bar_wrapper {
+	margin-top: 40px;
+	border: 1px solid #a5a5a5;
+	padding: 10px;
+	background: #fff;
+}
+
+#admin_bar .admin_bar_link {
+	color: #000;
+	display: block;
+	font-size: 13px;
+	line-height: 25px;
+	border-bottom: 1px dashed #ddd;
+	padding: 2px 0px;
+}
+
+#admin_bar .admin_bar_link .fa {
+	color: #0bbde0;
+}
+
+#admin_bar .admin_bar_link:first-child{
+	padding-top: 0px;
+}
+
+#admin_bar .admin_bar_link:last-child{
+	border: 0px;
+	padding-bottom: 0px;
+}
+#admin_bar:not(.ready) {
+  transition: none !important;
+}
+#admin_bar {
+  transition: all 0.3s ease;
+}

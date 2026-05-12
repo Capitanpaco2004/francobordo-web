@@ -1,0 +1,42 @@
+info: $oInfo
+blocks:
+	0:
+		title: Popup
+		size_label: 2
+		size_row: 10
+		rows:
+			0:
+				label: "Producto:"
+				type: text
+				name: name
+				required: true
+				class_row: autocomplete
+			1:
+				label: ""
+				type: text
+				name: products_id
+				required: true
+				class_row: products_id
+				style_row: "display: none;"
+			2:
+				label: "Estado:"
+				type: combobox
+				name: status
+				required: true
+			3:
+				label: "Mostrar en portada:"
+				type: combobox
+				name: portada_flash
+				required: true
+			4:
+				link: true
+				label: {text: "Fecha Inicio:", size: 2}
+				type:  {type: date, size: 4}
+				name: date_start
+				required: true
+				property: {style: "width: 10px;"}
+			5:
+				label: {text: "Fecha Fin:", size: 2}
+				type:  {type: date, size: 4}
+				name: date_end
+				required: true

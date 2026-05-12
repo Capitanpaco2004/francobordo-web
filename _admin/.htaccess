@@ -1,0 +1,66 @@
+<IfModule Litespeed>
+    RewriteEngine On
+    RewriteRule .* - [E=noabort:1, E=noconntimeout:1]
+</IfModule>
+<FilesMatch "\.(csv)$">
+  Header set Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate"
+</FilesMatch>
+
+# Reset htaccess anteriores
+RewriteEngine Off
+RewriteEngine On
+
+deny from all
+
+#IP del Servidor
+allow from 94.23.81.102
+allow from 20.71.1.14
+
+#Otras IP
+allow from 31.4.241.240
+allow from 95.122.109.207
+allow from 217.127.199.171
+allow from 80.28.193.44
+allow from 87.216.241.112
+allow from 95.141.43.238
+allow from 194.158.72.65
+allow from 90.161.32.140
+allow from 87.218.31.166
+allow from 84.125.136.243
+allow from 109.111.110.210
+allow from 87.218.16.21
+allow from 84.122.7.182
+allow from 92.176.143.118
+allow from 176.31.61.163
+allow from 94.73.39.5
+allow from 92.191.46.245
+allow from 79.145.248.62
+allow from 94.73.33.172
+#IP Andorra
+allow from 145.224.124.130
+
+# KDV VPN
+allow from 46.101.221.242
+
+# Evitar que la regla heredada del htaccess raiz elimine index.php y redirija a /
+RewriteRule ^index\.php$ - [L]
+# Style para solenopsis
+RewriteCond %{REQUEST_URI} ^(.+)/style_base.css$
+RewriteRule ^.+/style_base.css$ %1/style.php [R=301,L]
+
+## Redirecciones 301 con www
+RewriteCond %{HTTP_HOST} !^www\. [NC]
+RewriteCond %{HTTPS} off [OR]
+RewriteCond %{HTTPS}:s on:(s)
+RewriteRule (.*)$ http%1://www.%{HTTP_HOST}/_admin/$1 [R=301,L,NE]
+
+## Si esta sin SSL redirecciono a SSL
+RewriteCond %{HTTPS} off
+RewriteRule (.*) https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301,NE]
+
+# Addons
+RewriteRule ^addon_(.+).php /_admin/addons.php
+
+<Files "cron_mail_status.php">
+   Allow from all
+</Files>

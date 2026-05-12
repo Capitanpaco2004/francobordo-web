@@ -1,0 +1,3 @@
+<?php
+// Debugbar
+$debugbar->show();

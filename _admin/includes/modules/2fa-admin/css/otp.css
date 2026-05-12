@@ -1,0 +1,13 @@
+.otp-group { display: inline-flex; gap: 6px; align-items: center; }
+.otp-sep { font-size: 16px; color: #bbb; margin: 0 1px; }
+.otp-box {
+    width: 42px !important; min-width: 42px; max-width: 42px; height: 46px; text-align: center !important;
+    font-size: 28px !important; font-weight: 800 !important; font-family: ui-monospace, 'Courier New', monospace !important;
+    border: 2px solid #ccc; border-radius: 8px; background: #fff;
+    outline: none; color: #222; transition: border-color .15s, box-shadow .15s;
+    padding: 0; -moz-appearance: textfield; line-height: 46px;
+}
+.otp-box::-webkit-inner-spin-button,
+.otp-box::-webkit-outer-spin-button { display: none; }
+.otp-box:focus { border-color: #0093ff; box-shadow: 0 0 0 3px rgba(0,147,255,.15); }
+.otp-box.filled { border-color: #555; }

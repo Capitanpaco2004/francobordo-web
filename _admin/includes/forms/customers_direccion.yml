@@ -1,0 +1,73 @@
+blocks:
+	0:
+		size_label: 2
+		size_row: 10
+		rows:
+			0:
+				link: true
+				label: {text: "Nombre:", size: 2}
+				type:  {type: text, size: 4}
+				name: entry_firstname
+				name_array: address_book_id
+				required: true
+			1:
+				label: {text: "Apellidos:", size: 2}
+				type:  {type: text, size: 4}
+				name: entry_lastname
+				name_array: address_book_id
+				required: true
+			2:
+				label: "DNI:"
+				type:  text
+				name: entry_NIF
+				name_array: address_book_id
+				property: {maxlength: 9}
+				visible: ACCOUNT_NIF
+			3:
+				label: "Nombre empresa:"
+				type:  text
+				name: entry_company
+				name_array: address_book_id
+				visible: ACCOUNT_COMPANY
+			4:
+				label: "Dirección:"
+				type: text
+				name: entry_street_address
+				name_array: address_book_id
+				required: true
+			5:
+				link: true
+				label: {text: "Código Postal:", size: 2}
+				type:  {type: text, size: 4}
+				name: entry_postcode
+				name_array: address_book_id
+				required: true
+				property_row: {class: entry_postcode}
+			6:
+				label: {text: "Suburbio:", size: 2}
+				type:  {type: text, size: 4}
+				name: entry_suburb
+				name_array: address_book_id
+				required: true
+				visible: ACCOUNT_SUBURB
+			7:
+				link: true
+				label: {text: "País:", size: 2}
+				type:  {type: combobox, size: 2}
+				name: entry_country_id
+				name_array: address_book_id
+				visible: ACCOUNT_STATE
+				property_row: {class: entry_country_id}                
+			8:
+				link: true
+				label: {text: "Provincia:", size: 1}
+				type:  {type: text, size: 2}
+				name: entry_zone_id
+				name_array: address_book_id
+				property_row: {class: entry_zone_id}
+			9:
+				label: {text: "Ciudad:", size: 2}
+				type:  {type: combobox, size: 2}
+				name: entry_city_id
+				property_row: {class: entry_city_id}
+				name_array: address_book_id

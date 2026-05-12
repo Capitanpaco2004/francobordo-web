@@ -1,0 +1,4 @@
+<?php
+	define( 'ALSO_PURCHASED_PRODUCTS_TITLE', 'CUSTOMERS WHO BOUGHT THIS PRODUCT ALSO BOUGHT ...' );
+	define( 'ALSO_PURCHASED_PRODUCTS_NO_FOUND', 'There are no related products.' );
+?>

@@ -1,0 +1,30 @@
+<?php
+  define('FILE_RENAME_SUCCESS', 'File successfuly renamed.');
+  define('FILE_RENAME_ERR', 'Error occured during renaming file.');
+  define('FILE_DELETE_SUCCESS', 'File successfuly deleted.');
+  define('FILE_DELETE_ERR', 'Error occured during deleting file.');
+  define('FILE_NO_FILE', 'No file provided.');
+  define('FILE_EXTENSION_NOT_SUPPORTED', 'The file, you trying upload, has unsupported extension.');
+  define('FILE_TOO_LARGE', 'Your file is too large. Supports files of max 3 MB (3145728 bytes).');
+  define('FILE_UPLOADED', 'File successfuly uploaded.');
+  define('FILE_EXTENSION_WRONG', 'no');
+  define('FILE_DIR_ROOT', 'Root');
+  define('IMAGE_FILE_NAME', 'File Name:');
+  define('IMAGE_FILE_SIZE', 'File Size:');
+  define('IMAGE_PICTURE_SIZE', 'Picture size:');
+  define('IMAGE_LAST_UPDATE', 'Last Update:');
+  define('IMAGE_ACTION_RENAME', 'Rename file');
+  define('IMAGE_ACTION_DELETE', 'Delete image');
+  define('IMAGE_ACTION_DELETE_CONFIRM', 'Are you sure you want to delete this image?');
+  define('IMAGE_ACTION_UPLOAD', 'Upload a file with the same name');
+  define('IMAGE_ACTION_UPLOAD_HINT', 'Select a file:');
+  define('IMAGE_ACTION_PREVIEW', 'Preview in browser (open in a new window)');
+  define('PAGE_PREVIOUS', 'Previous page');
+  define('PAGE_NEXT', 'Next page');
+  define('EMPTY_DIRECTORY_TEXT', 'There are no images in this folder.');
+  define('CLOSE_WINDOW_TEXT', 'Close');
+  define('NEW_FILE_UPLOAD_TEXT', 'Upload a file(s)');
+  define('TABLE_HEADER_IMAGE', 'Sample image');
+  define('TABLE_HEADER_DATA', 'Image Data');
+  define('TABLE_HEADER_ACTIONS', 'Actions');
+?>

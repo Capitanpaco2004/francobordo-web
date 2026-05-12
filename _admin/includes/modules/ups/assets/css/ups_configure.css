@@ -1,0 +1,191 @@
+.right{
+	text-align:right;
+}
+
+.center{
+	text-align:center;
+}
+
+.ups_field_large{
+	width:300px;
+}
+.ups_field_xlarge{
+	width:400px;
+}
+
+#ups_configuration{
+	width:1000px;
+}
+
+#ups_configuration .print_license{
+	position:absolute;
+	margin-left:10px;
+}
+
+#ups_configuration,
+#ups_configuration table td{
+	background: transparent;
+	width:1000px;
+	margin:0 auto;
+	color: #616060;
+	font-size:12px !important;
+	font-weight: normal;
+    text-decoration: none;
+    font-family: Verdana,Arial,sans-serif;	
+}
+
+#ups_configuration table th{
+	background:#2a4ac4;
+	color: #ffffff;
+	font-size:12px !important;
+	padding:2px 0 3px;	
+}
+
+#ups_configuration table tr.row0{
+	background:#ffffff;
+}
+#ups_configuration table tr.row1{
+	background:#cccccc;
+}
+
+#ups_configuration #ups_header{
+	margin:20px 0 20px 40px;
+	height:60px;
+}
+
+#ups_configuration #ups_header .logo{
+	float:left;
+	
+}
+#ups_configuration #ups_header .heading_title{
+	float:left;
+	color:#000000;
+	font-size:14px;
+	font-weight:bold;
+	margin:20px 0 0 10px;
+}
+
+#ups_configuration fieldset{
+	border:2px solid #2371a3;
+	border-radius: 5px;
+	padding:20px;
+}
+#ups_configuration fieldset legend{
+	padding:5px 12px 7px;
+	color:#2371a3;
+	font-weight:bold;	
+	font-size:18px !important;
+}
+
+#company_settings{
+	width:100%;
+	margin:0;
+}
+
+.ups_content{
+	padding:40px 0;	
+}
+
+.ups_content .tab-content,
+.ups_content .account-tab-content,
+.ups_content .shipping-tab-content{
+	display:none;
+	padding:40px;
+	background:#ffffff;
+}
+
+.ups_content .tab-content{
+	background:#f2f2f2;
+}
+
+.ups_content .account-tab-content,
+.ups_content .shipping-tab-content{
+	border-radius: 0 5px 5px 5px;
+	border:2px solid #999999;
+	padding:20px;
+	clear:both;
+}
+
+.ups_content .shipping-tab-content table{
+	margin:0 0 40px 0;
+}
+
+.ups_content .active{
+	display:block;
+}
+
+ul.nav-tabs,
+ul.account-nav-tabs,
+ul.shipping-nav-tabs{
+	width:100%;
+	height:30px;
+	margin:0;
+	padding:0;
+}
+
+ul.nav-tabs li,
+ul.account-nav-tabs li,
+ul.shipping-nav-tabs li{
+	float:left;
+	list-style-type:none;
+	margin:0 1px 0 0;
+}
+
+ul.nav-tabs li a,
+ul.account-nav-tabs li a,
+ul.shipping-nav-tabs li a{
+	padding:8px 12px 7px;
+	background:#2371a3;
+	color:#ffffff;
+	font-size: 12px;
+	font-weight:bold;
+	text-decoration:none;
+	display:block;
+	border-radius: 5px 5px 0 0;	
+}
+
+ul.nav-tabs li a.active,
+ul.account-nav-tabs li a.active,
+ul.shipping-nav-tabs li a.active{
+	background:#999999;	
+}
+
+ul.nav-tabs li a:hover,
+ul.account-nav-tabs li a:hover,
+ul.shipping-nav-tabs a:hover{	
+	text-decoration:none;
+}
+
+.ups-btn,
+.ups-btn:link{
+	padding:8px 12px 7px;
+	background:#2371a3;
+	color:#ffffff !important;
+	font-size: 12px !important;
+	text-align:center;
+	border-radius: 5px;
+	font-weight:bold;
+	margin:5px 0;	
+}
+
+#account_settings table td.label{
+	width:15%;
+}
+
+#account_settings table td.main{
+	width:35%;
+}
+
+#serviceDestCountriesList, #trackingOrderStatesList{
+	width:300px;
+}
+
+#serviceDestCountriesList tr td, #trackingOrderStatesList tr td{
+	text-align:center;
+}
+
+.shipping-tab-content a.ups-btn{
+	display:block;
+	width:300px;
+}
+

@@ -1,0 +1,6 @@
+<?php
+
+  define('MODULE_PAYMENT_TRANSFERENCIA_TEXT_TITLE', 'Bank Transfer');
+  define('MODULE_PAYMENT_TRANSFERENCIA_TEXT_DESCRIPTION', 'Bank Transfer');
+
+?>

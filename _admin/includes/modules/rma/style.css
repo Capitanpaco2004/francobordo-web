@@ -1,0 +1,114 @@
+.rmaStatus .rmaStatusActual {
+    display: block;
+}
+.rmaStatus .rmaListStatus {
+    display: none;
+}
+.rmaStatus.Active .rmaStatusActual {
+    display: none;
+}
+.rmaStatus.Active .rmaListStatus {
+    display: block;
+}
+.rmaStatus .selector {
+    width: 100%!important;
+    box-sizing: border-box;
+}
+
+.rmaActiveLink {
+    display: block;
+    min-width: 100px;
+}
+.rmaActiveLink span {
+    font-size: 11px;
+    text-transform: uppercase;
+    display: inline-block;
+    margin-left: 5px;
+}
+.rmaInactive, .rmaInactive * {
+    color: green;
+}
+.rmaActive, .rmaActive * {
+    color: red;
+}
+.rmaContainer, .rmaContainer button, .rmaContainer input, .rmaContainer select, .rmaContainer .oeTitu {
+    font-size: 12px;
+}
+.rmaContainer select {
+    margin: 0;
+}
+
+.rmaContainer .oeTitu form {
+    float: right;
+    display: flex;
+    max-width: 400px;
+    width: 50%;
+}
+.rmaContainer .oeTitu button {
+    color: #fff;
+    max-width: 100px;
+}
+.rmaContainer .oeTitu button, .rmaContainer .oeTitu select {
+    padding: 2px 10px;
+    width: 100%;
+}
+
+.rmaPaging {
+    overflow: hidden;
+    padding: 5px;
+    background-color: #F8F8F8;
+    margin: 10px 0;
+}
+.rmaPaging li {
+    float: left;
+    padding: 5px;
+}
+
+
+
+.rmaTabs, .rmaTabs .rmaTabsContent {
+    width: 100%;
+    overflow: hidden;
+}
+.rmaTabsContent > label {
+    padding: 10px;
+    cursor: pointer;
+    display: block;
+    background-color: #EEEEEE;
+    margin: 10px 0;
+}
+.rmaTabs .rmaTabsContentText {
+    max-height: 0;
+    opacity: 1;
+    -webkit-transition: all 0.25s ease;
+   -moz-transition: all 0.25s ease;
+   -o-transition: all 0.25s ease;
+   -ms-transition: all 0.25s ease;
+   transition: all 0.25s ease;
+}
+.rmaTabs .rmaTabsInput:checked ~ .rmaTabsContentText {
+    max-height: 999px;
+    opacity: 1;
+}
+
+.rmaTabs .rmaTabsInput, .rmaTabs .radio {
+    display: none;
+}
+
+
+.rmaListSearch {
+    max-width: 700px!important;
+    width: 100%!important;
+}
+.rmaListSearch input {
+    margin: 0!important;
+}
+
+.rmaListHistory li {
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid rgba(0,0,0,.05);
+}
+.rmaListHistory li * {
+    font-size: 1.15em!important;
+}

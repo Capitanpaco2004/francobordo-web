@@ -1,0 +1,17 @@
+# Denegamos todos los archivos PHP
+<Files *.php>
+Order Deny,Allow
+Deny from all
+</Files>
+
+# Denegamos todos los archivos JS
+<Files *.js>
+Order Deny,Allow
+Deny from all
+</Files>
+
+# Permitimos ciertos archivos
+<FilesMatch "(.+.js|index.php)$">
+   Order Allow,Deny
+   Allow from all
+</FilesMatch>

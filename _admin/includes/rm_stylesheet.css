@@ -1,0 +1,153 @@
+/*
+  For Remove Orphan Images
+  Released under the GNU General Public License
+*/
+.rm_pageHeading {
+ font-family: Verdana, Arial, sans-serif; 
+ font-size: 16px; 
+ color: #727272; 
+ font-weight: normal; 
+ background-color: #D3D3D3;
+ }
+.rm_recheck { 
+background-color: #fff7d6;
+ font-family: Verdana, Arial, sans-serif; 
+ font-size: 16px; 
+ color: #727272; 
+ font-weight: normal; 
+ background-color: #D3D3D3;
+}
+.rm_278 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #000000; /*black*/
+font-weight: normal;
+text-decoration:none;
+background-color: #EAF5F5;
+}
+.rm_302 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 14px; 
+color: #ff0000; /*red*/
+font-weight: normal;
+text-decoration:none;
+background-color: transparent;
+}
+.rm_318 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #008000; /*green*/
+font-weight: normal;
+text-decoration:none;
+background-color: #ccffff;
+}
+.rm_359 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #0000ff; /*blue*/
+font-weight: normal;
+text-decoration:none;
+background-color: #B4F4F4;
+}
+.rm_364 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+font-weight: normal;
+text-decoration:none;
+}
+.rm_moved {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #00ff00; /*lime*/
+font-weight: normal;
+text-decoration:none;
+background-color: #B4F4F4;
+}
+.rm_380 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 14px; 
+color: #0000ff; /*blue*/
+font-weight: normal;
+text-decoration:underline;
+background-color: transparent;
+}
+.rm_387 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 14px; 
+color: #0000ff; /*blue*/
+font-weight: normal;
+text-decoration:none;
+background-color: #B4F4F4;
+}
+.rm_388 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #0000ff; /*blue*/
+font-weight: bold;
+text-decoration:none;
+background-color: #B4F4F4;
+}
+.rm_411 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #0000ff; /*blue*/
+font-weight: normal;
+text-decoration:none;
+background-color: #B4F4F4;
+}
+.rm_416 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 14px; 
+color: #ff0000; /*red*/
+font-weight: normal;
+text-decoration:none;
+background-color: #B4F4F4;
+}
+.rm_417 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 14px; 
+color: #000000; /*black*/
+font-weight: normal;
+text-decoration:none;
+background-color: #00ff00;
+}
+.rm_428_1 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #ff0000; /*red*/
+font-weight: normal;
+text-decoration:none;
+background-color: #D3D3D3;
+}
+.rm_428_2 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #000000; /*black*/
+font-weight: normal;
+text-decoration:none;
+background-color: #D3D3D3;
+}
+.rm_429_1 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 14px; 
+color: #ff0000; /*red*/
+font-weight: normal;
+text-decoration:none;
+background-color: #D3D3D3;
+}
+.rm_429_2 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #000000; /*black*/
+font-weight: normal;
+text-decoration:none;
+background-color: transparent;
+}
+.rm_429_3 {
+font-family: Verdana, Arial, sans-serif; 
+font-size: 12px; 
+color: #ff0000; /*red*/
+font-weight: normal;
+text-decoration:none;
+background-color: #D3D3D3;
+}

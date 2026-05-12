@@ -1,0 +1,76 @@
+div.menuBar,
+div.menuBar a.menuButton,
+div.menu,
+div.menu a.menuItem {
+	font-family: arial, verdana, sans-serif;
+	font-size: 11px;
+}
+
+div.menuBar {
+	background-color: #F1F3F5;
+	border-top:4px solid #80B5D7;
+	border-bottom:1px solid #cccccc;
+	height:25px;
+}
+
+div.menuBar a.menuButton {
+	color: #000000;
+	cursor: default;
+	padding: 4px 6px 4px 6px;
+	position: relative;
+	text-decoration: none;
+	top: 5px;
+	z-index: 100;
+	border: 1px solid #F1F3F5;
+}
+
+div.menuBar a.menuButton:hover {
+	color: black;
+}
+
+div.menuBar a.menuButtonActive,
+div.menuBar a.menuButtonActive:hover {
+	background-color: #B5CDE8;
+	border:1px solid #30559C;
+	color: black;
+}
+
+div.menu {
+	background-color: #F1F3F5;
+	border: 1px solid #8C867B;
+	left: 0px;
+	position: absolute;
+	visibility: hidden;
+	z-index: 101;
+}
+
+div.menu a.menuItem {
+	color: #000000;
+	cursor: default;
+	display: block;
+	text-decoration: none;
+	white-space: nowrap;
+	border:1px solid #F1F3F5;
+	background-repeat:no-repeat;
+	padding:4px;
+	padding-left:24px;
+	padding-right:10px;
+}
+
+div.menu a.menuItem:hover, div.menu a.menuItemHighlight {
+	background-color: #B5CDE8;
+	color: black;
+	border:1px solid #30559C;
+	background-repeat:no-repeat;
+}
+
+.columnLeft {
+	background-color:transparent;
+	border-color: transparent;
+	border-width: 0px;
+	border-style:none;
+	padding: 0px;
+	width:0px;
+}
+
+

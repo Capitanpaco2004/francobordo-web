@@ -1,0 +1,31 @@
+<?php
+
+define('TAX_RATES_TITLE', 'Porcentajes de Impuestos');
+define('TAX_RATES_SUBTITLE', 'Listado de Porcentajes de Impuestos');
+define('TAX_RATES_APPLY_ACTION', 'Aplicar acción');
+define('TAX_RATES_ACTIONS', 'Acciones');
+define('TAX_RATES_DELETE_RECORDS', 'Eliminar registros');
+define('TAX_RATES_DELETE_RECORDS_CONFIRM', '¿Realmente deseas eliminar los registros?');
+define('TAX_RATES_DELETE_ERROR', 'Para realizar alguna de estas operaciones necesitas seleccionar algún registro');
+define('TAX_RATES_FILTER_NO_DATA', 'El filtro establecido no contiene datos.');
+define('TAX_RATES_NO_DATA', 'No existe ningun registro para mostrar.');
+define('TAX_RATES_TABLE_CLASS', 'Clase');
+define('TAX_RATES_TABLE_PRIORITY', 'Prioridad');
+define('TAX_RATES_TABLE_DESCRIPTION', 'Descripción');
+define('TAX_RATES_TABLE_ZONE', 'Zona');
+define('TAX_RATES_TABLE_PERCENTAGE', 'Porcentaje');
+define('TAX_RATES_TABLE_EQUIVALENCE', 'Recargo equivalencia');
+define('TAX_RATES_TABLE_DATE_ADDED', 'Fecha Alta');
+define('TAX_RATES_TABLE_UPDATED_AT', 'Modificado');
+define('TAX_RATES_EDIT_RECORD', 'Editar registro');
+define('TAX_RATES_DELETE_RECORD', 'Eliminar registro');
+define('TAX_RATES_DELETE_RECORD_CONFIRM', '¿Realmente deseas eliminar el registro?');
+define('TAX_RATES_DELETE_SUCCESS', 'Los registros se han eliminado correctamente');
+define('TAX_RATES_EDIT_TAX_RATE', 'Editar impuesto');
+define('TAX_RATES_ADD_TAX_RATE', 'Añadir impuesto');
+define('TAX_RATES_NO_EXISTS', 'El impuesto que intentas editar no existe');
+define('TAX_RATES_ERROR_PERCENT', 'Debes especificar un porcentaje');
+define('TAX_RATES_ERROR_EQUIVALENCE', 'Debes especificar un recargo de equivalencia.');
+define('TAX_RATES_EDIT_SUCCESS', 'El impuesto se ha editado correctamente');
+define('TAX_RATES_ADD_SUCCESS', 'El impuesto se ha creado correctamente');
+define('TAX_RATES_TABLE_PRIORITY_HELP', 'Impuestos con la misma prioridad se suman, los demás se aplican sucesivamente.');

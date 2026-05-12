@@ -1,0 +1,51 @@
+info: $cInfo
+blocks:
+	0:
+		title: Opciones
+		size_label: 2
+		size_row: 10
+		rows:
+			0:
+				label: "Boletín:"
+				type: combobox
+				data: [{id: 0, text: "No"}, {id: 1, text: Si}]
+				name: customers_newsletter
+			1:
+				label: "Grupo de cliente:"
+				type: combobox
+				name: customers_group_id
+			2:
+				label: "Tipo de cliente:"
+				type: combobox
+				name: id_customers_type
+			3:
+				label: "Recargo de equivalencia:"
+				type: combobox
+				data: [{id: 0, text: "No"}, {id: 1, text: Si}]
+				name: recargo_equivalencia
+			4:
+				label: "Cliente desactivado:"
+				type: combobox
+				data: [{id: 0, text: "No"}, {id: 1, text: Si}]
+				name: status_disabled
+			5:
+				label: "Envío de Pirotecnia:"
+				type: combobox
+				data: [{id: 0, text: "No"}, {id: 1, text: Si}]
+				name: customers_pyro_courier
+			6:
+				label: "Desactiva la alerta de autentificación:"
+				type: radio
+				name: customers_group_ra
+				data: [{id: 0, text: Alerta apagada}, {id: 1, text: Alerta encendida}]
+			7:
+				link: true
+				label: {text: "Cliente Especial:", size: 2}
+				type:  {type: combobox, size: 1}
+				name: especial
+				data: [{id: 0, text: "No"}, {id: 1, text: Si}]
+			8:
+				label: {text: "Escribe la razón:", size: 1}
+				type:  {type: text, size: 8}
+				name: especial_razon
+				property: {maxlength: 32}

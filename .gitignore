@@ -1,0 +1,136 @@
+# ==============================================================
+# .gitignore - francobordo-web (Capitanpaco2004/francobordo-web)
+# Mirror diario de /home/francobordo/public_html en nic1
+# Generado 2026-05-12
+# ==============================================================
+
+# --- SECRETOS (NUNCA COMMITEAR) ---
+configure.php
+**/configure.php
+**/config.inc.php
+.env
+.env.*
+**/.env
+**/.env.*
+*.key
+*.pem
+**/*credentials*
+**/secrets.*
+auth.json
+cookie*.txt
+push-denox-firebase.json
+**/push-denox-firebase.json
+**/*firebase*.json
+**/*service-account*.json
+*.crt
+
+# --- CONTENIDO PESADO / NO-CODIGO ---
+/images/
+/uploadimages/
+/manuals/
+/catalogo/
+/temp/
+/cache/
+/facturas/
+/pdfdocs/
+/descargas/
+/Videos/
+/boletines/
+/fm-feeds/
+/import/
+/amazon/
+
+# --- DATOS DE CLIENTE / PII ---
+/_admin/iae/
+
+# --- DUMPS / EXPORTS / FEEDS DE PROVEEDOR ---
+/_admin/csv/
+/_admin/backups/
+/_admin/import-osculati/
+/_admin/import-azimut/
+/_admin/import-fni/
+/_admin/import-trem/
+/_admin/import-garmin/
+/_admin/import-lankhorst/
+/_admin/import-marinebusiness/
+/_admin/import-yachticon/
+/_admin/import-cressi/
+/_admin/images/
+
+# --- VENDOR / DEPS ---
+vendor/
+node_modules/
+composer.phar
+
+# --- DBs binarias (GeoIP, etc) ---
+*.dat
+
+# --- SITEMAPS GENERADOS (no el .php que los genera) ---
+/sitemap*.xml
+
+# --- LOGS / ERROR LOGS ---
+*.log
+/error_log
+/error_log.txt
+/logs/
+
+# --- BACKUPS / SWAP / EDITOR ---
+*.bak
+*.bak.*
+*.bak-*
+*.bkp
+*.bkp.*
+*.bkp-*
+*.bkp.php
+*__
+*.orig
+*.swp
+*.swo
+*~
+*.tmp
+.DS_Store
+Thumbs.db
+
+# --- ARCHIVOS COMPRIMIDOS / DUMPS ---
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.rar
+*.sql
+*.sql.gz
+
+# --- LOCKS / SESIONES / RUNTIME ---
+*.lock
+sessions/
+.session*
+*.pid
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.iml
+
+# --- FORZAR INCLUSION ---
+!/.htaccess
+!.htaccess
+!**/.htaccess
+!/.gitignore
+
+# --- MODULOS CON SECRETOS HARDCODED (detectados por GitHub secret scanning + audit) ---
+/_admin/includes/modules/ebay/
+/_admin/includes/modules/paypal/
+/_admin/includes/modules/sequra/
+/_admin/includes/modules/redsys/
+/_admin/includes/modules/correos/
+/_admin/includes/modules/seur/
+/_admin/includes/modules/notificaciones/
+/_admin/includes/modules/order_edit/
+
+# install.php de modulos suelen llevar creds de produccion
+**/modules/*/install.php
+**/modules/*/includes/install.php
+
+# --- DEFINES CON CREDENCIALES (RECAPTCHA_PRIVATE_KEY, etc) ---
+/includes/define.php

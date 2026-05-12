@@ -1,0 +1,8 @@
+<IfModule mod_rewrite.c>
+	RewriteEngine on
+	RewriteRule ^([bfg]=.*)  index.php?$1 [L,NE]
+</IfModule>
+
+<IfModule mod_env.c>
+	SetEnv no-gzip
+</IfModule>

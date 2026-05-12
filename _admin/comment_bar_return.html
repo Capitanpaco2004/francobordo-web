@@ -1,0 +1,76 @@
+<html>
+<head>
+   <script language="JavaScript">
+   <!--
+var LaFecha=new Date();
+var Mes=new Array("Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre");
+var diasem=new Array('domingo','lunes','martes','miercoles','jueves','viernes','sabado');
+var diasemana=LaFecha.getDay();
+var FechaCompleta="";
+var NumeroDeMes="";
+var hora = LaFecha.getHours() 
+var minuto = LaFecha.getMinutes() 
+var segundo = LaFecha.getSeconds() 
+
+NumeroDeMes=LaFecha.getMonth();
+fecha =diasem[diasemana]+" "+LaFecha.getDate()+" de "+Mes[NumeroDeMes]+" de "+LaFecha.getFullYear()+" "+hora+":"+minuto+":"+segundo;
+
+   function updateComment(obj) {
+
+		  mytextarea = document.getElementsByTagName("TEXTAREA"); 
+		  if(!obj.length)
+		  {
+			mytextarea[0].value = "";
+			return;
+		  }
+		  if(obj == 'Date')
+		  {
+   		    if(mytextarea[0].value != "")
+			{
+				mytextarea[0].value += "\n";
+			}
+		    mytextarea[0].value += fecha;
+			mytextarea[0].value += ":\n";
+			return;
+		  }
+		  if (mytextarea.length)
+		  {
+		    if(mytextarea[0].value != "")
+			{
+				mytextarea[0].value += "\n";
+			}
+
+			mytextarea[0].value += fecha;
+			mytextarea[0].value += "\n";
+			mytextarea[0].value += obj;
+		  }
+   }
+   //-->
+   </script>
+
+<style type="text/css">
+.cbutton { font-family: Verdana; font-size: 9px; padding: 0px; border-bottom: 1px solid #000000; border-right: 1px solid #000000; border-top: 1px solid #CCCCCC; border-left: 1px solid #CCCCCC; cursor: hand;}
+   </style>
+
+</head>
+<body>
+
+<!--
+Edit the following buttons to make the buttons
+and text inserts of your liking.
+
+e.g. <button class="cbutton" onClick="updateComment('Comment to insert for this button');">Button Name</button>&amp;amp;amp;nbsp;
+
+Just copy and paste the above line to insert more buttons.
+-->
+
+<button class="cbutton" onClick="updateComment('Date');">Fecha</button>
+<button class="cbutton" onClick="updateComment('Su solicitud de devoluci&oacute;n ha sido aprobada. Siempre que el producto y su embalaje original esten en perfecto estado, puede enviar el art&iacute;culo de nuevo a nosotros a trav&eacute;s de la etiqueta de devoluci&oacute;n provista. Esta etiqueta debe est&aacute;r colocada en el embalaje que se incluye en el paquete. Es muy recomendable enviar a trav&eacute;s de una compa&ntilde;&iacute;a que tenga trazabilidad.\nTenga en cuenta que todas las devoluciones deben ser recibidas dentro de los 15 d&iacute;as de la emisi&oacute;n de RMA. Una vez recibido el art&iacute;culo devuelto, el cr&eacute;dito por el importe del producto adquirido ser&aacute; emitido electr&oacute;nicamente a la direcci&oacute;n de correo electr&oacute;nico que se proporcion&oacute; cuando se realiz&oacute; el pedido.');">Aceptado</button>&nbsp;
+<button class="cbutton" onClick="updateComment('Su solicitud de retorno ha sido rechazada.\nPor favor, p&oacute;ngase en contacto con nosotros para m&aacute;s informaci&oacute;n.');">Rechazado</button>&nbsp;
+<button class="cbutton" onClick="updateComment('Su solicitud de devoluci&oacute;n se ha procesado. Una tasa de reposici&oacute;n le será aplicada para esta devoluci&oacute;n del producto.\nSu importe le ser&aacute; reembolsado antes de 15 d&iacute;as.');">Cargo de Reposici&oacute;n Aplicado</button>&nbsp;
+<button class="cbutton" onClick="updateComment('El importe de su retorno le ser&aacute; reembolsado de la misma forma que hizo el pago. Su importe le ser&aacute; reembolsado antes de 15 d&iacute;as.');">Reembolso Hecho</button>&nbsp;
+<button class="cbutton" onClick="updateComment('Su retorno ha sido procesado. Le hemos enviado un mensaje que contiene un importe en puntos equivalente al importe del producto devuelto. Usted puede canjear estos puntos. Simplemente marque la casilla que aparece en la parte inferior de la pantalla de pago para solicitar descontar estos puntos en su pedido. En la pantalla de confirmaci&oacute;n final, aseg&uacute;rese de que el cr&eacute;dito se refleja adecuadamente en su cuenta antes de enviar su orden por favor. Por favor, h&aacute;ganos saber si usted tiene alguna pregunta.');">Credito Asignado</button>
+<button class="cbutton" onClick="updateComment('');">Limpiar Todo</button>
+
+</body>
+</html>

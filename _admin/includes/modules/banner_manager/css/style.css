@@ -1,0 +1,33 @@
+/* Banner Manager Module Styles */
+.banner-preview {
+    max-width: 200px;
+    max-height: 100px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+.banner-image-container {
+    position: relative;
+    display: inline-block;
+}
+
+.banner-image-container .delete-image {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background: rgba(255, 0, 0, 0.8);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+}
+
+.banner-image-container .delete-image:hover {
+    background: rgba(255, 0, 0, 1);
+}

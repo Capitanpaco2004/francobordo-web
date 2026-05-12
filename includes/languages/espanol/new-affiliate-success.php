@@ -1,0 +1,13 @@
+<?php
+
+/**
+ * #XCC-313-91043
+ */
+
+define('NAVBAR_TITLE_1', 'Registro como afiliado');
+define('NAVBAR_TITLE_2', 'Éxito');
+define('HEADING_TITLE', '¡Tu cuenta de afiliado ha sido creada con éxito!');
+define('TEXT_ACCOUNT_CREATED', '¡Enhorabuena, tu cuenta ha sido creada con éxito! Ahora puedes disfrutar de las ventajas de disponer de una cuenta para mejorar tu navegación en nuestra tienda virtual ' . STORE_NAME . '. Si tienes <small><strong>CUALQUIER</strong></small> pregunta sobre el funcionamiento del catalogo, por favor comuníquenosla mediante el formulario de <a href="' . tep_href_link(FILENAME_CONTACT_US) . '">contacto</a> de nuestra tienda virtual.<br /><br />Te acabamos de enviar un e-mail a la dirección facilitada para confirmarte el registro en nuestra tienda virtual..');
+define('TEXT_ACCOUNT_CREATED_EXISTS', 'Al tener ya una cuenta de cliente con nosotros, su contraseña sigue siendo la de su cuenta de cliente.');
+define('TEXT_WELCOME_POINTS_TITLE', 'Como obsequio de bienvenida a nuestros Nuevos Clientes te hemos ingresado en tu <a href="' . tep_href_link(FILENAME_MY_POINTS) . '"><u>Cuenta de Puntos de Compra</u></a> con un total de ' . number_format(NEW_SIGNUP_POINT_AMOUNT, 2) . ' Puntos de Compra.');
+define('TEXT_WELCOME_POINTS_LINK', 'Por favor visita <a href="' . tep_href_link(FILENAME_MY_POINTS_HELP) . '"><u>Ayuda de nuestro Programa de Puntos por Compra</u></a> para ver las condiciones de uso que se aplican.');

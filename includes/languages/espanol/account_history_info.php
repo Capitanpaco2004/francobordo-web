@@ -1,0 +1,41 @@
+<?php
+	define( 'NAVBAR_TITLE_1', 'Mi Cuenta' );
+	define( 'NAVBAR_TITLE_2', 'Historial' );
+	define( 'NAVBAR_TITLE_3', 'Pedido Num. %s' );
+	define( 'HEADING_TITLE', 'Datos del Pedido' );
+	define( 'HEADING_ORDER_NUMBER', 'Pedido Num. %s' );
+	define( 'HEADING_ORDER_DATE', 'Fecha del Pedido:' );
+	define( 'HEADING_ORDER_TOTAL', 'Total del Pedido:' );
+	define( 'HEADING_DELIVERY_ADDRESS', 'Direcci&oacute;n de Entrega' );
+	define( 'HEADING_SHIPPING_METHOD', 'Gastos de Env&iacute;o' );
+	define( 'HEADING_PRODUCTS', 'Producto' );
+	define( 'HEADING_TAX', 'Impuestos' );
+	define( 'HEADING_TOTAL', 'Total' );
+	define( 'HEADING_BILLING_INFORMATION', 'Datos de Facturación' );
+	define( 'HEADING_BILLING_ADDRESS', 'Dirección de Facturación' );
+	define( 'HEADING_PAYMENT_METHOD', 'Forma de Pago' );
+	define( 'HEADING_ORDER_HISTORY', 'Mis Pedidos' );
+	define( 'HEADING_COMMENT', 'Comentarios' );
+	define( 'TEXT_NO_COMMENTS_AVAILABLE', 'No hay comentarios.' );
+	define( 'TABLE_HEADING_DOWNLOAD_DATE', 'Fecha Caducidad: ' );
+	define( 'TABLE_HEADING_DOWNLOAD_COUNT', ' descargas restantes' );
+	define( 'HEADING_DOWNLOAD', 'Descarga tus productos aqui' );
+	define('TEXT_RETURN_PRODUCT','Devolver');
+	define('TEXT_RMA', '<br />Return');
+	define( 'TITLE_HISTORY_INFO_CANCEL_TITLE', 'Cancela el pedido' );
+	define( 'TITLE_HISTORY_INFO_CANCEL_CONFIRM', '¿Estás seguro que deseas cancelar el pedido?<br />El importe abonado le será devuelto por el mismo medio de pago que seleccionó.<br />Los productos del pedido se añadirán de nuevo al carrito por si desea completar su pedido.' );
+	define('TEXT_CANCEL_ORDER', 'Cancelar');
+	define('TEXT_CANCEL_ORDER_SUCCESS', 'El pedido ha sido cancelado correctamente.<br />El importe abonado le será devuelto por el mismo medio de pago que seleccionó.<br />Los productos del pedido se añadirán de nuevo al carrito por si desea completar su pedido.');
+	// Modulo delivery_estimate
+	define( 'DELIVERY_ESTIMATE_TITLE',              'Fecha estimada de entrega' );
+	define( 'DELIVERY_ESTIMATE_RULE_STOCK_OK',      'Todos los productos tienen stock disponible.' );
+	define( 'DELIVERY_ESTIMATE_RULE_NO_STOCK',      'Algún producto de tu pedido está pendiente de reposición.' );
+	define( 'DELIVERY_ESTIMATE_RULE_BACKORDER',     'Algún producto de tu pedido se fabrica bajo pedido.' );
+	define( 'DELIVERY_ESTIMATE_RULE_MANUAL',        'Fecha actualizada manualmente por nuestro equipo.' );
+	define( 'DELIVERY_ESTIMATE_DAYS_REMAINING',     'En aproximadamente %d días' );
+	define( 'DELIVERY_ESTIMATE_TOMORROW',           'Mañana' );
+	define( 'DELIVERY_ESTIMATE_TODAY',              'Hoy' );
+	define( 'DELIVERY_ESTIMATE_DUE',                'Prevista para hoy o antes' );
+	define( 'DELIVERY_ESTIMATE_MANUAL_BADGE',       'Actualizada por el equipo' );
+	define( 'DELIVERY_ESTIMATE_COMMENT_LABEL',      'Comentario del equipo:' );
+?>

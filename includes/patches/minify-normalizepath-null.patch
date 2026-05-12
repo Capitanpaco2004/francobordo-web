@@ -1,0 +1,23 @@
+--- includes/vendor/mrclay/minify/lib/Minify/Env.php.orig	2025-09-04 11:29:05.660008299 +0000
++++ includes/vendor/mrclay/minify/lib/Minify/Env.php	2025-09-04 11:30:36.001188172 +0000
+@@ -88,12 +88,18 @@
+      */
+     public function normalizePath($path)
+     {
+-        $realpath = realpath($path);
++		// Fix: evitar realpath(null)
++		$realpath = $path !== null ? realpath($path) : false;
+         if ($realpath) {
+             $path = $realpath;
+         }
+ 
+-        $path = str_replace('\\', '/', $path);
++		// Fix: evitar str_replace(null) y rtrim(null)
++		if ($path === null) {
++			return '';
++		}
++
++		$path = str_replace('\\', '/', $path);
+         $path = rtrim($path, '/');
+         if (substr($path, 1, 1) === ':') {
+             $path = lcfirst($path);

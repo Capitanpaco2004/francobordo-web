@@ -1,0 +1,3 @@
+.xform input[type="radio"], .xform input[type="checkbox"] {
+	display: inline-block !important;
+}

@@ -1,0 +1,27 @@
+<?php
+define('SHIP_TO_PAY_ADD_SUCCESS', 'El ship2pay se añadido correctamente');
+define('SHIP_TO_PAY_DELETE_SUCCESS', 'Los registros se han eliminado correctamente');
+define('SHIP_TO_PAY_EDIT_SUCCESS', 'El ship2pay se ha editado correctamente');
+define('SHIP_TO_PAY_ERROR_SHIP', 'Se necesitas especificar el metodo de envio.');
+define('SHIP_TO_PAY_HEADING_TITLE', 'Ship 2 Pay');
+define('SHIP_TO_PAY_LIST_HEADING_SUBTITLE', 'Lista de metodos de envio relacionados con sus metodos de pago.');
+define('SHIP_TO_PAY_MEMBERS_NO_RECORDS', 'No existe ningun registro para mostrar.');
+define('SHIP_TO_PAY_REGISTER_NO_EXISTS', 'El registro que intentas editar no existe');
+define('SHIP_TO_PAY_TABLE_ACTIONS', 'Acciones');
+define('SHIP_TO_PAY_TABLE_HEADING_GROUP', 'Metodo de envio');
+define('SHIP_TO_PAY_TABLE_HEADING_GROUP_HELP', 'Elige el metodo de envio al que quieras restringir los metodos de pago.');
+define('SHIP_TO_PAY_TABLE_HEADING_PAYMENTS', 'Módulos de Pago Permitidos');
+define('SHIP_TO_PAY_TABLE_HEADING_SHIPMENT', 'Módulo de Envío');
+define('SHIP_TO_PAY_TABLE_HEADING_STATUS','Estado');
+define('SHIP_TO_PAY_TABLE_METODOS_DE_PAGO', 'Métodos de Pago disponibles para este envío( Desactivados / Activados)');
+define('SHIP_TO_PAY_TEXT_ADD', 'Añadir relación entre metodo de envio y metodos de pago');
+define('SHIP_TO_PAY_TEXT_APPLY_ACTION', 'Aplicar accion');
+define('SHIP_TO_PAY_TEXT_CONFIGURATION', 'Configuracion');
+define('SHIP_TO_PAY_TEXT_DELETES', 'Eliminar registros');
+define('SHIP_TO_PAY_TEXT_DELETES_CONFIRM', '¿Realmente deseas eliminar los registros?');
+define('SHIP_TO_PAY_TEXT_DELETE_ERROR', 'Para realizar alguna de estas operaciones necesitas seleccionar algun registro');
+define('SHIP_TO_PAY_TEXT_EDIT', 'Editar registro');
+define('SHIP_TO_PAY_TEXT_EDITED', 'Editar las opciones y las relaciones entre metodos de envio y metodos de pago');
+define('SHIP_TO_PAY_TEXT_ENABLED_METHOD', 'Habilitar Restricciones');
+define('SHIP_TO_PAY_TEXT_ENABLED_METHOD_HELP', 'Indica si quieres Activar o Desactivar las restricciones para este módulo de envio.');
+define('SHIP_TO_TEXT_INFO_HEADING_ADD_METHOD', 'Nuevo metodo');

@@ -1,0 +1,80 @@
+.img-load {
+	display: none;
+	left: -26px;
+	position: absolute;
+	top: 9px;
+}
+
+#drop-rows-prd2, #drop-rows-prd, #drop-rows-mnf, #drop-rows-flt {
+	padding: 0px;
+}
+
+#rows-drag-prd li, #rows-drag-prd2 li, #rows-drag-mnf li, #rows-drag-flt li,
+#drop-rows-prd2 li, #drop-rows-prd li, #drop-rows-mnf li, #drop-rows-flt li {
+	background-image: url("../../../../images/icons/icons_admin_sprite.png");
+	background-repeat: no-repeat;
+	margin-bottom: 6px;
+	padding: 6px 0 3px 35px;
+	filter: alpha(opacity=80);
+	-moz-opacity: 0.8;
+	-khtml-opacity: 0.8;
+	opacity: 0.8;
+	cursor: move;
+	list-style: none;
+}
+
+#rows-drag-prd li:hover {
+	filter: alpha(opacity=100);
+	-moz-opacity: 1;
+	-khtml-opacity: 1;
+	opacity: 1;
+}
+
+#rows-drag-prd li, #drop-rows-prd li {
+	background-position: 0px 0px;
+}
+
+#rows-drag-prd2 li, #drop-rows-prd2 li {
+	background-position: 0px -94px;
+}
+
+#rows-drag-mnf li, #drop-rows-mnf li {
+	background-position: 0 -47px;
+}
+
+#rows-drag-flt li, #drop-rows-flt li {
+	background-position: 0 -47px;
+}
+
+.drag-sltc {
+	filter: alpha(opacity=40) !important;
+	-moz-opacity: 0.4 !important;
+	-khtml-opacity: 0.4 !important;
+	opacity: 0.4 !important;
+}
+/* Estado vacío con mensaje */
+.drop-empty {
+	min-height: 50px;
+	border: 1px dashed #CCCCCC;
+	display: block;
+	background: url("../../../../images/icons/cupones_drop.png") no-repeat center center;
+	background-color: #fafafa;
+}
+
+/* Estado hover */
+.drop-empty.drop-hovr {
+	border: 1px dashed #5DADE2;
+}
+
+/* Listado dinámico */
+#drop-rows-prd,
+#drop-rows-prd2,
+#drop-rows-mnf,
+#drop-rows-flt {
+	padding: 0;
+	border: 1px dashed #ccc;
+	background-color: #fafafa;
+	min-height: 35px;      /* lo justo para que se note */
+	height: auto;          /* que crezca dinámicamente */
+	overflow-y: auto;
+}

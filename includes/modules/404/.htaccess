@@ -1,0 +1,7 @@
+RewriteEngine Off
+RewriteEngine On
+
+<Files *>
+   Order Allow,Deny
+   Allow from all
+</Files>

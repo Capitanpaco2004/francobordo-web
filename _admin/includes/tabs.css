@@ -1,0 +1,54 @@
+/* http://nettuts.com/javascript-ajax/create-a-tabbed-interface-using-jquery/ */
+.cgtabs {  
+padding-top: 10px;
+}  
+
+.cgtabs ul {
+ margin: 0;
+ padding: 0;
+}
+
+.tabnav {
+background: url(../images/tab_bottom.gif) repeat-x bottom;
+}
+
+.tabnav li {  
+display: inline;  
+list-style: none;  
+border-left: 1px solid #ccc;
+border-right: 1px solid #ccc;
+border-top: 1px solid #ccc;
+}  
+
+.tabnav li a {  
+background: #ccc;  
+text-decoration: none;  
+color: #333;  
+font-weight: bold;
+line-height: 14px;
+padding: 2px 10px 2px 10px; 
+outline: none;  
+}  
+
+.tabnav li a:active, .tabnav li.ui-tabs-selected a {
+background: #fff;
+color: #000;  
+text-decoration: none;  
+}  
+
+.tabnav li a:hover {
+background: #ddd;
+color: #000;  
+text-decoration: none;  
+}  
+
+.tabdiv {  
+margin-top: 0px;    
+border-left: 1px solid #ccc;
+border-right: 1px solid #ccc;
+border-bottom: 1px solid #ccc;  
+}  
+
+.ui-tabs-hide {  
+display: none;  
+}  

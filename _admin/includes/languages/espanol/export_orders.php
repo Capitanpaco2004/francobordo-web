@@ -1,0 +1,38 @@
+<?php
+
+define('EXPORT_ORDERS_TITLE', 'Exportador de pedidos');
+define('EXPORT_ORDERS_SUBTITLE', 'Listado de Excel exportados');
+define('EXPORT_ORDERS_TEXT_APPLY_ACTION', 'Aplicar acción');
+define('EXPORT_ORDERS_TEXT_ACTIONS', 'Acciones');
+define('EXPORT_ORDERS_TEXT_DELETE_RECORDS', 'Eliminar registros');
+define('EXPORT_ORDERS_TEXT_DELETE_RECORDS_CONFIRM', '¿Realmente deseas eliminar los registros?');
+define('EXPORT_ORDERS_TEXT_DELETE_RECORDS_ERROR', 'Para realizar alguna de estas operaciones necesitas seleccionar algún registro');
+define('EXPORT_ORDERS_FILTER_NO_DATA', 'El filtro establecido no contiene datos.');
+define('EXPORT_ORDERS_NO_DATA', 'No existe ningun registro para mostrar.');
+define('EXPORT_ORDERS_TABLE_FILE', 'Archivo');
+define('EXPORT_ORDERS_TABLE_DATE', 'Fecha');
+define('EXPORT_ORDERS_TABLE_DOWNLOAD', 'Descargar');
+define('EXPORT_ORDERS_TABLE_PRODUCTS', 'Productos');
+define('EXPORT_ORDERS_TABLE_DELETE_RECORD', 'Eliminar registro');
+define('EXPORT_ORDERS_TABLE_DELETE_RECORD_CONFIRM', '¿Realmente deseas eliminar el registro?');
+define('EXPORT_ORDERS_DELETE_SUCCESS', 'Los registros se han eliminado correctamente');
+define('EXPORT_ORDERS_TEXT_EXPORT', 'Exportar');
+define('EXPORT_ORDERS_FIELDS_ORDERS_ID', 'ID Pedido');
+define('EXPORT_ORDERS_FIELDS_CUSTOMERS_NAME', 'Nombre y apellidos');
+define('EXPORT_ORDERS_FIELDS_EMAIL', 'Email');
+define('EXPORT_ORDERS_FIELDS_STATE', 'Provincia');
+define('EXPORT_ORDERS_FIELDS_CITY', 'Ciudad');
+define('EXPORT_ORDERS_FIELDS_COUNTRY', 'País');
+define('EXPORT_ORDERS_FIELDS_PAYMENT_METHOD', 'Método de pago');
+define('EXPORT_ORDERS_FIELDS_DATE_PURCHASED', 'Fecha pedido');
+define('EXPORT_ORDERS_FIELDS_STATUS', 'Estado del pedido');
+define('EXPORT_ORDERS_FIELDS_TOTAL', 'Total');
+define('EXPORT_ORDERS_EXPORT_SUCCESS', 'Los pedidos se han exportado con éxito, si no se descarga automáticamente puedes hacerlo desde <a href="%s" target="_blank" class="atload">aquí</a>.');
+define('EXPORT_ORDERS_FILTER_DATES', 'Fechas');
+define('EXPORT_ORDERS_FILTER_ORDERS', 'Pedidos');
+define('EXPORT_ORDERS_FILTER_ORDERS_FROM', 'Desde el pedido');
+define('EXPORT_ORDERS_FILTER_ORDERS_TO', 'Hasta el pedido');
+define('EXPORT_ORDERS_FILTER_STATUS', 'Estado');
+define('EXPORT_ORDERS_FILTER_COUPON', 'Cupón');
+define('EXPORT_ORDERS_FILTER_FIELDS', 'Campos');
+define('EXPORT_ORDERS_FIELDS_GRUPD_CLIENT', 'Grupo de Cliente');

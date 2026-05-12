@@ -1,0 +1,2 @@
+Módulo RGPD: Instalación
+-------

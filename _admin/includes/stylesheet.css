@@ -1,0 +1,240 @@
+/*
+  $Id: stylesheet.css 1739 2007-12-20 00:52:16Z hpdl $
+
+  osCommerce, Open Source E-Commerce Solutions
+  http://www.oscommerce.com
+
+  Copyright (c) 2002 osCommerce
+
+  Released under the GNU General Public License
+*/
+
+/* links */
+
+a.headerLink:link { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ffffff; font-weight: bold; text-decoration: none; }
+a.headerLink:visited { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ffffff; font-weight: bold; text-decoration: none; }
+a.headerLink:active { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ffffff; font-weight: bold; text-decoration: none; }
+a.headerLink:hover { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ffffff; font-weight: bold; text-decoration: underline; }
+
+a.menuBoxHeadingLink:link { font-size: 10px; color: #ffffff; font-weight: bold; text-decoration: none; }
+a.menuBoxHeadingLink:visited { font-size: 10px; color: #ffffff; font-weight: bold; text-decoration: none; }
+a.menuBoxHeadingLink:active { font-size: 10px; color: #ffffff; font-weight: bold; text-decoration: none; }
+a.menuBoxHeadingLink:hover { font-size: 10px; color: #ffffff; font-weight: bold; text-decoration: none; }
+
+a.menuBoxContentLink:link { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #616060; font-weight: normal; text-decoration: none; }
+a.menuBoxContentLink:visited { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #616060; font-weight: normal; text-decoration: none; }
+a.menuBoxContentLink:active { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #616060; font-weight: normal; text-decoration: none; }
+a.menuBoxContentLink:hover { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #616060; font-weight: normal; text-decoration: underline; }
+
+a.splitPageLink:link { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #0000FF; font-weight: normal; text-decoration: none; }
+a.splitPageLink:visited { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #0000FF; font-weight: normal; text-decoration: none; }
+a.splitPageLink:active { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #0000FF; font-weight: normal; text-decoration: none; }
+a.splitPageLink:hover { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #0000FF; font-weight: normal; text-decoration: underline; background-color: #FFFF33; }
+
+/* menu box */
+.menuBoxHeading { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ffffff; background-color: #4C77BC; }
+.menuBoxContent { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ffffff; }
+
+/* page */
+body { background-color: #ffffff; color: #000000; margin: 0px; }
+.headerBar { background-color: #2376C4; }
+.headerBarContent { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ffffff; font-weight: bold; padding: 2px; }
+.columnLeft { background-color: #F8F8F8; border-color: #999999; border-width: 1px; border-style: solid; padding: 2px; }
+.pageHeading { font-family: Verdana, Arial, sans-serif; font-size: 18px; color: #727272; font-weight: bold; }
+
+/* data table */
+.dataTableHeadingRow { background-color: #2376C4; }
+.dataTableHeadingContent { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ffffff; font-weight: bold; }
+.dataTableRow { background-color: #F8F8F8; }
+.dataTableRowSelected { background-color: #DEE4E8; }
+.dataTableRowOver { background-color: #74A0D1; cursor: pointer; cursor: hand; }
+.dataTableContent { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #000000; }
+.dataTableContentRed { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #CC0000; }
+.dataTableContentRedAlert { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #FF0000; font-weight: bold; }
+
+/* info box */
+.infoBoxHeading { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ffffff; background-color: #4EAFE2; }
+.infoBoxContent { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #000000; background-color: #DEE4E8; }
+
+/* message box */
+
+.messageBox { font-family: Verdana, Arial, sans-serif; font-size: 10px; }
+.messageStackError, .messageStackWarning { font-family: Verdana, Arial, sans-serif; font-size: 10px; background-color: #ffb3b5; }
+.messageStackSuccess { font-family: Verdana, Arial, sans-serif; font-size: 10px; background-color: #99ff00; }
+
+/* forms */
+CHECKBOX, INPUT, RADIO, SELECT, TEXTAREA, FILE { font-family: Verdana, Arial, sans-serif; font-size: 11px; }
+FORM { display: inline; }
+
+/* account */
+.formArea { background-color: #f1f9fe; border-color: #7b9ebd; border-style: solid; border-width: 1px; }
+.formAreaTitle { font-family: Tahoma, Verdana, Arial, sans-serif; font-size: 12px; font-weight: bold; }
+
+/* attributes */
+.attributes-odd { background-color: #f4f7fd; }
+.attributes-even { background-color: #ffffff; }
+
+/* miscellaneous */
+.specialPrice { color: #ff0000; }
+.oldPrice { text-decoration: line-through; }
+.fieldRequired { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ff0000; }
+.smallText { font-family: Verdana, Arial, sans-serif; font-size: 10px; }
+.main { font-family: Verdana, Arial, sans-serif; font-size: 12px; }
+.errorText { font-family: Verdana, Arial, sans-serif; font-size: 10px; color: #ff0000; }
+
+TD.productPriceInListing {
+  font-family: Verdana, Arial, sans-serif;
+  font-size: 10px;
+  background: #d2e9fb;
+}
+
+TD.productPriceInBox {
+  font-family: Verdana, Arial, sans-serif;
+  font-size: 10px;
+  background: #eeeeee;
+}
+
+TD.productPriceInProdInfo {
+  font-family: Verdana, Arial, sans-serif;
+  font-size: 12px;
+  background: #ccffcc;
+}
+
+/* AJAX Orders Editor */
+a.ajaxLink { font-family: Verdana, Arial, sans-serif; font-size: 12px; text-decoration: underline}
+.addProduct {
+	width: 400px;
+	height: 400px
+	border: solid;
+	display: none;
+	position: absolute;
+	background-color: #4EAFE2;
+	border-color: #f9b85c;
+	font-family: Verdana, Arial, sans-serif;
+}
+
+.addProductContents {
+	background-color: #2376C4;
+	font-family: Verdana, Arial, sans-serif;
+	font-size: 10px;
+	color: #ffffff;
+	font-weight: bold;
+}
+
+.fm {
+	background-color: #f6f8f8;
+	border-bottom: #cccccc 1px dashed;
+	font-family: Verdana, Arial, sans-serif;
+	font-size: 10px;
+}
+
+  fieldset { border: 1px solid rgb(204, 204, 204);
+    padding: 5px;
+    margin-bottom: 10px;
+    text-align: left;
+    }
+
+  fieldset p { margin: 10px 0px;
+    }
+
+  legend {
+	border: 1px solid rgb(204, 204, 204);
+	padding: 2px;
+	color: #666;
+	font-family: 'Trebuchet MS' Verdana;
+	font-size: 12px;
+	font-weight: bold;
+	background-color: rgb(247, 247, 247);
+	text-align: center;
+	font-style: oblique;
+    }
+.especial{
+	background-color: #D7F8FF!important;
+}
+
+td.showDragHandle {
+	background-image: url(../images/icons/updown.gif);
+	background-repeat: no-repeat;
+	background-position: center center;
+	cursor: move;
+}
+
+td.DragHeaderIcon {
+	background-image: url(../images/icons/icon_sort.png);
+	background-repeat: no-repeat;
+	background-position: center center;
+}
+
+.myDragClass {
+   background-color:#339933;
+   border-style:double;
+   border-color:#FFFFFF;
+   border-width:2px;
+   -moz-border-radius: 15px;
+}
+
+#buttonsort { }
+
+.OutofStock { background-color: #FFCACB; }
+.OutofStockAttrib { font-family: Verdana, Arial, sans-serif; font-size: 10px;  background-color: #FFCACB; color: #000000; }
+input.groovybutton
+{
+   font-size:14px;
+   font-family:Verdana,sans-serif;
+   font-weight:bold;
+   text-align: center;
+   color:#FFFFFF;
+   height: 30px;
+   background-color:#FF6666;
+   border-style:double;
+   border-color:#FFFFFF;
+   border-width:3px;
+}
+
+/* jQuery directory sort by Snowbird*/
+/* Estilo Facturas */
+.texto
+{
+	font-family: Arial;
+	font-size: 12px;
+}
+.texto2
+{
+	font-family: "Arial Black";
+	font-weight: bold;
+	font-size: 30px;
+	color: #D8E4E8;
+}
+.texto3
+{
+	font-family: Arial;
+	font-weight: bold;
+	font-size: 12px;
+	color: #000000;
+}
+TD.tabla
+{
+	background-color: #000000;
+	color: #FFFFFF;
+	font-weight: bold;
+	font-family: Tahoma;
+	font-size: 12px;
+	border: 1px solid #000000;
+}
+TD.tabla2
+{
+	font-family: tahoma;
+	font-size: 12px;
+	border: 1px solid #F2F2F2;
+}
+TABLE.productos
+{
+	border: 0px solid #000000;
+}
+.css-bordered-box {
+  border: 2px solid #000;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+}
+/* fin estilos factura */

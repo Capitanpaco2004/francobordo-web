@@ -1,0 +1,728 @@
+/* ============================================
+   Dashboard Ecommerce - Preciosadictos
+   ============================================ */
+
+:root {
+    --dash-primary: #5d9cec;
+    --dash-success: #8dca35;
+    --dash-warning: #ffbd4a;
+    --dash-danger: #da3610;
+    --dash-info: #34d3eb;
+    --dash-purple: #7266ba;
+    --dash-pink: #fb6d9d;
+    --dash-dark: #4c5667;
+    --dash-turquoise: #5fbeaa;
+    --dash-bg: #f1f3f6;
+    --dash-card: #ffffff;
+    --dash-border: #e8ecf1;
+    --dash-text: #4c5667;
+    --dash-text-light: #8c96a7;
+    --dash-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    --dash-shadow-hover: 0 6px 24px rgba(0,0,0,0.12);
+    --dash-radius: 10px;
+    --dash-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dashboard-wrap { padding: 0; }
+
+/* ==========================================
+   12-Column Grid
+   ========================================== */
+.dash-sortable-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.dash-cell {
+    position: relative;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.dash-cell.dash-w-4  { grid-column: span 4; }
+.dash-cell.dash-w-6  { grid-column: span 6; }
+.dash-cell.dash-w-8  { grid-column: span 8; }
+.dash-cell.dash-w-12 { grid-column: span 12; }
+.dash-cell.dash-hidden { display: none; }
+
+/* Allow tall 1/3 widgets to span 2 rows so adjacent smaller widgets stack */
+.dash-cell.dash-row-2 { grid-row: span 2; }
+
+@media (max-width: 1200px) {
+    .dash-cell.dash-w-4 { grid-column: span 6; }
+    .dash-cell.dash-w-8 { grid-column: span 12; }
+}
+@media (max-width: 768px) {
+    .dash-cell { grid-column: span 12 !important; }
+}
+
+/* ==========================================
+   Drag & Drop States
+   ========================================== */
+.dash-cell.dash-dragging { opacity: 0.3; transform: scale(0.98); }
+
+.dash-drop-placeholder {
+    border: 2px dashed var(--dash-primary);
+    border-radius: var(--dash-radius);
+    background: rgba(93,156,236,0.06);
+    min-height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: none;
+}
+.dash-placeholder-inner {
+    display: flex; align-items: center; gap: 8px;
+    color: var(--dash-primary); font-size: 13px; font-weight: 500; opacity: 0.7;
+}
+
+.dash-cell.dash-just-dropped {
+    animation: dropPop 0.4s ease;
+}
+@keyframes dropPop {
+    0%  { transform: scale(0.95); opacity: 0.7; }
+    50% { transform: scale(1.02); }
+    100%{ transform: scale(1); opacity: 1; }
+}
+
+/* Grab cursor on widget header only in edit mode */
+.dashboard-wrap.dash-edit-mode .dash-widget-header { cursor: grab; }
+.dashboard-wrap.dash-edit-mode .dash-widget-header:active { cursor: grabbing; }
+
+/* ==========================================
+   Resize Handle (right edge of each cell)
+   ========================================== */
+.dash-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -6px;
+    width: 12px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 25;
+    display: none;
+}
+.dashboard-wrap.dash-edit-mode .dash-resize-handle { display: block; }
+.dash-resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 32px;
+    border-radius: 2px;
+    background: var(--dash-primary);
+    opacity: 0;
+    transition: var(--dash-transition);
+}
+.dashboard-wrap.dash-edit-mode .dash-cell:hover .dash-resize-handle::after {
+    opacity: 0.6;
+}
+.dash-resize-handle:hover::after,
+.dash-resize-handle.active::after {
+    height: 48px;
+    width: 5px;
+    opacity: 1;
+    box-shadow: 0 0 8px rgba(93,156,236,0.5);
+}
+
+/* Size indicator tooltip during resize */
+.dash-size-indicator {
+    display: none;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    background: var(--dash-dark);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.dash-cell.dash-resizing .dash-size-indicator { display: block; }
+.dash-cell.dash-resizing {
+    outline: 2px solid var(--dash-primary);
+    outline-offset: -2px;
+    border-radius: var(--dash-radius);
+}
+
+/* ==========================================
+   Hide Button (X on top-right of each cell)
+   ========================================== */
+.dash-hide-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 20;
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: 1px solid var(--dash-border);
+    background: var(--dash-card);
+    color: var(--dash-text-light);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 10px;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.2s, transform 0.2s, background 0.2s, color 0.2s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+.dashboard-wrap.dash-edit-mode .dash-hide-btn { display: flex; }
+.dashboard-wrap.dash-edit-mode .dash-cell:hover .dash-hide-btn {
+    opacity: 1;
+    transform: scale(1);
+}
+.dash-hide-btn:hover {
+    background: var(--dash-danger);
+    color: #fff;
+    border-color: var(--dash-danger);
+}
+
+/* ==========================================
+   Header
+   ========================================== */
+.dash-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
+}
+.dash-header h1 {
+    font-size: 22px; font-weight: 700; color: var(--dash-dark);
+    margin: 0; line-height: 1.3;
+}
+.dash-header h1 small {
+    display: block; font-size: 13px; font-weight: 400;
+    color: var(--dash-text-light); margin-top: 2px;
+}
+.dash-header-actions { display: flex; gap: 8px; align-items: center; }
+
+.dash-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: var(--dash-transition);
+    border: 1px solid var(--dash-border); background: var(--dash-card);
+    color: var(--dash-text); text-decoration: none;
+}
+.dash-btn:hover {
+    box-shadow: var(--dash-shadow); border-color: var(--dash-primary);
+    color: var(--dash-primary); text-decoration: none;
+}
+.dash-btn.dash-btn-primary {
+    background: var(--dash-primary); color: #fff; border-color: var(--dash-primary);
+}
+.dash-btn.dash-btn-primary:hover {
+    background: #4a8ad9; box-shadow: 0 4px 16px rgba(93,156,236,0.4); color: #fff;
+}
+.dash-btn .fa, .dash-btn .fas { font-size: 14px; }
+#dash-edit-btn.active {
+    background: var(--dash-primary); color: #fff; border-color: var(--dash-primary);
+}
+
+/* Edit mode: dashed outlines on all cells */
+.dashboard-wrap.dash-edit-mode .dash-cell {
+    outline: 2px dashed var(--dash-border);
+    outline-offset: -2px;
+    border-radius: var(--dash-radius);
+}
+.dashboard-wrap.dash-edit-mode .dash-cell:hover {
+    outline-color: var(--dash-primary);
+}
+
+/* ==========================================
+   KPI Cards
+   ========================================== */
+.dash-kpis {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 16px; margin-bottom: 24px;
+}
+.dash-kpi {
+    grid-column: span 2;
+    background: var(--dash-card); border-radius: var(--dash-radius);
+    padding: 20px; position: relative; overflow: hidden;
+    box-shadow: var(--dash-shadow); transition: var(--dash-transition); cursor: default;
+}
+.dash-kpi.dash-kpi-w-2 { grid-column: span 2; }
+.dash-kpi.dash-kpi-w-3 { grid-column: span 3; }
+.dash-kpi.dash-kpi-w-4 { grid-column: span 4; }
+.dash-kpi.dash-kpi-w-6 { grid-column: span 6; }
+.dash-kpi:hover { box-shadow: var(--dash-shadow-hover); transform: translateY(-2px); }
+.dash-kpi.dash-kpi-hidden { display: none; }
+
+/* KPI hide button (only in edit mode) */
+.dash-kpi-hide-btn {
+    position: absolute; top: 6px; right: 6px; z-index: 10;
+    width: 22px; height: 22px; border-radius: 5px;
+    border: 1px solid var(--dash-border); background: var(--dash-card);
+    color: var(--dash-text-light); display: none; align-items: center;
+    justify-content: center; cursor: pointer; font-size: 9px;
+    opacity: 0; transform: scale(0.8);
+    transition: opacity 0.2s, transform 0.2s, background 0.2s, color 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+.dash-kpi-hide-btn:hover {
+    background: var(--dash-danger); color: #fff; border-color: var(--dash-danger);
+}
+.dashboard-wrap.dash-edit-mode .dash-kpi-hide-btn { display: flex; }
+.dashboard-wrap.dash-edit-mode .dash-kpi:hover .dash-kpi-hide-btn {
+    opacity: 1; transform: scale(1);
+}
+
+/* KPI drag in edit mode */
+.dashboard-wrap.dash-edit-mode .dash-kpi { cursor: grab; }
+.dashboard-wrap.dash-edit-mode .dash-kpi:active { cursor: grabbing; }
+.dashboard-wrap.dash-edit-mode .dash-kpi {
+    outline: 2px dashed transparent; outline-offset: -2px;
+    border-radius: var(--dash-radius);
+}
+.dashboard-wrap.dash-edit-mode .dash-kpi:hover {
+    outline-color: var(--dash-primary);
+}
+/* KPI resize handle (right edge, only in edit mode) */
+.dash-kpi-resize-handle {
+    position: absolute; top: 0; right: -6px; width: 12px; height: 100%;
+    cursor: col-resize; z-index: 25; display: none;
+}
+.dashboard-wrap.dash-edit-mode .dash-kpi-resize-handle { display: block; }
+.dash-kpi-resize-handle::after {
+    content: ''; position: absolute; top: 50%; right: 4px;
+    transform: translateY(-50%); width: 4px; height: 24px;
+    border-radius: 2px; background: var(--dash-primary);
+    opacity: 0; transition: var(--dash-transition);
+}
+.dashboard-wrap.dash-edit-mode .dash-kpi:hover .dash-kpi-resize-handle::after { opacity: 0.6; }
+.dash-kpi-resize-handle:hover::after,
+.dash-kpi-resize-handle.active::after { height: 36px; width: 5px; opacity: 1; box-shadow: 0 0 8px rgba(93,156,236,0.5); }
+/* KPI size indicator */
+.dash-kpi-size-indicator {
+    display: none; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); z-index: 100;
+    background: var(--dash-dark); color: #fff; padding: 6px 12px;
+    border-radius: 8px; font-size: 13px; font-weight: 700;
+    white-space: nowrap; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.dash-kpi.dash-kpi-resizing .dash-kpi-size-indicator { display: block; }
+.dash-kpi.dash-kpi-resizing {
+    outline: 2px solid var(--dash-primary); outline-offset: -2px;
+    border-radius: var(--dash-radius);
+}
+
+.dash-kpi.dash-kpi-dragging { opacity: 0.3; transform: scale(0.95); }
+.dash-kpi.dash-kpi-drop-target {
+    outline: 2px solid var(--dash-primary) !important;
+    outline-offset: -2px;
+    background: rgba(93,156,236,0.06);
+}
+.dash-kpi.dash-kpi-just-dropped { animation: dropPop 0.4s ease; }
+
+.dash-kpi-icon {
+    width: 48px; height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: #fff; margin-bottom: 14px;
+}
+.dash-kpi-icon.bg-primary   { background: linear-gradient(135deg, #5d9cec, #4a8ad9); }
+.dash-kpi-icon.bg-success   { background: linear-gradient(135deg, #8dca35, #7ab82e); }
+.dash-kpi-icon.bg-warning   { background: linear-gradient(135deg, #ffbd4a, #f0a830); }
+.dash-kpi-icon.bg-danger    { background: linear-gradient(135deg, #da3610, #c22e0d); }
+.dash-kpi-icon.bg-info      { background: linear-gradient(135deg, #34d3eb, #25b8cf); }
+.dash-kpi-icon.bg-purple    { background: linear-gradient(135deg, #7266ba, #5f54a8); }
+.dash-kpi-icon.bg-turquoise { background: linear-gradient(135deg, #5fbeaa, #4ea898); }
+.dash-kpi-icon.bg-pink      { background: linear-gradient(135deg, #fb6d9d, #e85a8a); }
+
+.dash-kpi-value {
+    font-size: 26px; font-weight: 700; color: var(--dash-dark);
+    line-height: 1.2; margin-bottom: 4px;
+}
+.dash-kpi-label {
+    font-size: 12px; color: var(--dash-text-light);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 500;
+}
+.dash-kpi-trend {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 12px; font-weight: 600; margin-top: 8px;
+    padding: 3px 8px; border-radius: 20px;
+}
+.dash-kpi-trend.up      { color: #2d8a2d; background: rgba(141,202,53,0.15); }
+.dash-kpi-trend.down    { color: #da3610; background: rgba(218,54,16,0.1); }
+.dash-kpi-trend.neutral { color: var(--dash-text-light); background: rgba(140,150,167,0.1); }
+
+.dash-kpi-sparkline {
+    position: absolute; bottom: 0; right: 0;
+    width: 120px; height: 50px; opacity: 0.15;
+}
+
+/* ==========================================
+   Widget Card
+   ========================================== */
+.dash-widget {
+    background: var(--dash-card); border-radius: var(--dash-radius);
+    box-shadow: var(--dash-shadow); overflow: hidden;
+    transition: var(--dash-transition);
+}
+.dash-widget:hover { box-shadow: var(--dash-shadow-hover); }
+
+.dash-widget-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--dash-border);
+}
+.dash-widget-header h3 {
+    font-size: 15px; font-weight: 600; color: var(--dash-dark);
+    margin: 0; display: flex; align-items: center; gap: 8px;
+}
+.dash-widget-header h3 .fa,
+.dash-widget-header h3 .fas { color: var(--dash-text-light); font-size: 16px; }
+
+.dash-widget-actions { display: flex; gap: 4px; }
+.dash-widget-action {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; color: var(--dash-text-light); cursor: pointer;
+    transition: var(--dash-transition); font-size: 13px;
+    border: none; background: transparent;
+}
+.dash-widget-action:hover { background: var(--dash-bg); color: var(--dash-primary); }
+
+.dash-widget-body { padding: 20px; }
+.dash-widget-body.no-padding { padding: 0; }
+
+/* ==========================================
+   Charts
+   ========================================== */
+.dash-chart-container { position: relative; width: 100%; height: 300px; }
+.dash-chart-container.small { height: 220px; }
+
+.dash-chart-tabs {
+    display: flex; gap: 0;
+    border: 1px solid var(--dash-border); border-radius: 8px; overflow: hidden;
+}
+.dash-chart-tab {
+    padding: 6px 14px; font-size: 12px; font-weight: 500;
+    color: var(--dash-text-light); background: transparent;
+    border: none; cursor: pointer; transition: var(--dash-transition);
+}
+.dash-chart-tab:not(:last-child) { border-right: 1px solid var(--dash-border); }
+.dash-chart-tab.active, .dash-chart-tab:hover { background: var(--dash-primary); color: #fff; }
+
+/* ==========================================
+   Tables
+   ========================================== */
+.dash-table { width: 100%; border-collapse: collapse; }
+.dash-table th {
+    padding: 10px 16px; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--dash-text-light); background: var(--dash-bg);
+    text-align: left; border-bottom: 1px solid var(--dash-border);
+}
+.dash-table td {
+    padding: 12px 16px; font-size: 13px; color: var(--dash-text);
+    border-bottom: 1px solid var(--dash-border); vertical-align: middle;
+}
+.dash-table tbody tr { transition: var(--dash-transition); }
+.dash-table tbody tr:hover { background: rgba(93,156,236,0.04); }
+.dash-table tbody tr:last-child td { border-bottom: none; }
+.dash-table .dash-order-id { font-weight: 600; color: var(--dash-primary); }
+.dash-table .dash-order-id:hover { text-decoration: underline; }
+
+/* Badges */
+.dash-badge {
+    display: inline-block; padding: 4px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+
+/* ==========================================
+   Top Products
+   ========================================== */
+.dash-product-row {
+    display: flex; align-items: center; padding: 10px 16px;
+    border-bottom: 1px solid var(--dash-border); transition: var(--dash-transition);
+}
+.dash-product-row:last-child { border-bottom: none; }
+.dash-product-row:hover { background: rgba(93,156,236,0.04); }
+.dash-product-rank {
+    width: 28px; height: 28px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; margin-right: 12px; flex-shrink: 0;
+}
+.dash-product-rank.rank-1     { background: linear-gradient(135deg,#ffd700,#ffb300); color: #fff; }
+.dash-product-rank.rank-2     { background: linear-gradient(135deg,#c0c0c0,#a0a0a0); color: #fff; }
+.dash-product-rank.rank-3     { background: linear-gradient(135deg,#cd7f32,#b06c2a); color: #fff; }
+.dash-product-rank.rank-other { background: var(--dash-bg); color: var(--dash-text-light); }
+.dash-product-info { flex: 1; min-width: 0; }
+.dash-product-name {
+    font-size: 13px; font-weight: 500; color: var(--dash-text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    text-decoration: none; display: block;
+}
+.dash-product-name:hover { color: var(--dash-primary); text-decoration: none; }
+.dash-product-sales {
+    font-size: 14px; font-weight: 700; color: var(--dash-dark);
+    margin-left: 12px; flex-shrink: 0;
+}
+
+/* ==========================================
+   Stock Alerts
+   ========================================== */
+.dash-alert-list { max-height: 300px; overflow-y: auto; }
+.dash-alert-item {
+    display: flex; align-items: center; padding: 10px 16px;
+    border-bottom: 1px solid var(--dash-border); transition: var(--dash-transition); gap: 10px;
+}
+.dash-alert-item:last-child { border-bottom: none; }
+.dash-alert-item:hover { background: rgba(218,54,16,0.03); }
+.dash-alert-icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; font-size: 14px;
+}
+.dash-alert-icon.warning { background: rgba(255,189,74,0.15); color: var(--dash-warning); }
+.dash-alert-icon.danger  { background: rgba(218,54,16,0.1); color: var(--dash-danger); }
+.dash-alert-text { flex: 1; font-size: 13px; color: var(--dash-text); }
+.dash-alert-qty  { font-weight: 700; font-size: 14px; color: var(--dash-danger); }
+
+/* ==========================================
+   Who's Online
+   ========================================== */
+.dash-online-count  { text-align: center; padding: 16px; }
+.dash-online-number { font-size: 42px; font-weight: 700; color: var(--dash-turquoise); line-height: 1; }
+.dash-online-label  { font-size: 13px; color: var(--dash-text-light); margin-top: 6px; }
+.dash-online-dot {
+    display: inline-block; width: 8px; height: 8px;
+    background: var(--dash-turquoise); border-radius: 50%;
+    margin-right: 4px; animation: pulse-dot 2s infinite;
+}
+@keyframes pulse-dot {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%     { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ==========================================
+   Customer Sources
+   ========================================== */
+.dash-source-item    { display: flex; align-items: center; padding: 8px 0; }
+.dash-source-bar-wrap{ flex: 1; margin: 0 12px; }
+.dash-source-bar     { height: 8px; background: var(--dash-bg); border-radius: 4px; overflow: hidden; }
+.dash-source-bar-fill{ height: 100%; border-radius: 4px; transition: width 1s ease; }
+.dash-source-label   { font-size: 13px; color: var(--dash-text); min-width: 160px; }
+.dash-source-value   { font-size: 13px; font-weight: 600; color: var(--dash-dark); min-width: 40px; text-align: right; }
+
+/* ==========================================
+   Payment Methods
+   ========================================== */
+.dash-payment-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid var(--dash-border);
+}
+.dash-payment-item:last-child { border-bottom: none; }
+.dash-payment-name   { font-size: 13px; color: var(--dash-text); display: flex; align-items: center; gap: 8px; }
+.dash-payment-dot    { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.dash-payment-amount { font-size: 14px; font-weight: 600; color: var(--dash-dark); }
+
+/* ==========================================
+   Config Panel (Slide-in)
+   ========================================== */
+.dash-config-overlay {
+    display: none; position: fixed; top: 0; left: 0;
+    width: 100%; height: 100%; background: rgba(0,0,0,0.4);
+    z-index: 9998; opacity: 0; transition: opacity 0.3s ease;
+}
+.dash-config-overlay.active { display: block; opacity: 1; }
+.dash-config-panel {
+    position: fixed; top: 0; right: -380px; width: 360px; height: 100%;
+    background: var(--dash-card); z-index: 9999;
+    box-shadow: -4px 0 24px rgba(0,0,0,0.15);
+    transition: right 0.35s cubic-bezier(0.4,0,0.2,1);
+    display: flex; flex-direction: column;
+}
+.dash-config-panel.active { right: 0; }
+.dash-config-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px; border-bottom: 1px solid var(--dash-border);
+}
+.dash-config-header h3 { font-size: 16px; font-weight: 600; color: var(--dash-dark); margin: 0; }
+.dash-config-close {
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    border-radius: 6px; cursor: pointer; color: var(--dash-text-light);
+    transition: var(--dash-transition); background: transparent; border: none; font-size: 16px;
+}
+.dash-config-close:hover { background: var(--dash-bg); color: var(--dash-danger); }
+.dash-config-body { flex: 1; overflow-y: auto; padding: 20px; }
+
+.dash-config-item {
+    display: flex; align-items: center; padding: 10px 0;
+    border-bottom: 1px solid var(--dash-border); cursor: grab; gap: 8px;
+}
+.dash-config-item:last-child { border-bottom: none; }
+.dash-config-item .drag-handle { color: var(--dash-text-light); flex-shrink: 0; }
+.dash-config-item-info { flex: 1; min-width: 0; }
+.dash-config-item-info label {
+    display: block; font-size: 13px; color: var(--dash-text);
+    margin-bottom: 4px; cursor: pointer;
+}
+.dash-config-size-btns { display: flex; gap: 3px; }
+.dash-cfg-size {
+    padding: 2px 7px; font-size: 10px; font-weight: 600;
+    border: 1px solid var(--dash-border); border-radius: 3px;
+    background: var(--dash-card); color: var(--dash-text-light);
+    cursor: pointer; transition: var(--dash-transition);
+}
+.dash-cfg-size:hover, .dash-cfg-size.active {
+    background: var(--dash-primary); color: #fff; border-color: var(--dash-primary);
+}
+.dash-cfg-kpi-size {
+    padding: 2px 7px; font-size: 10px; font-weight: 600;
+    border: 1px solid var(--dash-border); border-radius: 3px;
+    background: var(--dash-card); color: var(--dash-text-light);
+    cursor: pointer; transition: var(--dash-transition);
+}
+.dash-cfg-kpi-size:hover, .dash-cfg-kpi-size.active {
+    background: var(--dash-purple); color: #fff; border-color: var(--dash-purple);
+}
+.dash-config-item.cfg-dragging  { opacity: 0.4; background: rgba(93,156,236,0.05); }
+.dash-config-item.cfg-drag-over { border-top: 2px solid var(--dash-primary); }
+
+/* Toggle */
+.dash-toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
+.dash-toggle input { opacity: 0; width: 0; height: 0; }
+.dash-toggle-slider {
+    position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #ccc; transition: 0.3s; border-radius: 24px;
+}
+.dash-toggle-slider:before {
+    position: absolute; content: ""; height: 18px; width: 18px;
+    left: 3px; bottom: 3px; background-color: white;
+    transition: 0.3s; border-radius: 50%;
+}
+.dash-toggle input:checked + .dash-toggle-slider { background-color: var(--dash-primary); }
+.dash-toggle input:checked + .dash-toggle-slider:before { transform: translateX(20px); }
+
+/* ==========================================
+   Refresh Animation
+   ========================================== */
+.dash-widget.refreshing .dash-widget-body { opacity: 0.5; pointer-events: none; }
+.dash-widget.refreshing .fa-sync-alt { animation: spin 1s linear infinite; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+/* Empty */
+.dash-empty { text-align: center; padding: 30px 20px; color: var(--dash-text-light); }
+.dash-empty .fa, .dash-empty .fas { font-size: 32px; margin-bottom: 10px; opacity: 0.4; }
+.dash-empty p { font-size: 13px; margin: 0; }
+
+/* View All */
+.dash-view-all {
+    display: block; text-align: center; padding: 12px;
+    font-size: 13px; font-weight: 500; color: var(--dash-primary);
+    border-top: 1px solid var(--dash-border); transition: var(--dash-transition);
+    text-decoration: none;
+}
+.dash-view-all:hover { background: rgba(93,156,236,0.04); text-decoration: none; }
+
+/* ==========================================
+   Animations
+   ========================================== */
+.dash-widget { animation: fadeInUp 0.5s ease forwards; opacity: 0; }
+.dash-kpi { animation: fadeInUp 0.5s ease both; }
+.dash-kpi:nth-child(1) { animation-delay: 0.05s; }
+.dash-kpi:nth-child(2) { animation-delay: 0.10s; }
+.dash-kpi:nth-child(3) { animation-delay: 0.15s; }
+.dash-kpi:nth-child(4) { animation-delay: 0.20s; }
+.dash-kpi:nth-child(5) { animation-delay: 0.25s; }
+.dash-kpi:nth-child(6) { animation-delay: 0.30s; }
+/* After initial load, disable animation so drag/drop doesn't reset opacity */
+.dash-kpis.dash-kpis-ready .dash-kpi {
+    animation: none;
+    opacity: 1;
+}
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Quick Actions */
+.dash-quick-actions {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 10px; padding: 16px;
+}
+.dash-quick-action {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 14px 8px; border-radius: 10px; text-decoration: none;
+    color: var(--dash-text); transition: var(--dash-transition); text-align: center;
+}
+.dash-quick-action:hover { background: var(--dash-bg); color: var(--dash-primary); text-decoration: none; }
+.dash-quick-action .fa, .dash-quick-action .fas { font-size: 20px; color: var(--dash-primary); }
+.dash-quick-action span { font-size: 11px; font-weight: 500; }
+
+/* Auto-refresh indicator (header) */
+.dash-auto-refresh {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: var(--dash-text-light);
+}
+.dash-auto-refresh .dot {
+    width: 6px; height: 6px; background: var(--dash-success);
+    border-radius: 50%; animation: pulse-dot 2s infinite;
+}
+.dash-auto-refresh .dot.off {
+    background: #ccc; animation: none;
+}
+
+/* Auto-refresh options (config panel) */
+.dash-refresh-options {
+    display: flex; flex-wrap: wrap; gap: 4px;
+}
+.dash-refresh-opt {
+    padding: 5px 12px; font-size: 12px; font-weight: 500;
+    border: 1px solid var(--dash-border); border-radius: 6px;
+    background: var(--dash-card); color: var(--dash-text);
+    cursor: pointer; transition: var(--dash-transition);
+}
+.dash-refresh-opt:hover { border-color: var(--dash-primary); color: var(--dash-primary); }
+.dash-refresh-opt.active { background: var(--dash-primary); color: #fff; border-color: var(--dash-primary); }
+
+/* Chart Legend */
+.dash-legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 0 0; justify-content: center; }
+.dash-legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--dash-text-light); }
+.dash-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+/* Scrollbars */
+.dash-alert-list::-webkit-scrollbar,
+.dash-config-body::-webkit-scrollbar { width: 5px; }
+.dash-alert-list::-webkit-scrollbar-track,
+.dash-config-body::-webkit-scrollbar-track { background: transparent; }
+.dash-alert-list::-webkit-scrollbar-thumb,
+.dash-config-body::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 3px; }
+
+/* Footer Stats */
+.dash-footer-stats {
+    display: flex; gap: 24px; padding: 16px 20px;
+    background: var(--dash-bg); border-top: 1px solid var(--dash-border);
+    font-size: 12px; color: var(--dash-text-light);
+}
+.dash-footer-stats span { display: flex; align-items: center; gap: 5px; }
+
+/* ==========================================
+   Responsive
+   ========================================== */
+@media (max-width: 1200px) {
+    .dash-grid { grid-template-columns: 1fr; }
+    .dash-grid .dash-col-2 { grid-column: span 1; }
+}
+@media (max-width: 1200px) {
+    .dash-kpi { grid-column: span 4 !important; }
+}
+@media (max-width: 768px) {
+    .dash-kpis { grid-template-columns: repeat(2, 1fr); }
+    .dash-kpi { grid-column: span 1 !important; }
+    .dash-header { flex-direction: column; align-items: flex-start; }
+    .dash-config-panel { width: 100%; right: -100%; }
+    .dash-hide-btn { opacity: 1; transform: scale(1); }
+}
+@media (max-width: 480px) {
+    .dash-kpis { grid-template-columns: 1fr; }
+}

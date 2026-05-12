@@ -1,0 +1,15 @@
+#zone_filter{display: none;}
+#zone_wrapper{width: 100%;}
+#zone_delete_filter{display: none}
+#zone_delete_filter.actv{display: inline-block}
+.oeTable .dataTables_info{position: absolute; left: 251px; bottom: -40px;}
+.oeTable .dataTables_wrapper{position: relative}
+.dialog-insert-subzone .add-left{}
+.dialog-insert-subzone .add-all-left{}
+.dialog-insert-subzone .add-all-right{}
+.dialog-insert-subzone .add-right{}
+.dialog-insert-subzone .add-left, .dialog-insert-subzone .add-all-left, .dialog-insert-subzone .add-all-right, .dialog-insert-subzone .add-right{width: 30px; height: 30px; background: darkgrey; color: #fff; margin: 7px auto; text-align: center; border-radius: 4px; font-size: 20px; line-height: 30px; cursor: pointer;}
+.dialog-insert-subzone .select-search{width: 100%; height: 300px;}
+.dialog-insert-subzone .select-search option{font-size: 14px; line-height: 14px !important; padding: 5px;}
+.dialog-insert-subzone .buttons{align-items: center; justify-content: center; display: flex; flex-direction: column;}
+#selected-zones-type{margin: 0px; padding: 6px; height: 34px; border: 1px solid #ddd; font-size: 13px; line-height: 13px;}

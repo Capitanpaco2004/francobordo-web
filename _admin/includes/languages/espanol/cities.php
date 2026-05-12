@@ -1,0 +1,30 @@
+<?php
+
+define('CITIES_TITLE', 'Ciudades');
+define('CITIES_SUBTITLE', 'Listado de ciudades');
+define('CITIES_APPLY_ACTION', 'Aplicar acción');
+define('CITIES_ACTIONS', 'Acciones');
+define('CITIES_DELETE_RECORDS', 'Eliminar registros');
+define('CITIES_DELETE_RECORDS_CONFIRM', '¿Realmente deseas eliminar los registros?');
+define('CITIES_DELETE_ERROR', 'Para realizar alguna de estas operaciones necesitas seleccionar algún registro');
+define('CITIES_FILTER_NO_DATA', 'El filtro establecido no contiene datos.');
+define('CITIES_NO_DATA', 'No existe ningun registro para mostrar.');
+define('CITIES_CITY', 'Ciudad');
+define('CITIES_ZONE', 'Provincia');
+define('CITIES_COUNTRY', 'Pais');
+define('CITIES_POSTAL_CODE', 'Código postal');
+define('CITIES_EDIT_RECORD', 'Editar registro');
+define('CITIES_DELETE_RECORD', 'Eliminar registro');
+define('CITIES_DELETE_RECORD_CONFIRM', '¿Realmente deseas eliminar el registro?');
+define('CITIES_DELETE_SUCCESS', 'Los registros se han eliminado correctamente');
+define('CITIES_EDIT_CITY', 'Editar ciudad');
+define('CITIES_ADD_CITY', 'Añadir ciudad');
+define('CITIES_NO_EXISTS', 'La ciudad que intentas editar no existe');
+define('CITIES_ERROR_CITY', 'Debes especificar un nombre de ciudad.');
+define('CITIES_ERROR_POSTAL_CODE', 'Debes especificar un código postal.');
+define('CITIES_EDIT_SUCCESS', 'La ciudad se ha editado correctamente');
+define('CITIES_ADD_SUCCESS', 'La ciudad se ha creado correctamente');
+define('CITIES_COUNTRY_HELP', 'Nombre del pais.');
+define('CITIES_ZONE_HELP', 'Nombre zona.');
+define('CITIES_POSTAL_CODE_HELP', 'Código postal.');
+define('CITIES_CITY_HELP', 'Nombre de la ciudad.');

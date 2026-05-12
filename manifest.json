@@ -1,0 +1,8 @@
+{
+  "short_name": "push-denox",
+  "name": "Sistema de notificaciones",
+  "gcm_sender_id": "680005400027",
+  "permissions" : [
+      "gcm"
+    ]
+} 

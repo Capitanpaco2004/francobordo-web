@@ -1,0 +1,51 @@
+info: $cInfo
+blocks:
+	0:
+		title: Datos personales
+		size_label: 2
+		size_row: 10
+		rows:
+			0:
+				label: "Nombre:"
+				type: text
+				name: customers_firstname
+				required: true
+			1:
+				label: "Apellidos:"
+				type: text
+				name: customers_lastname
+				required: true
+			2:
+				label: "Email:"
+				type: email
+				name: customers_email_address
+				required: true
+			3:
+				label: "Telefono:"
+				type: text
+				name: customers_telephone
+				required: true
+			4:
+				label: "Fax:"
+				type: text
+				name: customers_fax
+			5:
+				label: "Fecha nacimiento:"
+				type: date
+				name: customers_dob
+				visible: ACCOUNT_DOB
+			6:
+				label: "Sexo:"
+				type: radio
+				name: customers_gender
+				data: [{id: m, text: Masculino}, {id: f, text: Femenino}]
+				visible: ACCOUNT_GENDER
+			7:
+				label: "Nº Identificación Impuesto (Compañia):"
+				type:  text
+				name: entry_company_tax_id
+			8:
+				label: "Permitir pago 'Cuenta de cliente':"
+				type:  combobox
+				name: cuenta_cliente
+				data: [{id: 0, text: "No"}, {id: 1, text: "Sí"}]

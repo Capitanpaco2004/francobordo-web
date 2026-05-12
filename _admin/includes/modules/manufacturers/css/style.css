@@ -1,0 +1,59 @@
+.seo-mrcs
+{
+	border: 1px solid #ebebeb;
+	padding: 14px 15px 14px 7px;
+	background-color: #fff;
+	font-family: arial, sans-serif;
+	font-size: 13px;
+}
+
+.seo-mrcs .titl
+{
+	color: #12c;
+	text-decoration: none;
+	display: block;
+	font-size: 16px;
+	padding-bottom: 8px;
+	border: 0px;
+	background: inherit;
+	font-weight: bold;
+}
+
+.seo-mrcs .url
+{
+	color: #093;
+	font-style: normal;
+	display: block;
+}
+
+.seo-mrcs .dscp
+{
+	color: #222;
+}
+
+.text-seo-cntr
+{
+	background: rgb(238, 238, 238);
+	border: 1px solid #ccc;
+	color: rgb(81, 81, 81);
+	display: inline-block;
+	font-size: 13px;
+	line-height: 20px;
+	margin: 0;
+	padding: 7px;
+	text-align: center;
+	width: auto;
+	flex: inherit !important;
+	max-height: 37px;
+}
+
+.text-seo-cntr.ylow
+{
+	background: none repeat scroll 0 0 rgb(255, 255, 0);
+}
+
+.text-seo-cntr.red
+{
+	background: #FF0000;
+	color: #FFF;
+}
