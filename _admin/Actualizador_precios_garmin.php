@@ -455,7 +455,7 @@ try {
 		}
 		foreach ($insSpecial as $u) {
 			$expires = date('Y-m-d H:i:s', strtotime('+' . SPECIAL_DURATION_DAYS . ' days'));
-			if (!$mysqli->query("INSERT INTO specials (products_id, specials_new_products_price, specials_date_added, specials_last_modified, expires_date, expires_repeat, status, customers_group_id, start_date) VALUES (" . (int)$u['pid'] . ", " . fmt4($u['new']) . ", NOW(), NULL, '$expires', 0, 1, 0, NOW())")) throw new Exception("INSERT special pid=" . $u['pid'] . ": " . $mysqli->error);
+			if (!$mysqli->query("INSERT INTO specials (products_id, specials_new_products_price, specials_date_added, specials_last_modified, expires_date, expires_repeat, status, customers_group_id, start_date) VALUES (" . (int)$u['pid'] . ", " . fmt4($u['new']) . ", NOW(), NULL, '$expires', 1, 1, 0, NOW())")) throw new Exception("INSERT special pid=" . $u['pid'] . ": " . $mysqli->error);
 		}
 		foreach ($delSpecial as $u) {
 			if (!$mysqli->query("DELETE FROM specials WHERE specials_id=" . (int)$u['sid'])) throw new Exception("DELETE special sid=" . $u['sid'] . ": " . $mysqli->error);

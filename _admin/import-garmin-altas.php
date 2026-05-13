@@ -821,7 +821,7 @@ foreach ($rows as $row) {
 		if ($specialPrice !== null) {
 			$expires = date('Y-m-d H:i:s', strtotime('+' . SPECIAL_DURATION_DAYS . ' days'));
 			$disc = round((1 - $specialPrice / $price) * 100);
-			$sqlSp = "INSERT INTO specials (products_id, specials_new_products_price, specials_date_added, specials_last_modified, expires_date, expires_repeat, status, customers_group_id, start_date) VALUES ($pid, " . number_format($specialPrice, 4, '.', '') . ", NOW(), NULL, '$expires', 0, 1, 0, NOW())";
+			$sqlSp = "INSERT INTO specials (products_id, specials_new_products_price, specials_date_added, specials_last_modified, expires_date, expires_repeat, status, customers_group_id, start_date) VALUES ($pid, " . number_format($specialPrice, 4, '.', '') . ", NOW(), NULL, '$expires', 1, 1, 0, NOW())";
 			if (!$mysqli->query($sqlSp)) throw new Exception("specials: " . $mysqli->error);
 			if ($disc >= 12) $nSpecial15++; else $nSpecial10++;
 		}

@@ -24,8 +24,8 @@ echo '<!DOCTYPE html>';
 			echo '<nav id="menu-panel">';
 				echo '<ul class="d-flex flex-column h-100">';
 					echo '<li class="lnkfrs"><a class="link1 cl1" href="' . tep_href_link( FILENAME_PRODUCTS_NEW ) . '" title="' . TEXT_NEWS  . '"><i class="tt tt-43"></i>' . TEXT_NEWS . '</a></li>';
-					echo '<li class="lnkfrs"><a class="link1 cl2" href="' . tep_href_link( FILENAME_SPECIALS ) . '" title="' . TEXT_SPECIALS . '"><i class="tt tt-42"></i>' . TEXT_SPECIALS . '</a></li>';
-					echo '<li class="lnkfrs"><a class="link1 cl3 otlt" href="' . tep_href_link( FILENAME_ALLMANUFACTURERS ) . '" title="' . BOX_HEADING_MANUFACTURERS . '"><i class="tt tt-41"></i>' . BOX_HEADING_MANUFACTURERS . '</a></li>';
+					echo '<li class="lnkfrs"><a class="link1 cl2" href="' . tep_href_link( FILENAME_SPECIALS ) . '" title="' . TEXT_SPECIALS . '"><i class="tt tt-41"></i>' . TEXT_SPECIALS . '</a></li>';
+					echo '<li class="lnkfrs"><a class="link1 cl3 otlt" href="' . tep_href_link( FILENAME_ALLMANUFACTURERS ) . '" title="' . BOX_HEADING_MANUFACTURERS . '"><i class="tt tt-42"></i>' . BOX_HEADING_MANUFACTURERS . '</a></li>';
 
 					echo printMenuCategories( $_aAllCategorias, 0 );
 

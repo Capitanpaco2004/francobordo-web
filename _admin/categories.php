@@ -184,7 +184,7 @@
 			{
 				// Obtenemos los registros
 				$aDato = tep_db_fetch_array( $aDato );
-				$aImagesActuales = json_decode( (string) $aDato[$sRowImage], true ); if (!is_array($aImagesActuales)) $aImagesActuales = [];
+				$aImagesActuales = json_decode( $aDato[$sRowImage], true );
 
 				// Eliminamos
 				deleteImagenAndThumb( $sImagenEliminar, $sDirImagen );
@@ -3984,7 +3984,8 @@
                                                 <td class="smallText" align="right">
                                                     <?php
 														echo tep_draw_form('search', FILENAME_CATEGORIES, '', 'get');
-														echo HEADING_TITLE_SEARCH . ' ' . tep_draw_input_field('search');
+														echo HEADING_TITLE_SEARCH . ' ' . tep_draw_input_field('search', isset($_GET['search']) ? htmlspecialchars($_GET['search'], ENT_QUOTES, 'UTF-8') : '');
+														echo ' <span class="smallText" style="color:#888;" title="Busca en: nombre, modelo, ref. proveedor, EAN, ID de producto y variantes (reference / reference_prov / EAN)">(?)</span>';
 														echo tep_hide_session_id() . '</form>';
                                                     ?>
                                                 </td>
@@ -4137,12 +4138,25 @@
                                             if (isset($_GET['search']))
                                             {
                                                $search = strtolower(tep_db_prepare_input($_GET['search']));
-                                               $search_query = " and p.products_id = p2c.products_id and (LOWER(pd.products_name) like '%" . tep_db_input($search) . "%' or LOWER(p.products_model) like '%" . tep_db_input($search) . "%' or LOWER(p.reference_prov) like '%" . tep_db_input($search) . "%' or LOWER(p.product_ean) like '%" . tep_db_input($search) . "%')";
+                                               $searchEsc = tep_db_input($search);
+                                               // Búsqueda extendida: nombre, modelo, ref. prov., EAN, ID exacto, variantes (reference, reference_prov, products_attributes_ean)
+                                               $orParts = array(
+                                                   "LOWER(pd.products_name) like '%" . $searchEsc . "%'",
+                                                   "LOWER(p.products_model) like '%" . $searchEsc . "%'",
+                                                   "LOWER(p.reference_prov) like '%" . $searchEsc . "%'",
+                                                   "LOWER(p.product_ean) like '%" . $searchEsc . "%'",
+                                                   "p.products_id IN (SELECT products_id FROM " . TABLE_PRODUCTS_ATTRIBUTES . " WHERE LOWER(reference) like '%" . $searchEsc . "%' OR LOWER(reference_prov) like '%" . $searchEsc . "%' OR LOWER(products_attributes_ean) like '%" . $searchEsc . "%')",
+                                               );
+                                               // Si el término es un entero puro, búsqueda exacta por products_id
+                                               if (ctype_digit($search)) {
+                                                   $orParts[] = "p.products_id = " . (int)$search;
+                                               }
+                                               $search_query = " and p.products_id = p2c.products_id and (" . implode(' or ', $orParts) . ")";
 											}else{
 												$search_query = " and p.products_id = p2c.products_id and p2c.categories_id = '" . (int)$current_category_id . "' ";
 											}
 
-                                                $products_query = tep_db_query("select p.products_fileupload, p.products_sort_order, p.products_import_exclude, p.products_import_origin, p.products_featured, p.products_pdfupload, p.products_id, pd.products_name, p.products_model, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_cost, p.products_image, p.products_subimages, p.products_price, p.products_tax_class_id, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_featured_until, p.products_status, p.amazon_status, p.products_featured, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id " . $search_query . " and pd.language_id = '" . (int)$languages_id . "' order by FIELD(p.products_status, 1, 2, 0), p.products_model");
+                                                $products_query = tep_db_query("select DISTINCT p.products_fileupload, p.products_sort_order, p.products_import_exclude, p.products_import_origin, p.products_featured, p.products_pdfupload, p.products_id, pd.products_name, p.products_model, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_cost, p.products_image, p.products_subimages, p.products_price, p.products_tax_class_id, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_featured_until, p.products_status, p.amazon_status, p.products_featured, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id " . $search_query . " and pd.language_id = '" . (int)$languages_id . "' order by FIELD(p.products_status, 1, 2, 0), p.products_model");
 
                                             while( $products = tep_db_fetch_array($products_query) )
                                             {

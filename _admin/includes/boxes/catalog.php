@@ -1,5 +1,6 @@
 <?php echo tep_admin_files_boxes(FILENAME_CATEGORIES, '<i class="bullet"></i> ' . BOX_CATALOG_CATEGORIES_PRODUCTS); ?>
 <?php echo tep_admin_files_boxes("stock_sync.php", '<i class="bullet"></i> Sync Stock VStock'); ?>
+<?php echo tep_admin_files_boxes("search-francobordo.php", '<i class="bullet"></i> Buscador Francobordo'); ?>
 <div>
 	<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> <?php echo BOX_CATALOG_CATEGORIES_PRODUCTS_ATTRIBUTES; ?> <i class="fa fa-angle-right"></i></a>
 	<div class="sbmn">
@@ -14,6 +15,7 @@
 		<?php echo tep_admin_files_boxes('specials_avanzado.php', '<i class="bullet"></i> Ofertas Avanzadas'); ?>
 		<?php echo tep_admin_files_boxes('specialsbycategory.php', '<i class="bullet"></i> Ofertas por Categorias'); ?>
 		<?php echo tep_admin_files_boxes('auto_specials_preview.php', '<i class="bullet"></i> Candidatos auto (poca rotación)'); ?>
+		<?php echo tep_admin_files_boxes('auto_specials_rules.php', '<i class="bullet"></i> Reglas auto-ofertas'); ?>
 	</div>
 </div>
 <div>

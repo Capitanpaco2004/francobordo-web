@@ -229,7 +229,7 @@ var oscdenoxClass = function()
 						},
 						error:function(b,a,f){}
 					});
-				}, 500);
+				}, 250);
 			}
 		});
 	}

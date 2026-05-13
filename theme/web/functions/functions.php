@@ -82,7 +82,11 @@ function changePriceCustomer($sSql, $aArgumentos = array())
 	}
 
 
-	$sQueryCount = 'select count(*) as total FROM (' . $sSql . ') as cnt';
+	// Permite al caller pasar un QUERY_COUNT pre-calculado (ej. autocomplete de buscador,
+	// que no necesita un conteo exacto y se ahorra re-ejecutar el FULLTEXT completo).
+	$sQueryCount = !empty($aArgumentos['QUERY_COUNT'])
+		? $aArgumentos['QUERY_COUNT']
+		: 'select count(*) as total FROM (' . $sSql . ') as cnt';
 
     // Si contenemos datos por post el filtro se ha realizado por ese metodo
     if (count($_POST) > 0) {
@@ -1676,7 +1680,7 @@ function _getSearchForm($aArgumentos = array())
 	$sHtml .= tep_draw_input_field(
 		'buscar',
 		'',
-		(SEARCH_AUTOCOMPLETE_DOOFINDER_DENOX == 'Denox' ? 'denox="true"' : '') .
+		(SEARCH_AUTOCOMPLETE_DOOFINDER_DENOX == 'Denox' ? 'denox="true"' : (SEARCH_AUTOCOMPLETE_DOOFINDER_DENOX == 'Francobordo' ? 'data-fb-search="true"' : '')) .
 		' placeholder="' . TEXT_PLACE_SEARCH . '..."'
 	);
 

@@ -91,6 +91,11 @@
 		<!--Doofinder script ends here -->
 	<?php endif; ?>
 <?php endif; ?>
+
+<!-- Francobordo Meilisearch widget -->
+<?php if (SEARCH_AUTOCOMPLETE_DOOFINDER_DENOX == 'Francobordo'): ?>
+<script src="/theme/web/js/francobordo-search.js?v=<?php echo @filemtime($_SERVER['DOCUMENT_ROOT'].'/theme/web/js/francobordo-search.js'); ?>" defer></script>
+<?php endif; ?>
 <?php
 	// Minify
 	echo Minify::getInstance()->js();

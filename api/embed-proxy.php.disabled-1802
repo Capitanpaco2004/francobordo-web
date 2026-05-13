@@ -1,0 +1,73 @@
+<?php
+/**
+ * embed-proxy.php
+ *
+ * Reverse-proxy minimalista de Meilisearch -> servicio de embeddings BGE-M3 (.112).
+ * Existe porque Meili v1.43 rechaza URLs a IPs privadas/CGNAT por SSRF protection.
+ *
+ * Deploy: subir a /home/francobordo/public_html/api/embed-proxy.php
+ * URL pública: https://www.francobordo.com/api/embed-proxy.php
+ *
+ * Seguridad:
+ *  - Auth bearer: el caller (Meili) presenta el mismo API key que la del servicio backend.
+ *  - El proxy NO acepta queries arbitrarias - sólo POST con body JSON < 1MB.
+ */
+declare(strict_types=1);
+
+// Config
+const EMBED_BACKEND_URL = 'http://100.82.226.46:7800/v1/embeddings';   // Tailscale
+const EMBED_API_KEY     = '4e120924029a1f7d5e71e2bee1444f93d072215bf860ff8d82335c5cf2257421';
+const MAX_BODY_SIZE     = 1048576;   // 1 MB
+
+// --- Auth ---
+$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+if ($auth !== 'Bearer ' . EMBED_API_KEY) {
+    http_response_code(401);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'unauthorized']);
+    exit;
+}
+
+// --- Method check ---
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    header('Allow: POST');
+    echo json_encode(['error' => 'method not allowed']);
+    exit;
+}
+
+// --- Body read + size cap ---
+$body = file_get_contents('php://input', false, null, 0, MAX_BODY_SIZE + 1);
+if (strlen($body) > MAX_BODY_SIZE) {
+    http_response_code(413);
+    echo json_encode(['error' => 'payload too large']);
+    exit;
+}
+
+// --- Forward to backend via Tailscale ---
+$ch = curl_init(EMBED_BACKEND_URL);
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POST           => true,
+    CURLOPT_POSTFIELDS     => $body,
+    CURLOPT_HTTPHEADER     => [
+        'Authorization: Bearer ' . EMBED_API_KEY,
+        'Content-Type: application/json',
+    ],
+    CURLOPT_TIMEOUT        => 60,
+    CURLOPT_CONNECTTIMEOUT => 5,
+]);
+$resp = curl_exec($ch);
+$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$err  = curl_error($ch);
+
+if ($resp === false) {
+    http_response_code(502);
+    header('Content-Type: application/json');
+    echo json_encode(['error' => 'backend unreachable', 'detail' => $err]);
+    exit;
+}
+
+http_response_code($code ?: 200);
+header('Content-Type: application/json');
+echo $resp;

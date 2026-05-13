@@ -33,11 +33,33 @@ $nOrder = (array_key_exists('order', $_GET) ? tep_db_prepare_input($_GET['order'
 $sTags = '';
 $bBuscarId = false;
 
+$bAutocomplete = ($sAction === 'autocomplete' && isAjax());
+$bSearchDescription = (SEARCH_DESCRIPTION == 'Si' && !$bAutocomplete);
+
 $aWordDelete = array('a', 'ante', 'bajo', 'cabe', 'con', 'contra', 'de', 'desde', 'en', 'entre', 'hacia', 'hasta', 'para', 'por', 'según', 'segun', 'sin', 'so', 'sobre', 'tras', 'del', 'al', 'el', 'la', 'las', 'los', 'un', 'unos', 'un', 'una', 'unas', 'y', 'u', 'o', 'e');
 
 // Eliminamos preposición, artículo o nexo
 foreach ($aWordDelete as $sWord) {
     $sSearch = preg_replace('/\b' . $sWord . '\b/i', '', $sSearch);
+}
+$sSearch = trim(preg_replace('/\s+/', ' ', $sSearch));
+
+$sCachePath = null;
+if ($bAutocomplete && $sSearch !== '' && strlen($sSearch) >= 3) {
+    $sCacheDir = DIR_FS_CATALOG . 'cache/denox_ac/';
+    if (!is_dir($sCacheDir)) @mkdir($sCacheDir, 0755, true);
+    $sCacheKey = md5($language . '|' . $sSearch . '|' . ($sCategories ?: '') . '|' . ($sManufacturers ?: '') . '|' . ($nOrder ?: ''));
+    $sCachePath = $sCacheDir . $sCacheKey;
+    if (is_file($sCachePath) && (time() - filemtime($sCachePath)) < 90) {
+        readfile($sCachePath);
+        exit;
+    }
+    // GC oportunista (1% de probabilidad): borra entradas > 1h
+    if (mt_rand(0, 99) === 0) {
+        foreach (glob($sCacheDir . '*') ?: array() as $sFile) {
+            if (is_file($sFile) && (time() - filemtime($sFile)) > 3600) @unlink($sFile);
+        }
+    }
 }
 
 // Si no nos envían nada a buscar, mostramos mensaje de error
@@ -54,8 +76,18 @@ if (!isAjax() && ($sSearch == '' || strlen($sSearch) <= 1)) {
 	exit;
 }
 
-// Si tenemos búsqueda por EAN / Modelo / ID
-if (SEARCH_EAN == 'Si' || SEARCH_ID == 'Si') {
+// Si tenemos búsqueda por EAN / Modelo / ID — sólo si la entrada parece código
+// (un único token alfanumérico con al menos un dígito y longitud >= 4).
+// La colación latin1_swedish_ci ya es case-insensitive, por eso quitamos LCASE()
+// (que inhabilitaba los índices BTREE de products_model / product_ean).
+$bLooksLikeCode = (
+    (SEARCH_EAN == 'Si' || SEARCH_ID == 'Si')
+    && $sSearch !== ''
+    && strlen($sSearch) >= 4
+    && preg_match('/^[a-z0-9._\-\/]+$/i', $sSearch)
+    && preg_match('/[0-9]/', $sSearch)
+);
+if ($bLooksLikeCode) {
     // Consulta de productos por EAN / Modelo / ID
     $sQuery = 'SELECT p.products_id, pd.products_name FROM products p
 				   INNER JOIN products_description pd ON (p.products_id = pd.products_id)
@@ -64,7 +96,7 @@ if (SEARCH_EAN == 'Si' || SEARCH_ID == 'Si') {
 
     // Si tenemos búsqueda por EAN / Modelo
     if (SEARCH_EAN == 'Si') {
-        $sQuery .= 'LCASE( p.products_model ) = "' . $sSearch . '" OR LCASE( p.product_ean ) = "' . $sSearch . '" OR LCASE( pa.products_attributes_ean ) = "' . $sSearch . '"';
+        $sQuery .= 'p.products_model = "' . $sSearch . '" OR p.product_ean = "' . $sSearch . '" OR pa.products_attributes_ean = "' . $sSearch . '"';
     }
 
     // Añadimos el OR
@@ -74,7 +106,7 @@ if (SEARCH_EAN == 'Si' || SEARCH_ID == 'Si') {
 
     // Si tenemos búsqueda por ID
     if (SEARCH_ID == 'Si') {
-        $sQuery .= 'LCASE( p.products_id ) = "' . $sSearch . '"';
+        $sQuery .= 'p.products_id = "' . $sSearch . '"';
     }
 
     // AÃ±adimos comprobación de estado
@@ -103,7 +135,7 @@ if (SEARCH_EAN == 'Si' || SEARCH_ID == 'Si') {
         $sQuery = 'SELECT p.products_id, CONCAT( pd.products_name, " - ", pov.products_options_values_name) AS products_name FROM products p INNER JOIN products_description pd ON (p.products_id = pd.products_id) INNER JOIN products_attributes pa ON (p.products_id = pa.products_id) INNER JOIN products_options_values pov ON (pa.options_values_id = pov.products_options_values_id AND pov.language_id = "' . (int) $languages_id . '") WHERE ';
 
         // Where
-        $sQuery .= 'LCASE( pa.products_attributes_ean ) = "' . $sSearch . '" OR LCASE( pa.reference ) = "' . $sSearch . '"';
+        $sQuery .= 'pa.products_attributes_ean = "' . $sSearch . '" OR pa.reference = "' . $sSearch . '"';
     }
     // Añadimos comprobación de estado
     //$sQuery .= ' AND p.products_status = 1 group by p.products_id;';
@@ -149,8 +181,8 @@ $sSearch = getPluralSingular( $sSearch );
 // Construimos los campos select
 $sSelect = SQL_SELECT . ' IF (products_quantity>0, 1, 0) as disponibilidad, /*IF (pov.products_options_values_name is not null, 1, 0) as relevance,*/
 	MATCH(pd.products_name) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE) AS relevance2,
-	' . (SEARCH_DESCRIPTION == 'Si' ? 'MATCH(pd.products_description) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE) AS relevance3, ' : '') . '
-    p.products_id, p.products_model, pd.products_description, p.products_price, p.products_tax_class_id, pd.products_name, p.products_quantity, p.products_image, p.products_date_available, 
+	' . ($bSearchDescription ? 'MATCH(pd.products_description) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE) AS relevance3, ' : '') . '
+    p.products_id, p.products_model, pd.products_description, p.products_price, p.products_tax_class_id, pd.products_name, p.products_quantity, p.products_image, p.products_date_available,
     IF(s.status, s.specials_new_products_price, NULL) as specials_new_products_price, IF(s.status, s.specials_new_products_price, p.products_price) as final_price';
 
 // Construimos los joins
@@ -168,8 +200,8 @@ if (SEARCH_SHOW_FILTERS == 'Si') {
     $sJoins .= 'LEFT OUTER JOIN ' . TABLE_MANUFACTURERS . ' m ON (p.manufacturers_id = m.manufacturers_id) ';
 }
 
-$sJoins .= 'LEFT OUTER JOIN products_attributes pa ON (p.products_id = pa.products_id) ';
-$sJoins .= '/*LEFT OUTER JOIN products_options_values pov ON (pa.options_values_id = pov.products_options_values_id AND pov.language_id = "' . (int) $languages_id . '")  */';
+// JOIN a products_attributes eliminado: no se referenciaba ninguna pa.* y la
+// unión multiplicaba filas (~5x) que luego se aplastaban con GROUP BY p.products_id.
 
 // Where
 $sWhere .= ' p.products_status = 1';
@@ -179,13 +211,10 @@ if ($bBuscarId === false) {
     // Buscamos por nombre
     $sWhere .= ' AND (MATCH(pd.products_name) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE)';
 
-    // Buscar por descripción
-    if (SEARCH_DESCRIPTION == 'Si') {
+    // Buscar por descripción (no se evalúa en autocomplete: añade tiempo y ruido a 3 chars)
+    if ($bSearchDescription) {
         $sWhere .= ' OR MATCH(products_description) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE)';
     }
-
-    // Busqueda por atributos
-    $sWhere .= ' /*OR MATCH(pov.products_options_values_name) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE)*/';
 
     // Cerramos parentesis
     $sWhere .= ')';
@@ -213,7 +242,7 @@ if ($sManufacturers != '' && (int) $sManufacturers > 0) {
 }
 
 // Generamos el orden
-$sOrder = 'ORDER BY relevance2 DESC, ' . (SEARCH_DESCRIPTION == 'Si' ? 'relevance3 DESC, ' : '') . ' /*relevance DESC,*/ disponibilidad DESC,';
+$sOrder = 'ORDER BY relevance2 DESC, ' . ($bSearchDescription ? 'relevance3 DESC, ' : '') . ' /*relevance DESC,*/ disponibilidad DESC,';
 
 // Según tipo de búsqueda
 switch ($nOrder) {
@@ -241,6 +270,16 @@ $sSql = 'SELECT ' . $sSelect . ' FROM ' . $sJoins . ' WHERE ' . $sWhere . $sWher
 
 // Indicamos que la consulta de conteo se regenere
 $sSqlCount = false;
+
+// Autocomplete: saltamos el COUNT(*) sobre el FULLTEXT completo y devolvemos un
+// total fijo (suficiente para que splitPageResults aplique LIMIT). La cabecera
+// "Mostrando N de M" mostrará el LIMIT como total, lo cual es aceptable en
+// autocomplete y elimina una query cara por keystroke.
+if ($bAutocomplete) {
+    $sNumeroAutocomplete = isset($_GET['numero']) && is_numeric($_GET['numero']) ? (int) $_GET['numero'] : 5;
+    if ($sNumeroAutocomplete <= 0) { $sNumeroAutocomplete = 5; }
+    $sSqlCount = 'SELECT ' . $sNumeroAutocomplete . ' AS total';
+}
 
 // Incluimos la configuracion del theme
 include DIR_THEME . 'config_theme.php';
@@ -325,8 +364,15 @@ if (SEARCH_SHOW_FILTERS == 'Si') {
 }
 
 // Theme
-if ($sAction == 'autocomplete' && isAjax())
+if ($sAction == 'autocomplete' && isAjax()) {
+    ob_start();
     include DIR_THEME_ROOT . 'html/templates/search_autocomplete.php';
+    $sAutocompleteOutput = ob_get_clean();
+    if (!empty($sCachePath)) {
+        @file_put_contents($sCachePath, $sAutocompleteOutput, LOCK_EX);
+    }
+    echo $sAutocompleteOutput;
+}
 elseif (isAjax() && $sAction == 'filter')
     include DIR_THEME_ROOT . 'html/templates/search_filter.php';
 else
