@@ -29,8 +29,10 @@
 		}
 
 		$sHtml = '<div class="xprdt prdt col ' . ($sClassExtra != '' ? $sClassExtra : 'a03 t04 m06') . ' d-flex ' . $sClass . ' ' . $aProducto['CLASS'] . '">';
+			// Solo renderizamos la capa .offr cuando hay oferta; si no es una caja blanca absolute que tapa la esquina de la imagen
+			if ($aProducto['CLASS_OFERTA'] != '') {
 			$sHtml .= '<div class="offr d-flex">';
-				$sHtml .= ($aProducto['CLASS_OFERTA'] != '' ? '<div class="icon"><span>' . $aProducto['OFERTA_PORCENTAJE'] . '</span></div>' : '');
+				$sHtml .= '<div class="icon"><span>' . $aProducto['OFERTA_PORCENTAJE'] . '</span></div>';
 				$sHtml .= '<div class="wrpr-offr flex-grow-1">';
 					if (defined('SHOW_LEFT_UNITS_OFFER_IPS'))
 					{
@@ -60,6 +62,7 @@
 					}
 				$sHtml .= '</div>';
 			$sHtml .= '</div>';
+			} // end if CLASS_OFERTA
 
 			// Icono promocion
 			if( $aProducto['grcats'] != '' )

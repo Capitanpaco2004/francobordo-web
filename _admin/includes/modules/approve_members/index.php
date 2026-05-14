@@ -86,7 +86,7 @@ switch($sPostAction) {
 				<div>' . TABLE_HEADING_ACTION . '</div>
 				<ul class="down drch">
 					<li><a data-question="' . TEXT_ACTIVATE_CONFIRM . '" data-error="' . TEXT_ACTIVATE_ERROR . '" data-action="' . tep_href_link( $sUrlPage, 'action=accept' ) . '" href="javascript:void(0);" class="hv"><i class="fa fa-check-circle"></i>' . TEXT_ACTIVATE . '</a></li>
-					<li><a data-question="' . TEXT_CONFIRM_CONFIRM . '" data-error="' . TEXT_CONFIRM_ERROR . '" data-action="' . tep_href_link( $sUrlPage, 'action=confirm' ) . '" href="javascript:void(0);" class="hv"><i class="fa fa-trash-can"></i>' . TEXT_CONFIRM . '</a></li>
+					<li><a data-question="' . TEXT_CONFIRM_CONFIRM . '" data-error="' . TEXT_CONFIRM_ERROR . '" data-action="' . tep_href_link( $sUrlPage, 'action=confirm' ) . '" href="javascript:void(0);" class="hv"><i class="fa fa-circle-xmark"></i>' . TEXT_CONFIRM . '</a></li>
 				</ul>
 			</div></div>&nbsp; - &nbsp;';
 

@@ -49,7 +49,7 @@ class shoppingCart {
 		if (is_array($this->contents)) {
 			reset($this->contents);
 
-			// BOF check product status and remove products from the table customers_basket that have status 0
+			// BOF check product status and remove products from the table customers_basket that don't have status 1 (active)
 			$products_status_query = tep_db_query("select products_id from " . TABLE_CUSTOMERS_BASKET . " where customers_id = '" . (int)$customer_id . "'");
 			$products_id_array     = [];
 			while ($products_status_result = tep_db_fetch_array($products_status_query)) {
@@ -60,13 +60,13 @@ class shoppingCart {
 			if (count($products_id_array) > 0) {
 				$products_query = tep_db_query("select p.products_id, p.products_status from " . TABLE_PRODUCTS . " p where p.products_id in (" . implode(",", $products_id_array) . ")");
 				while ($products_statuses = tep_db_fetch_array($products_query)) {
-					if ($products_statuses['products_status'] == '0') {
-						tep_db_query("delete from " . TABLE_CUSTOMERS_BASKET . " where customers_id = '" . (int)$customer_id . "' and products_id = '" . (int)$products_statuses['products_id'] . "' or products_id like '" . (int)$products_statuses['products_id'] . "{%'");
-						tep_db_query("delete from " . TABLE_CUSTOMERS_BASKET_ATTRIBUTES . " where customers_id = '" . (int)$customer_id . "' and products_id = '" . (int)$products_statuses['products_id'] . "' or products_id like '" . (int)$products_statuses['products_id'] . "{%'");
+					if ($products_statuses['products_status'] != '1') {
+						tep_db_query("delete from " . TABLE_CUSTOMERS_BASKET . " where customers_id = '" . (int)$customer_id . "' and (products_id = '" . (int)$products_statuses['products_id'] . "' or products_id like '" . (int)$products_statuses['products_id'] . "{%')");
+						tep_db_query("delete from " . TABLE_CUSTOMERS_BASKET_ATTRIBUTES . " where customers_id = '" . (int)$customer_id . "' and (products_id = '" . (int)$products_statuses['products_id'] . "' or products_id like '" . (int)$products_statuses['products_id'] . "{%')");
 					}
 				} // end while ($products_statuses = tep_db_fetch_array($products_query))
 			} // end if (count($products_id_array) > 0)
-			// EOF check product status and remove products from the table customers_basket that have status 0
+			// EOF check product status and remove products from the table customers_basket that don't have status 1 (active)
 
 
 			// BOF SPPC attribute hide/invalid check: loop through the shopping cart and check the attributes if they

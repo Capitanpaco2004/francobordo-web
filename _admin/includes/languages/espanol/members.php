@@ -24,13 +24,13 @@ define('TEXT_ACTIVATE_CONFIRM', '¿Realmente deseas activar los clientes selecci
 define('TEXT_ACTIVATE_ERROR', 'Para realizar alguna de estas operaciones necesitas seleccionar algún registro');
 define('TEXT_ACTIVATE', 'Activar clientes');
 
-define('TEXT_CONFIRM_CONFIRM', '¿Realmente deseas eliminar la aprobación los clientes seleccionados?');
+define('TEXT_CONFIRM_CONFIRM', '¿Realmente deseas marcar como No Aprobado a los clientes seleccionados?');
 define('TEXT_CONFIRM_ERROR', 'Para realizar alguna de estas operaciones necesitas seleccionar algún registro');
-define('TEXT_CONFIRM', 'Eliminar aprobación');
+define('TEXT_CONFIRM', 'No Aprobar');
 
 define('TEXT_EDIT_MEMBER', 'Editar');
 define('TEXT_ACTIVATE_MEMBER', 'Aprobar');
-define('TEXT_DELETE_MEMBER', 'Eliminar');
+define('TEXT_DELETE_MEMBER', 'No Aprobar');
 define('TEXT_EMAIL_MEMBER', 'Mandar Email');
 define('TEXT_VIEW_IAE', 'Ver Archivo IAE');
 

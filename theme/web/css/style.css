@@ -4069,3 +4069,6 @@ body.loading:after {
    los <p> respiren visualmente como en el editor admin. */
 .fich-infr-text p { margin-bottom: 0.6em; }
 .fich-infr-text p:last-child { margin-bottom: 0; }
+
+/* Fase C: el wrapper <picture> no debe aportar caja propia para no romper layouts (inline gap, slick, etc.) */
+picture{display:contents;}

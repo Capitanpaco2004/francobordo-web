@@ -40,7 +40,7 @@
       :root { --fb-blue: #009fe3; --fb-blue-dark: #0084be; --fb-border: #e5e7eb; --fb-muted: #6b7280; --fb-text: #1f2937; --fb-bg: #f9fafb; }
 
       /* ===== Modal anclado bajo el buscador del header (tipo Doofinder) ===== */
-      .fb-modal { position: fixed; inset: 0; z-index: 99999; display: none; background: rgba(15,23,42,0.12); pointer-events: none; }
+      .fb-modal { position: fixed; inset: 0; z-index: 99999; display: none; background: rgba(15,23,42,0.06); pointer-events: none; }
       .fb-modal.open { display: block; }
       .fb-modal-body {
         position: absolute;
@@ -62,7 +62,7 @@
       .fb-hd-close { margin-left: auto; background: transparent; border: 0; cursor: pointer; padding: 6px 10px; font-size: 18px; color: var(--fb-muted); line-height: 1; }
       .fb-hd-close:hover { color: var(--fb-text); }
 
-      .fb-content { display: grid; grid-template-columns: 280px 1fr; gap: 16px; padding: 16px 20px; overflow: hidden; background: var(--fb-bg); }
+      .fb-content { display: grid; grid-template-columns: 280px 1fr; gap: 16px; padding: 16px 20px; overflow: hidden; background: #ffffff; }
       .fb-facets { background: white; border: 1px solid var(--fb-border); border-radius: 8px; padding: 14px; overflow-y: auto; max-height: 100%; }
       .fb-facet { margin-bottom: 18px; }
       .fb-facet h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; color: var(--fb-muted); letter-spacing: .05em; display: flex; justify-content: space-between; align-items: center; }
@@ -83,11 +83,13 @@
       .fb-timing { font-size: 11px; color: var(--fb-muted); margin-left: 4px; }
       .fb-sort { padding: 6px 10px; border: 1px solid var(--fb-border); border-radius: 6px; background: white; font-size: 14px; }
 
-      .fb-results-wrap { flex: 1; overflow-y: auto; }
-      .fb-results { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding-bottom: 16px; }
-      .fb-card { background: white; border: 1px solid var(--fb-border); border-radius: 8px; padding: 12px; text-decoration: none; color: inherit; display: flex; flex-direction: column; transition: box-shadow .15s, transform .15s; }
+      .fb-results-wrap { flex: 1; overflow-y: auto; overflow-x: hidden; }
+      /* minmax(0, 1fr) evita que cards anchos rompan el grid; min-width:0 en card permite que se encoja */
+      .fb-results { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding-bottom: 16px; }
+      .fb-card { background: white; border: 1px solid var(--fb-border); border-radius: 8px; padding: 12px; text-decoration: none; color: inherit; display: flex; flex-direction: column; transition: box-shadow .15s, transform .15s; min-width: 0; overflow: hidden; }
       .fb-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); transform: translateY(-1px); }
-      .fb-card img { width: 100%; aspect-ratio: 1; object-fit: contain; background: white; border-radius: 4px; }
+      /* !important defensivo: el theme tiene reglas img que machacan las nuestras */
+      .fb-card img { width: 100% !important; height: auto !important; aspect-ratio: 1 !important; max-height: 280px !important; object-fit: contain !important; background: white; border-radius: 4px; display: block; margin: 0; padding: 0; }
       .fb-card .fb-c-brand { font-size: 11px; color: var(--fb-muted); text-transform: uppercase; letter-spacing: .03em; margin-top: 6px; }
       .fb-card .fb-c-title { font-size: 14px; margin: 4px 0; line-height: 1.3; min-height: 36px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
       .fb-card em { background: #fff2a8; font-style: normal; padding: 0 2px; }
@@ -149,6 +151,22 @@
   }
 
   // ---------- Meili call ----------
+  // semanticRatio adaptativo según forma de la query:
+  //  - 1 palabra corta/SKU/marca         -> 0.05 (casi puro BM25, evita contaminación semántica)
+  //  - 2-3 palabras técnicas             -> 0.20
+  //  - frase larga lenguaje natural      -> 0.40 (donde semantic brilla, ej "limpiar el casco")
+  function smartSemanticRatio(q) {
+    const trimmed = q.trim();
+    if (!trimmed) return 0;
+    const words = trimmed.split(/\s+/);
+    const chars = trimmed.replace(/\s/g, '').length;
+    // SKUs/EANs (todo dígitos) -> 0 semántico
+    if (/^\d{6,}$/.test(trimmed)) return 0;
+    if (words.length === 1)              return 0.05;
+    if (words.length <= 3 && chars <= 25) return 0.20;
+    return 0.40;
+  }
+
   async function meiliSearch(opts) {
     const body = {
       q: opts.q || '',
@@ -157,6 +175,11 @@
       attributesToHighlight: ['title'],
       highlightPreTag: '<em>', highlightPostTag: '</em>',
     };
+    // Modo híbrido: lo activamos siempre que haya query. Sin query (browse mode) no aporta.
+    if (opts.q && opts.q.trim()) {
+      const ratio = opts.semanticRatio ?? smartSemanticRatio(opts.q);
+      body.hybrid = { embedder: 'bge-m3', semanticRatio: ratio };
+    }
     if (opts.facets) body.facets = opts.facets;
     if (opts.filter) body.filter = opts.filter;
     if (opts.sort)   body.sort   = [opts.sort];
@@ -285,7 +308,8 @@
   function positionModal() {
     if (!modalEl || !anchorInput) return;
     const rect = anchorInput.getBoundingClientRect();
-    const top = Math.max(0, rect.bottom + 4);
+    // Gap más generoso bajo el input para que se respire el header
+    const top = Math.max(0, rect.bottom + 15);
     modalEl.style.setProperty('--fb-modal-top', `${top}px`);
   }
 
@@ -319,6 +343,7 @@
     if (!modalEl) return;
     // Reset estado del scroll infinito al hacer una nueva búsqueda/filtro
     state.page = 0;
+    cardPositionCounter = 0;   // re-numerar posiciones desde 1
     infinite.loaded = 0; infinite.total = 0; infinite.loading = false; infinite.exhausted = false;
     $('.fb-results', modalEl).innerHTML = '';
     $('.fb-pager', modalEl).innerHTML = '';
@@ -365,9 +390,18 @@
 
     if (hits.length) {
       $('.fb-results', modalEl).insertAdjacentHTML('beforeend', hits.map(renderCard).join(''));
-    } else if (includeFacets) {
-      // primera página vacía
-      $('.fb-results', modalEl).innerHTML = `<div class="fb-empty">Sin resultados para "${escapeHtml(state.q)}"</div>`;
+    }
+    // Si en la primera página hay pocos resultados Y la query tiene >=3 chars,
+    // mostrar también una sección "Quizás buscabas..." con resultados puramente semánticos.
+    if (includeFacets && infinite.total < 3 && (state.q || '').trim().length >= 3) {
+      if (!hits.length) {
+        $('.fb-results', modalEl).innerHTML =
+          `<div class="fb-empty" style="grid-column:1/-1;">
+            <div style="font-size:16px;margin-bottom:4px;">Sin resultados para "${escapeHtml(state.q)}"</div>
+            <div style="font-size:13px;color:#9ca3af;">Buscando alternativas semánticas…</div>
+          </div>`;
+      }
+      showDidYouMean(state.q, hits.length > 0);
     }
 
     // Footer status
@@ -381,6 +415,35 @@
     }
 
     infinite.loading = false;
+  }
+
+  // "Quizás buscabas...": busca con puro semántico para sugerir alternativas.
+  // Se invoca cuando el resultado BM25/híbrido devuelve 0-2 resultados.
+  // append=true → añadir tras los pocos resultados existentes; false → reemplazar empty.
+  async function showDidYouMean(q, append) {
+    if (!q) return;
+    let alt;
+    try {
+      alt = await meiliSearch({ q, limit: 8, semanticRatio: 1.0 });
+    } catch (e) { return; }
+    const hits = (alt.hits || []).filter(h => h);
+    if (!hits.length) return;
+    const header =
+      `<div style="grid-column:1/-1;font-size:14px;color:#0084be;font-weight:600;
+                   border-top:1px solid #e5e7eb;margin-top:18px;padding-top:14px;">
+         Quizás buscabas también…
+       </div>`;
+    if (append) {
+      // Acumular tras los resultados existentes
+      $('.fb-results', modalEl).insertAdjacentHTML('beforeend', header + hits.map(renderCard).join(''));
+    } else {
+      // Reemplazar el "Sin resultados" placeholder
+      $('.fb-results', modalEl).innerHTML =
+        `<div class="fb-empty" style="grid-column:1/-1;text-align:left;padding:16px 4px 4px;">
+          <div style="font-size:16px;margin-bottom:2px;">Sin resultados para "${escapeHtml(q)}"</div>
+          <div style="font-size:14px;color:#0084be;font-weight:600;margin-top:14px;">Quizás buscabas…</div>
+        </div>` + hits.map(renderCard).join('');
+    }
   }
 
   function setupSentinel() {
@@ -403,12 +466,17 @@
     infinite.sentinelObs = obs;
   }
 
+  // contador de posición global para tracking LTR — se resetea al refrescar
+  let cardPositionCounter = 0;
+
   function renderCard(h) {
     const title = (h._formatted && h._formatted.title) || escapeHtml(h.title);
     const img   = h.image ? escapeHtml(h.image) : FALLBACK_IMG;
     const link  = escapeHtml(h.link || '#');
+    const pid   = escapeHtml(h.id || '');
+    const pos   = ++cardPositionCounter;
     return `
-      <a class="fb-card" href="${link}">
+      <a class="fb-card" href="${link}" data-fb-pid="${pid}" data-fb-pos="${pos}">
         <img src="${img}" loading="lazy" onerror="this.style.visibility='hidden'">
         <div class="fb-c-brand">${escapeHtml(h.brand || '')}</div>
         <div class="fb-c-title">${title}</div>
@@ -492,6 +560,7 @@
         const q = input.value.trim();
         if (!q) { setAnchorAndOpen(); return; }
         anchorInput = input;
+        // Match único (EAN/MPN exacto o 1 sólo resultado) → al producto
         try {
           const data = await meiliSearch({ q, limit: 2 });
           const hits  = data.hits || [];
@@ -501,19 +570,44 @@
             const qLow = q.toLowerCase();
             const exact = (h.ean && h.ean.toLowerCase() === qLow) ||
                           (h.mpn && h.mpn.toLowerCase() === qLow);
-            // Casos en los que llevamos al usuario al producto directamente:
-            //  - exact-match contra EAN o MPN (típico código de barras)
-            //  - 1 único resultado total (sin ambigüedad)
             if (exact || total === 1) {
               window.location.href = h.link;
               return;
             }
           }
-        } catch (_) { /* si falla la red, simplemente abrimos el modal */ }
-        openModal(q);
+        } catch (_) { /* si falla la red, vamos a la página de resultados igualmente */ }
+        // Múltiples resultados → página de resultados completa (estilo Doofinder)
+        window.location.href = '/search.php?description=1&auto=1&buscar=' + encodeURIComponent(q);
       });
     }
   }
+
+  // Click tracking LTR: cuando el cliente clica una tarjeta del modal, disparamos
+  // un beacon con (query, pid, position) para que el cron nocturno calcule popularity_score.
+  // Listener delegado en document para cubrir tarjetas creadas dinámicamente.
+  document.addEventListener('click', (e) => {
+    const card = e.target.closest('.fb-card[data-fb-pid]');
+    if (!card) return;
+    try {
+      const data = JSON.stringify({
+        q: state.q || '',
+        pid: card.dataset.fbPid,
+        position: parseInt(card.dataset.fbPos, 10) || 0,
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/track-click.php',
+          new Blob([data], { type: 'application/json' }));
+      } else {
+        // Fallback browsers viejos: fetch keepalive
+        fetch('/api/track-click.php', {
+          method: 'POST', body: data,
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+        }).catch(() => {});
+      }
+    } catch (_) { /* no romper navegación nunca */ }
+    // NO preventDefault — el <a> sigue su curso normalmente
+  });
 
   // Reposicionar el modal si cambia el tamaño de la ventana o se hace scroll
   window.addEventListener('resize', () => positionModal());

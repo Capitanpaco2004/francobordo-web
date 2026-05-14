@@ -97,6 +97,62 @@ function fb_trigger($which) {
     return @file_put_contents($path, date('c') . "\n") !== false;
 }
 
+function fb_flag_toggle($flag_path, $enabled) {
+    if ($enabled) {
+        return !file_exists($flag_path) || @unlink($flag_path);
+    } else {
+        return @file_put_contents($flag_path, date('c') . "\n") !== false;
+    }
+}
+
+function fb_learner_disabled_flag()    { return '/home/francobordo/_search/.learner-disabled'; }
+function fb_learner_is_enabled()       { return !file_exists(fb_learner_disabled_flag()); }
+function fb_learner_set_enabled($en)   { return fb_flag_toggle(fb_learner_disabled_flag(), $en); }
+
+function fb_popularity_disabled_flag() { return '/home/francobordo/_search/.popularity-disabled'; }
+function fb_popularity_is_enabled()    { return !file_exists(fb_popularity_disabled_flag()); }
+function fb_popularity_set_enabled($en){ return fb_flag_toggle(fb_popularity_disabled_flag(), $en); }
+
+function fb_read_log_tail_path($path, $n = 30) {
+    if (!is_readable($path)) return [];
+    $fp = @fopen($path, 'r');
+    if (!$fp) return [];
+    fseek($fp, 0, SEEK_END);
+    $size = ftell($fp);
+    if ($size === 0) { fclose($fp); return []; }
+    $buf = ''; $line_count = 0; $pos = $size;
+    while ($pos > 0 && $line_count <= $n) {
+        $read = min(8192, $pos); $pos -= $read;
+        fseek($fp, $pos);
+        $buf = fread($fp, $read) . $buf;
+        $line_count = substr_count($buf, "\n");
+    }
+    fclose($fp);
+    return array_slice(preg_split('/\r?\n/', trim($buf)), -$n);
+}
+
+function fb_parse_last_run_marker($lines, $marker) {
+    // Busca línea tipo "[YYYY-MM-DD HH:MM:SS] ======== marker start ========"
+    $last = null;
+    foreach (array_reverse($lines) as $line) {
+        if (preg_match('#^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*' . preg_quote($marker, '#') . '\s+(start|end)#i', $line, $m)) {
+            $last = ['ts' => $m[1], 'phase' => strtolower($m[2])];
+            break;
+        }
+    }
+    return $last;
+}
+
+function fb_apply_synonym($q_norm, $candidate) {
+    // Lee sinónimos actuales de Meili, añade el par bidireccional, los reescribe.
+    $cur = fb_meili_call('GET', '/indexes/products/settings/synonyms');
+    $syns = is_array($cur['data'] ?? null) ? $cur['data'] : [];
+    $syns[$q_norm]   = array_values(array_unique(array_merge($syns[$q_norm]   ?? [], [$candidate])));
+    $syns[$candidate] = array_values(array_unique(array_merge($syns[$candidate] ?? [], [$q_norm])));
+    $r = fb_meili_call('PUT', '/indexes/products/settings/synonyms', $syns);
+    return $r['code'] >= 200 && $r['code'] < 300;
+}
+
 function fb_parse_last_run($log_lines) {
     // formato: "[2026-05-12 16:10:32] -------- delta start --------"
     $last = null;
@@ -126,6 +182,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ? ['type' => 'success', 'msg' => 'Reindex completo encolado. Lo recoge el cron en <60s. Tarda ~1 min.']
                 : ['type' => 'error',   'msg' => 'No se pudo crear el trigger file. Revisa permisos en /home/francobordo/_search/'];
             break;
+        case 'learner_toggle':
+            $now_enabled = fb_learner_is_enabled();
+            if (fb_learner_set_enabled(!$now_enabled)) {
+                $flash = ['type' => 'success',
+                    'msg' => $now_enabled
+                        ? 'Aprendiz de sinónimos DESACTIVADO (no correrá el cron 03:50)'
+                        : 'Aprendiz de sinónimos ACTIVADO'];
+            } else {
+                $flash = ['type' => 'error', 'msg' => 'No se pudo cambiar el flag'];
+            }
+            break;
+        case 'popularity_toggle':
+            $now_enabled = fb_popularity_is_enabled();
+            if (fb_popularity_set_enabled(!$now_enabled)) {
+                $flash = ['type' => 'success',
+                    'msg' => $now_enabled
+                        ? 'Scorer de popularidad DESACTIVADO (no correrá el cron 03:25; los clicks siguen logueándose)'
+                        : 'Scorer de popularidad ACTIVADO'];
+            } else {
+                $flash = ['type' => 'error', 'msg' => 'No se pudo cambiar el flag'];
+            }
+            break;
+        case 'suggestion_approve':
+        case 'suggestion_reject':
+            $sid = (int)($_POST['sid'] ?? 0);
+            if ($sid > 0) {
+                $row = tep_db_fetch_array(tep_db_query(
+                    "SELECT q_norm, candidate FROM synonym_suggestions WHERE id=" . $sid));
+                if ($row) {
+                    if ($_POST['action'] === 'suggestion_approve') {
+                        if (fb_apply_synonym($row['q_norm'], $row['candidate'])) {
+                            tep_db_query("UPDATE synonym_suggestions
+                                SET status='approved', reviewed_at=NOW(),
+                                    reviewed_by=" . (int)$_SESSION['admin']['id'] . "
+                                WHERE id=" . $sid);
+                            $flash = ['type'=>'success', 'msg' =>
+                                "Sinónimo aplicado: {$row['q_norm']} ↔ {$row['candidate']}"];
+                        } else {
+                            $flash = ['type'=>'error', 'msg' => 'Error aplicando sinónimo a Meili'];
+                        }
+                    } else {
+                        tep_db_query("UPDATE synonym_suggestions
+                            SET status='rejected', reviewed_at=NOW(),
+                                reviewed_by=" . (int)$_SESSION['admin']['id'] . "
+                            WHERE id=" . $sid);
+                        $flash = ['type'=>'success', 'msg' => 'Rechazado'];
+                    }
+                }
+            }
+            break;
         case 'add_synonym':
             $key = strtolower(trim($_POST['syn_key']  ?? ''));
             $val = strtolower(trim($_POST['syn_val'] ?? ''));
@@ -151,6 +257,87 @@ $health = fb_meili_call('GET', '/health');
 $stats  = fb_meili_call('GET', '/indexes/products/stats');
 $syns   = fb_meili_call('GET', '/indexes/products/settings/synonyms');
 $tasks  = fb_meili_call('GET', '/tasks?limit=5');
+
+// ---------------- DATA: SINÓNIMOS ----------------
+$suggestions_by_query = [];
+$q_sug = tep_db_query("
+    SELECT id, q_norm, candidate, confidence, occurrences, sample_pids, created_at
+    FROM synonym_suggestions
+    WHERE status='pending'
+    ORDER BY occurrences DESC, q_norm, confidence DESC
+    LIMIT 200");
+while ($r = tep_db_fetch_array($q_sug)) {
+    $suggestions_by_query[$r['q_norm']][] = $r;
+}
+$num_pending = array_sum(array_map('count', $suggestions_by_query));
+
+$learner_log_lines = fb_read_log_tail_path('/home/francobordo/_search/logs/synonym_learner.log', 50);
+$learner_last_run = fb_parse_last_run_marker($learner_log_lines, 'synonym learner');
+
+// Aprobados y rechazados totales
+$counts_sug = tep_db_fetch_array(tep_db_query("
+    SELECT
+      SUM(status='approved') AS approved,
+      SUM(status='rejected') AS rejected,
+      SUM(status='pending')  AS pending
+    FROM synonym_suggestions"));
+
+// ---------------- DATA: POPULARITY ----------------
+$pop_log_lines = fb_read_log_tail_path('/home/francobordo/_search/logs/popularity.log', 50);
+$pop_last_run = fb_parse_last_run_marker($pop_log_lines, 'popularity scorer');
+
+$pop_stats = tep_db_fetch_array(tep_db_query("
+    SELECT COUNT(*) AS productos_con_clicks, MAX(score) AS max_score, AVG(score) AS avg_score,
+           SUM(clicks_7d) AS total_c7, SUM(clicks_30d) AS total_c30
+    FROM product_popularity"));
+
+$top_popular_query = tep_db_query("
+    SELECT pp.pid, pp.score, pp.clicks_7d, pp.clicks_30d, pd.products_name
+    FROM product_popularity pp
+    LEFT JOIN products_description pd ON pd.products_id = pp.pid AND pd.language_id = 3
+    WHERE pp.score > 0
+    ORDER BY pp.score DESC
+    LIMIT 10");
+$top_popular = [];
+while ($r = tep_db_fetch_array($top_popular_query)) $top_popular[] = $r;
+
+// ---------------- DATA: MÉTRICAS DE BÚSQUEDA ----------------
+$metrics = tep_db_fetch_array(tep_db_query("
+    SELECT
+      COUNT(*) AS total,
+      SUM(ts >= DATE_SUB(NOW(), INTERVAL 1  DAY)) AS d1,
+      SUM(ts >= DATE_SUB(NOW(), INTERVAL 7  DAY)) AS d7,
+      SUM(ts >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS d30,
+      SUM(top_score < 0.3 AND ts >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS low_score_7d
+    FROM search_events"));
+
+$top_queries_query = tep_db_query("
+    SELECT q_norm, COUNT(*) AS n, ROUND(AVG(top_score), 2) AS avg_score, MAX(q) AS sample
+    FROM search_events
+    WHERE ts >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    GROUP BY q_norm
+    ORDER BY n DESC
+    LIMIT 10");
+$top_queries = [];
+while ($r = tep_db_fetch_array($top_queries_query)) $top_queries[] = $r;
+
+$low_score_query = tep_db_query("
+    SELECT q_norm, COUNT(*) AS n, ROUND(AVG(top_score), 2) AS avg_score, MAX(q) AS sample
+    FROM search_events
+    WHERE ts >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND top_score IS NOT NULL
+    GROUP BY q_norm
+    HAVING n >= 2 AND avg_score < 0.4
+    ORDER BY n DESC
+    LIMIT 10");
+$low_score_queries = [];
+while ($r = tep_db_fetch_array($low_score_query)) $low_score_queries[] = $r;
+
+$clicks_total = tep_db_fetch_array(tep_db_query("
+    SELECT
+      COUNT(*) AS total,
+      SUM(ts >= DATE_SUB(NOW(), INTERVAL 1 DAY)) AS d1,
+      SUM(ts >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS d7
+    FROM click_events"));
 
 $log_lines = fb_read_log_tail(30);
 $last_run  = fb_parse_last_run($log_lines);
@@ -288,6 +475,227 @@ if ($test_q !== '') {
       <div class="fb-stat" style="font-size: 16px;">
         Delta cada 5 min<br>
         <small>Full diario 03:30</small>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUGERENCIAS DE SINÓNIMOS (Aprendiz nocturno) -->
+  <?php $learner_on = fb_learner_is_enabled(); ?>
+  <div class="fb-section">
+    <h2>🧠 Aprendiz de sinónimos
+      <?php if ($num_pending > 0): ?>
+        · <?= $num_pending ?> pendientes
+      <?php endif; ?>
+      <span style="font-size:12px;font-weight:normal;color:var(--muted);"> · queries que tus clientes hicieron y no encontraron</span>
+    </h2>
+
+    <!-- Toggle + stats del aprendiz de sinónimos -->
+    <div style="display:flex;align-items:center;gap:12px;background:#f9fafb;padding:10px 14px;border-radius:6px;margin-bottom:8px;">
+      <span style="font-size:13px;">
+        Cron 03:50:
+        <?php if ($learner_on): ?>
+          <span class="fb-badge fb-ok">● Activado</span>
+        <?php else: ?>
+          <span class="fb-badge fb-down">● Desactivado</span>
+        <?php endif; ?>
+      </span>
+      <span style="font-size:12px;color:var(--muted);">
+        última ejecución:
+        <?php if ($learner_last_run): ?>
+          <b><?= htmlspecialchars($learner_last_run['ts']) ?></b> (<?= $learner_last_run['phase'] ?>)
+        <?php else: ?>
+          — nunca
+        <?php endif; ?>
+      </span>
+      <span style="font-size:12px;color:var(--muted);">
+        · histórico: <b><?= (int)$counts_sug['approved'] ?></b> aprobadas, <b><?= (int)$counts_sug['rejected'] ?></b> rechazadas, <b><?= (int)$counts_sug['pending'] ?></b> pendientes
+      </span>
+      <form method="POST" style="margin-left:auto;">
+        <input type="hidden" name="<?= tep_session_name() ?>" value="<?= tep_session_id() ?>">
+        <button class="fb-btn fb-btn-ghost" name="action" value="learner_toggle" type="submit">
+          <?= $learner_on ? 'Desactivar' : 'Activar' ?>
+        </button>
+      </form>
+    </div>
+
+    <?php if ($num_pending === 0): ?>
+      <p style="color:var(--muted);font-size:13px;">
+        <?php if ($learner_on): ?>
+          No hay sugerencias pendientes ahora mismo. El cron analiza las búsquedas de los últimos 7 días cada noche.
+        <?php else: ?>
+          No habrá nuevas sugerencias hasta que reactives el cron.
+        <?php endif; ?>
+      </p>
+    <?php endif; ?>
+    <?php if ($num_pending > 0): foreach ($suggestions_by_query as $qnorm => $rows): ?>
+      <div style="background:#f9fafb;padding:12px;border-radius:6px;margin-bottom:10px;">
+        <div style="font-size:14px;margin-bottom:8px;">
+          Cliente buscó: <b><?= htmlspecialchars($qnorm) ?></b>
+          <span style="color:var(--muted);font-size:12px;">
+            (<?= (int)$rows[0]['occurrences'] ?>x, sin encontrar nada bueno)
+          </span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <?php foreach ($rows as $r): ?>
+            <form method="POST" style="display:inline;">
+              <input type="hidden" name="<?= tep_session_name() ?>" value="<?= tep_session_id() ?>">
+              <input type="hidden" name="sid" value="<?= (int)$r['id'] ?>">
+              <span style="display:inline-flex;align-items:center;gap:4px;background:white;border:1px solid var(--border);border-radius:999px;padding:4px 10px;">
+                <span><?= htmlspecialchars($qnorm) ?> ↔ <b><?= htmlspecialchars($r['candidate']) ?></b></span>
+                <span style="color:#9ca3af;font-size:11px;">(<?= round($r['confidence']*100) ?>%)</span>
+                <button name="action" value="suggestion_approve" type="submit"
+                        title="Aplicar este sinónimo en Meili"
+                        style="background:#10b981;color:white;border:0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;">✓</button>
+                <button name="action" value="suggestion_reject" type="submit"
+                        title="Descartar"
+                        style="background:#ef4444;color:white;border:0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;">✗</button>
+              </span>
+            </form>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    <?php endforeach; endif; ?>
+    <?php if ($num_pending > 0): ?>
+    <p style="color:var(--muted);font-size:12px;margin-top:8px;">
+      Aprobar añade el sinónimo bidireccional a Meili al instante. Rechazar marca la sugerencia como descartada (no volverá a aparecer).
+    </p>
+    <?php endif; ?>
+  </div>
+
+  <!-- 📊 SCORER DE POPULARIDAD (LTR Nivel 1) -->
+  <?php $pop_on = fb_popularity_is_enabled(); ?>
+  <div class="fb-section">
+    <h2>📊 Scorer de popularidad
+      <span style="font-size:12px;font-weight:normal;color:var(--muted);"> · clicks de clientes que dan boost a productos buenos en el ranking</span>
+    </h2>
+    <div style="display:flex;align-items:center;gap:12px;background:#f9fafb;padding:10px 14px;border-radius:6px;margin-bottom:14px;flex-wrap:wrap;">
+      <span style="font-size:13px;">
+        Cron 03:25:
+        <?php if ($pop_on): ?>
+          <span class="fb-badge fb-ok">● Activado</span>
+        <?php else: ?>
+          <span class="fb-badge fb-down">● Desactivado</span>
+        <?php endif; ?>
+      </span>
+      <span style="font-size:12px;color:var(--muted);">
+        última ejecución:
+        <?php if ($pop_last_run): ?>
+          <b><?= htmlspecialchars($pop_last_run['ts']) ?></b> (<?= $pop_last_run['phase'] ?>)
+        <?php else: ?>
+          — nunca
+        <?php endif; ?>
+      </span>
+      <span style="font-size:12px;color:var(--muted);">
+        · clicks totales: <b><?= number_format((int)$clicks_total['total'], 0, ',', '.') ?></b>
+        (24h: <?= (int)$clicks_total['d1'] ?> · 7d: <?= (int)$clicks_total['d7'] ?>)
+      </span>
+      <span style="font-size:12px;color:var(--muted);">
+        · productos con score: <b><?= (int)$pop_stats['productos_con_clicks'] ?></b>
+      </span>
+      <form method="POST" style="margin-left:auto;">
+        <input type="hidden" name="<?= tep_session_name() ?>" value="<?= tep_session_id() ?>">
+        <button class="fb-btn fb-btn-ghost" name="action" value="popularity_toggle" type="submit">
+          <?= $pop_on ? 'Desactivar' : 'Activar' ?>
+        </button>
+      </form>
+    </div>
+
+    <?php if (!empty($top_popular)): ?>
+      <h3 style="font-size:13px;text-transform:uppercase;color:var(--muted);margin:14px 0 8px;">Top 10 productos por popularidad</h3>
+      <table style="width:100%;font-size:13px;border-collapse:collapse;">
+        <thead>
+          <tr style="text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">
+            <th style="padding:6px;">PID</th><th>Producto</th><th style="text-align:right;">Score</th><th style="text-align:right;">7d</th><th style="text-align:right;">30d</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($top_popular as $tp): ?>
+            <tr style="border-bottom:1px solid #f3f4f6;">
+              <td style="padding:6px;"><?= (int)$tp['pid'] ?></td>
+              <td><?= htmlspecialchars(mb_substr($tp['products_name'] ?? '', 0, 70)) ?></td>
+              <td style="text-align:right;"><b><?= number_format($tp['score'], 2, ',', '.') ?></b></td>
+              <td style="text-align:right;"><?= (int)$tp['clicks_7d'] ?></td>
+              <td style="text-align:right;"><?= (int)$tp['clicks_30d'] ?></td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    <?php else: ?>
+      <p style="color:var(--muted);font-size:13px;">Aún no hay clicks suficientes — esperando que clientes empiecen a usar el buscador y a hacer clic en productos.</p>
+    <?php endif; ?>
+  </div>
+
+  <!-- 📈 MÉTRICAS DE BÚSQUEDA -->
+  <div class="fb-section">
+    <h2>📈 Métricas de búsqueda
+      <span style="font-size:12px;font-weight:normal;color:var(--muted);"> · qué buscan tus clientes y qué tal se les responde</span>
+    </h2>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+      <div style="background:#f9fafb;padding:10px 16px;border-radius:6px;font-size:13px;">
+        Búsquedas hoy: <b><?= number_format((int)$metrics['d1'], 0, ',', '.') ?></b>
+      </div>
+      <div style="background:#f9fafb;padding:10px 16px;border-radius:6px;font-size:13px;">
+        Búsquedas últimos 7 días: <b><?= number_format((int)$metrics['d7'], 0, ',', '.') ?></b>
+      </div>
+      <div style="background:#f9fafb;padding:10px 16px;border-radius:6px;font-size:13px;">
+        Búsquedas últimos 30 días: <b><?= number_format((int)$metrics['d30'], 0, ',', '.') ?></b>
+      </div>
+      <div style="background:#fef3c7;padding:10px 16px;border-radius:6px;font-size:13px;">
+        Con match débil (score<0.3, 7d): <b><?= number_format((int)$metrics['low_score_7d'], 0, ',', '.') ?></b>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+      <!-- Top búsquedas -->
+      <div>
+        <h3 style="font-size:13px;text-transform:uppercase;color:var(--muted);margin:0 0 8px;">🔥 Top búsquedas (7 días)</h3>
+        <?php if ($top_queries): ?>
+          <table style="width:100%;font-size:13px;border-collapse:collapse;">
+            <thead>
+              <tr style="text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">
+                <th style="padding:6px;">Query</th><th style="text-align:right;">Veces</th><th style="text-align:right;">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($top_queries as $tq): ?>
+                <tr style="border-bottom:1px solid #f3f4f6;">
+                  <td style="padding:6px;"><?= htmlspecialchars(mb_substr($tq['sample'], 0, 40)) ?></td>
+                  <td style="text-align:right;"><b><?= (int)$tq['n'] ?></b></td>
+                  <td style="text-align:right;color:<?= $tq['avg_score'] >= 0.7 ? '#10b981' : ($tq['avg_score'] >= 0.4 ? '#f59e0b' : '#ef4444') ?>;">
+                    <?= $tq['avg_score'] ?? '?' ?>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php else: ?>
+          <p style="color:var(--muted);font-size:13px;">Sin datos aún.</p>
+        <?php endif; ?>
+      </div>
+      <!-- Queries con score bajo (oportunidades) -->
+      <div>
+        <h3 style="font-size:13px;text-transform:uppercase;color:var(--muted);margin:0 0 8px;">⚠ Queries con match débil (oportunidades)</h3>
+        <?php if ($low_score_queries): ?>
+          <table style="width:100%;font-size:13px;border-collapse:collapse;">
+            <thead>
+              <tr style="text-align:left;color:var(--muted);border-bottom:1px solid var(--border);">
+                <th style="padding:6px;">Query</th><th style="text-align:right;">Veces</th><th style="text-align:right;">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($low_score_queries as $lq): ?>
+                <tr style="border-bottom:1px solid #f3f4f6;">
+                  <td style="padding:6px;"><?= htmlspecialchars(mb_substr($lq['sample'], 0, 40)) ?></td>
+                  <td style="text-align:right;"><b><?= (int)$lq['n'] ?></b></td>
+                  <td style="text-align:right;color:#ef4444;"><?= $lq['avg_score'] ?? '?' ?></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+          <p style="color:var(--muted);font-size:11px;margin-top:6px;">El aprendiz nocturno propondrá sinónimos para estas queries — si no aparecen, considera añadirlos a mano abajo.</p>
+        <?php else: ?>
+          <p style="color:var(--muted);font-size:13px;">Sin queries problemáticas ahora mismo. 🎉</p>
+        <?php endif; ?>
       </div>
     </div>
   </div>

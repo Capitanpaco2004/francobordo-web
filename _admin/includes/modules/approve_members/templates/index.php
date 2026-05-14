@@ -41,7 +41,7 @@
 								<ul class="down down-dngt">
 									<li><a href="<?php echo tep_href_link(FILENAME_CUSTOMERS, tep_get_all_get_params(['cID', 'action']) . 'cID=' . $customers['customers_id'] . '&action=edit') ?>" class="hv"><i class="fa fa-pencil"></i><?php echo TEXT_EDIT_MEMBER ?></a></li>
 									<li><a href="<?php echo tep_href_link( $sUrlPage, 'action=accept&id=' . $customers['customers_id'] ) ?>" class="hv"><i class="fa fa-check-circle"></i><?php echo TEXT_ACTIVATE_MEMBER ?></a></li>
-									<li><a href="<?php echo tep_href_link( $sUrlPage, 'action=confirm&id=' . $customers['customers_id'] ) ?>" class="hv"><i class="fa fa-trash-can"></i><?php echo TEXT_DELETE_MEMBER ?></a></li>
+									<li><a href="<?php echo tep_href_link( $sUrlPage, 'action=confirm&id=' . $customers['customers_id'] ) ?>" class="hv"><i class="fa fa-circle-xmark"></i><?php echo TEXT_DELETE_MEMBER ?></a></li>
 								</ul>
 							</div>
 						</td>

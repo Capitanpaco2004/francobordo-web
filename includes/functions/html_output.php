@@ -158,7 +158,7 @@ function tep_image_thumb($sImagen, $nWidth, $nHeight, $sDefault = '', $forInstag
 			// Redimensionar la imagen para llenar el espacio disponible sin agregar espacios en blanco
 			$image->cover($nWidth, $nHeight);
 		} else {
-			$image->pad($nWidth, $nHeight, 'transparent'); // rellena con transparencia
+			$image->pad($nWidth, $nHeight, 'ffffff'); // rellena con blanco (JPG no soporta alpha)
 		}
 
 		// encode edited image
@@ -191,14 +191,13 @@ function tep_image($src, $alt = '', $width = '', $height = '', $params = '', $bS
 		$params = str_replace('class="'.  $classProperty . '"', '', $params);
 	}
 
+    if( ! $bSize )
+    {
+        $src = tep_image_thumb($src, $width, $height, '', $forInstagram);
+    }
+
     // Set default image variable and code
     $image = '<img ' . ($bLazyLoad ? 'class="lazy ' . $classProperty . '" data-' : '') . 'src="' . $src . '"';
-
-	if( ! $bSize )
-	{
-		$src = tep_image_thumb($src, $width, $height, '', $forInstagram);
-		$image = '<img ' . ($bLazyLoad ? 'class="lazy ' . $classProperty . '" data-' : '') . 'src="' . $src . '"';
-	}
 
     // Add remaining image parameters if they exist
     if ($width) {
@@ -219,8 +218,16 @@ function tep_image($src, $alt = '', $width = '', $height = '', $params = '', $bS
 
     $image .= ' />';
 
+    // Fase C: si existe un .webp hermano del src, envolver en <picture> con <source type="image/webp">
+    $srcNoQuery = preg_replace('/\?.*$/', '', $src);
+    $srcWebp = preg_replace('/\.(jpg|jpeg|png|gif)$/i', '.webp', $srcNoQuery);
+    if ($srcWebp !== $srcNoQuery && @file_exists($srcWebp)) {
+        $srcsetAttr = $bLazyLoad ? 'data-srcset' : 'srcset';
+        $image = '<picture><source ' . $srcsetAttr . '="' . $srcWebp . '" type="image/webp" />' . $image . '</picture>';
+    }
+
     if ($bLazyLoad && $bNoscript) {
-    	$image .= '<noscript>' . str_replace('data-src', 'src', $image) . '</noscript>';
+    	$image .= '<noscript>' . str_replace(['data-src', 'data-srcset'], ['src', 'srcset'], $image) . '</noscript>';
     }
 
     return $image;

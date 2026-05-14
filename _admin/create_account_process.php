@@ -57,7 +57,6 @@ if (!@$_POST['action']) {
   /////////////////      RAMDOMIZING SCRIPT BY PATRIC VEVERKA       \\\\\\\\\\\\\\\\\\
 
 $t1 = date("mdy");
-srand ((float) microtime() * 10000000);
 $input = array ("A", "a", "B", "b", "C", "c", "D", "d", "E", "e", "F", "f", "G", "g", "H", "h", "I", "i", "J", "j", "K", "k", "L", "l", "M", "m", "N", "n", "O", "o", "P", "p", "Q", "q", "R", "r", "S", "s", "T", "t", "U", "u", "V", "v", "W", "w", "X", "x", "Y", "y", "Z", "z");
 $rand_keys = array_rand ($input, 3);
 $l1 = $input[$rand_keys[0]];

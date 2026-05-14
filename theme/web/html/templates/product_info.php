@@ -23,8 +23,11 @@ $bSpecifications = tep_has_specifications( $aProductoInfo['products_id'] );
 echo tep_draw_form('cart_quantity', tep_href_link('product_info.php', tep_get_all_get_params(array('action')) . 'action=add_product'), 'post', 'id="fich" class="xprdt web-cntd ax row atop ' . $aProductoInfo['CLASS'] . '" data-stock="' . (int)$aProductoInfo['products_quantity'] . '" data-check-stock="' . (int)$aProductoInfo['check_stock'] . '" data-product-name="' . htmlspecialchars($aProductoInfo['products_name'], ENT_QUOTES) . '" onsubmit="return false;"');
 
 	echo '<div class="col a06 t12 m12 left">';
+		// Solo renderizamos la capa .offr cuando el producto está en oferta;
+		// si no, era una caja blanca position:absolute z-index:1 background:#fff que tapaba la esquina superior de la imagen.
+		if ($aProductoInfo['CLASS_OFERTA'] != '') {
 		echo '<div class="offr d-flex">';
-			echo ($aProductoInfo['CLASS_OFERTA'] != '' ? '<div class="icon"><span>' . $aProductoInfo['OFERTA_PORCENTAJE'] . '</span></div>' : '');
+			echo '<div class="icon"><span>' . $aProductoInfo['OFERTA_PORCENTAJE'] . '</span></div>';
 			echo '<div class="wrpr-offr flex-grow-1">';
 				$bLastStock = false;
 				if (defined('SHOW_LEFT_UNITS_OFFER_IPS'))
@@ -56,6 +59,7 @@ echo tep_draw_form('cart_quantity', tep_href_link('product_info.php', tep_get_al
 				}
 			echo '</div>';
 		echo '</div>';
+		} // end if CLASS_OFERTA
 
 		// Icono promocion
 		$bPromo = false;

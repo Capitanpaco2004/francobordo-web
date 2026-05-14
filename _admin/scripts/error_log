@@ -17,3 +17,5 @@ Stack trace:
 [12-May-2026 09:39:43 Europe/Madrid] PHP Warning:  PHP Startup: session.gc_divisor must be greater than 0 in Unknown on line 0
 [13-May-2026 03:50:01 Europe/Madrid] PHP Deprecated:  Using ${var} in strings is deprecated, use {$var} instead in /home/francobordo/public_html/_admin/scripts/sync_products_stock.php on line 143
 [13-May-2026 03:50:01 Europe/Madrid] PHP Deprecated:  Using ${var} in strings is deprecated, use {$var} instead in /home/francobordo/public_html/_admin/scripts/sync_products_stock.php on line 156
+[14-May-2026 03:50:02 Europe/Madrid] PHP Deprecated:  Using ${var} in strings is deprecated, use {$var} instead in /home/francobordo/public_html/_admin/scripts/sync_products_stock.php on line 143
+[14-May-2026 03:50:02 Europe/Madrid] PHP Deprecated:  Using ${var} in strings is deprecated, use {$var} instead in /home/francobordo/public_html/_admin/scripts/sync_products_stock.php on line 156

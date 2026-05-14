@@ -2395,9 +2395,9 @@ function getImagenBannerDestacado($nId, $nIdIdioma, $sTipo)
     }
 
     if (count($matches) > 0) {
-        // Preferir png/jpg sobre webp para máxima compatibilidad
-        $matchesNoWebp = array_values(array_filter($matches, function($f) { return !preg_match('/\.webp$/i', $f); }));
-        $matches = count($matchesNoWebp) > 0 ? $matchesNoWebp : array_values($matches);
+        // Preferir webp (más ligero) y caer en png/jpg si no existe
+        $matchesWebp = array_values(array_filter($matches, function($f) { return preg_match('/\.webp$/i', $f); }));
+        $matches = count($matchesWebp) > 0 ? $matchesWebp : array_values($matches);
         return DIR_WS_IMAGES . 'banners_destacados/' . $matches[0];
     }
 
