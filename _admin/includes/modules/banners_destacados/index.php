@@ -289,8 +289,8 @@
 						var aLanguages = ' . json_encode( $aLanguages ) . ';
 					</script>';
 
-			$aJs = [ 'includes/modules/banners_destacados/js/index.js' ];
-			$aStyle = [ 'includes/modules/banners_destacados/css/style.css' ];
+			$aJs = [ 'includes/modules/banners_destacados/js/index.js?v=' . @filemtime( __DIR__ . '/js/index.js' ) ];
+			$aStyle = [ 'includes/modules/banners_destacados/css/style.css?v=' . @filemtime( __DIR__ . '/css/style.css' ) ];
 
 			// Formulario
 			$sHtml .= '<div class="oeBox column a12 row ax">';

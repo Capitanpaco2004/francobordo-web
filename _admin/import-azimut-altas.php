@@ -43,6 +43,7 @@ if ($onlyCodesRaw !== '') {
 // Si hay codes específicos, ignoramos $max (el usuario ya es explícito)
 $maxOverridden = 0;
 if (!empty($onlyCodes) && $max > 0) { $maxOverridden = $max; $max = 0; }
+$brandFilter = trim((string) ($_POST['brand'] ?? $_GET['brand'] ?? ''));
 
 /** Redondea un PVP NETO de modo que el precio CON IVA quede en múltiplo de 0.05.
  *  El cliente ve el precio con IVA; ése es el que debe acabar en .X0/.X5. */
@@ -117,6 +118,30 @@ function azNormalizeManufacturer($name) {
 		}
 	}
 	return implode(' ', $out);
+}
+
+/**
+ * Escaneo ligero del CSV: devuelve la lista de fabricantes distintos (normalizados,
+ * ordenados) para poblar el desplegable del formulario. Solo lee la columna Fabricante.
+ */
+function azDistinctManufacturers($path) {
+	$f = @fopen($path, 'r');
+	if (!$f) return [];
+	stream_filter_append($f, 'convert.iconv.ISO-8859-1/UTF-8');
+	$header = fgetcsv($f, 0, ',', '"', '');
+	if (!$header) { fclose($f); return []; }
+	$idx = array_flip($header);
+	$col = $idx['Fabricante'] ?? null;
+	if ($col === null) { fclose($f); return []; }
+	$seen = [];
+	while (($r = fgetcsv($f, 0, ',', '"', '')) !== false) {
+		$norm = azNormalizeManufacturer($r[$col] ?? '');
+		if ($norm !== '') $seen[$norm] = true;
+	}
+	fclose($f);
+	$list = array_keys($seen);
+	natcasesort($list);
+	return array_values($list);
 }
 
 function resolveManufacturer($mysqli, $rawName, &$cache, &$createdLog, $dryRun) {
@@ -302,7 +327,7 @@ if ($isAction) {
 echo str_pad('<!-- streaming pad -->', 4096) . "\n";
 @flush();
 
-logMsg("Modo: " . ($dryRun ? "dry-run" : "EXECUTE") . ($skipTranslation ? " (sin traducción LLM)" : "") . ($max > 0 ? ", max=$max" : ""));
+logMsg("Modo: " . ($dryRun ? "dry-run" : "EXECUTE") . ($skipTranslation ? " (sin traducción LLM)" : "") . ($brandFilter !== '' ? " | filtro marca='$brandFilter'" : "") . ($max > 0 ? ", max=$max" : ""));
 
 if (!file_exists(AZIMUT_CSV)) { logMsg("ERROR: CSV no encontrado: " . AZIMUT_CSV); goto end_action; }
 logMsg("Leyendo CSV…");
@@ -323,6 +348,7 @@ $skippedNoCode = 0;
 $skippedNoName = 0;
 $skippedBadPrice = 0;
 $skippedNoImg = 0;
+$skippedBrand = 0;
 $imgOk = 0;
 $imgFail = 0;
 $imgEmpty = 0;
@@ -340,6 +366,7 @@ foreach ($rows as $row) {
 	$name = $row['ProductName'];
 	if ($pc === '') { $skippedNoCode++; continue; }
 	if ($name === '') { $skippedNoName++; continue; }
+	if ($brandFilter !== '' && azNormalizeManufacturer($row['Fabricante']) !== $brandFilter) { $skippedBrand++; continue; }
 	// Filtro por codes específicos (acepta versión con y sin espacios)
 	if (!empty($onlyCodes)) {
 		if (!isset($onlyCodes[$pc]) && !isset($onlyCodes[str_replace(' ', '', $pc)])) continue;
@@ -484,6 +511,7 @@ logMsg("SKIP sin código: $skippedNoCode");
 logMsg("SKIP sin nombre: $skippedNoName");
 logMsg("SKIP precio inválido: $skippedBadPrice");
 logMsg("SKIP sin imagen: $skippedNoImg");
+if ($brandFilter !== '') logMsg("SKIP por filtro de marca ('$brandFilter'): $skippedBrand");
 logMsg("Imágenes OK: $imgOk | fail: $imgFail | sin URL: $imgEmpty");
 logMsg("Traducciones fallidas: $translateFail");
 logMsg("Errores INSERT: $errors");
@@ -514,6 +542,16 @@ end_action:
 		</p>
 		<p>
 			<label><input type="checkbox" name="skip_translation" value="1"> Saltar traducción LLM (mucho más rápido)</label>
+		</p>
+		<p>
+			<label>Filtrar por fabricante:
+			<select name="brand" style="padding:4px;max-width:100%;">
+				<option value="">Todos</option>
+<?php foreach (azDistinctManufacturers(AZIMUT_CSV) as $__b): ?>
+				<option value="<?php echo htmlspecialchars($__b); ?>"<?php echo (($_GET['brand'] ?? '') === $__b) ? ' selected' : ''; ?>><?php echo htmlspecialchars($__b); ?></option>
+<?php endforeach; ?>
+			</select>
+			</label>
 		</p>
 		<p>
 			Inserts máximos por ejecución (0 = sin límite):

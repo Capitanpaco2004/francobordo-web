@@ -7,6 +7,17 @@
 
 	$(document).ready(function()
 	{
+		// Cambio de idioma de la imagen del banner. Va al principio del ready para correr
+		// aunque falle algo mas abajo. Namespace propio (click.banner_image_lang) para que
+		// solenopsis/js/form.js no lo borre con su .unbind("click.form_input_language").
+		// Bind directo al <a> (no delegado): dropdown.js hace e.stopPropagation() en #dpl-img,
+		// asi que un handler delegado en document nunca recibiria el click.
+		$("#dpl-img .down a").off("click.banner_image_lang").on("click.banner_image_lang", function()
+		{
+			$(".banner-imagen .imge div").css("display", "none");
+			$(".banner-imagen .imge div[data-id=" + $(this).data("id") + "]").css("display", "block");
+		});
+
 		// Eventos para los puntos
 		var fnEventTablePuntos = function(nTotalTr, nRespn)
 		{
@@ -199,15 +210,6 @@
 			$(".banner-imagen" + ($("#pnt-rsp").val() == "web" ? ".vrsweb" : ".vrstablet") + " .pnto[data-id=" + $("#pnt-edt").val() + "]").remove();
 			$("#dialog-products").dialog("close");
 		})
-
-		$("#dpl-img .down a").unbind("click.form_input_language").bind("click.form_input_language", function()
-		{
-			// Ocultamos
-			$(".banner-imagen .imge div").css("display", "none");
-
-			// Mostramos
-			$(".banner-imagen .imge div[data-id=" + $(this).data("id") + "]").css("display", "block");
-		});
 
 		// Foco
 		setTimeout( function(){$("#autocomplete").focus();}, 500 );

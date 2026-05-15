@@ -3152,6 +3152,14 @@ function getImagenBannerDestacado($nId, $nIdIdioma, $sTipo = '', $bImagen = true
 		$matches = preg_grep('/^' . $nId . '_' . $nIdIdioma . '_/i', $aImagenes);
 	}
 
+	// Preferir formato nuevo {id}_{lang}_{tipo} sobre legacy Media Manager {id}_{lang}_g_{slug}
+	$matchesNoLegacy = array_values(array_filter($matches, function($f) use ($nId, $nIdIdioma) {
+		return !preg_match('/^' . $nId . '_' . $nIdIdioma . '_g_/i', $f);
+	}));
+	if (count($matchesNoLegacy) > 0) {
+		$matches = $matchesNoLegacy;
+	}
+
 	// Filtrar webp para mostrar jpg/png preferentemente
 	$matchesNoWebp = array_values(array_filter($matches, function($f) { return !preg_match('/\.webp$/i', $f); }));
 	if (count($matchesNoWebp) > 0) {

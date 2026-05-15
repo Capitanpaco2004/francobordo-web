@@ -121,12 +121,6 @@
                 <span class="dot" id="dash-refresh-dot"></span>
                 <span id="dash-refresh-label">Auto-refresh: 5m</span>
             </div>
-            <?php if (tep_admin_check_boxes('orders.php')): ?>
-            <a class="dash-btn" href="orders.php"><i class="fa fa-shopping-cart"></i> Pedidos</a>
-            <?php endif; ?>
-            <?php if (tep_admin_check_boxes('customers.php')): ?>
-            <a class="dash-btn" href="customers.php"><i class="fa fa-users"></i> Clientes</a>
-            <?php endif; ?>
             <button class="dash-btn" id="dash-edit-btn"><i class="fa fa-th-large"></i> Editar Layout</button>
             <button class="dash-btn dash-btn-reset" id="dash-reset-btn" style="display:none;" title="Restaurar layout por defecto"><i class="fa fa-undo"></i> Reset</button>
             <button class="dash-btn" id="dash-config-btn"><i class="fa fa-cog"></i> Configurar</button>

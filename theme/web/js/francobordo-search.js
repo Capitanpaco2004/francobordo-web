@@ -13,7 +13,62 @@
 (function () {
   'use strict';
 
-  const PROXY_URL    = '/api/search-proxy.php?endpoint=search';
+  // ---------- idioma ----------
+  // La web sirve <html lang="es-ES"> o <html lang="en"> según el idioma activo.
+  const PAGE_LANG = ((document.documentElement.lang || 'es').toLowerCase().startsWith('en'))
+    ? 'en' : 'es';
+
+  const I18N = {
+    es: {
+      placeholder:   '¿Qué estás buscando?',
+      hd_info:       'Resultados de búsqueda en directo · escribe arriba',
+      close:         '✕ Cerrar',
+      marca:         'Marca',
+      categoria:     'Categoría',
+      precio:        'Precio (€)',
+      disponibilidad:'Disponibilidad',
+      limpiar:       'Limpiar filtros',
+      relevancia:    'Relevancia',
+      precio_asc:    'Precio: menor a mayor',
+      precio_desc:   'Precio: mayor a menor',
+      resultados:    'resultados',
+      filtros:       'Filtros',
+      sin_resultados:'Sin resultados para',
+      quizas:        'Quizás buscabas…',
+      quizas_tambien:'Quizás buscabas también…',
+      visto_todos:   'Has visto los',
+      visto_todos2:  'resultados',
+      con_stock:     'Con stock',
+      sin_stock:     'Sin stock',
+      error:         'Error de búsqueda. Intenta de nuevo.',
+    },
+    en: {
+      placeholder:   'What are you looking for?',
+      hd_info:       'Live search results · type above',
+      close:         '✕ Close',
+      marca:         'Brand',
+      categoria:     'Category',
+      precio:        'Price (€)',
+      disponibilidad:'Availability',
+      limpiar:       'Clear filters',
+      relevancia:    'Relevance',
+      precio_asc:    'Price: low to high',
+      precio_desc:   'Price: high to low',
+      resultados:    'results',
+      filtros:       'Filters',
+      sin_resultados:'No results for',
+      quizas:        'Did you mean…',
+      quizas_tambien:'You might also be looking for…',
+      visto_todos:   'You have seen all',
+      visto_todos2:  'results',
+      con_stock:     'In stock',
+      sin_stock:     'Out of stock',
+      error:         'Search error. Please try again.',
+    },
+  };
+  const T = I18N[PAGE_LANG];
+
+  const PROXY_URL    = '/api/search-proxy.php?endpoint=search&lang=' + PAGE_LANG;
   const DEBOUNCE_MS  = 150;
   const MIN_CHARS    = 2;
   const PAGE_SIZE    = 24;
@@ -221,16 +276,16 @@
     modalEl.innerHTML = `
       <div class="fb-modal-body">
         <div class="fb-hd">
-          <input class="fb-hd-mobile-input" type="search" placeholder="¿Qué estás buscando?" autocomplete="off">
-          <span class="fb-hd-info">Resultados de búsqueda en directo · escribe arriba</span>
-          <button class="fb-hd-close" aria-label="Cerrar">✕ Cerrar</button>
+          <input class="fb-hd-mobile-input" type="search" placeholder="${T.placeholder}" autocomplete="off">
+          <span class="fb-hd-info">${T.hd_info}</span>
+          <button class="fb-hd-close" aria-label="${T.close}">${T.close}</button>
         </div>
         <div class="fb-content">
           <aside class="fb-facets">
-            <div class="fb-facet" data-attr="brand"><h3>Marca</h3><div class="fb-facet-list"></div></div>
-            <div class="fb-facet" data-attr="category_lvl0"><h3>Categoría</h3><div class="fb-facet-list"></div></div>
+            <div class="fb-facet" data-attr="brand"><h3>${T.marca}</h3><div class="fb-facet-list"></div></div>
+            <div class="fb-facet" data-attr="category_lvl0"><h3>${T.categoria}</h3><div class="fb-facet-list"></div></div>
             <div class="fb-facet">
-              <h3>Precio (€)</h3>
+              <h3>${T.precio}</h3>
               <div class="fb-price-range">
                 <input type="number" class="fb-pmin" placeholder="min" min="0">
                 <span>—</span>
@@ -238,16 +293,16 @@
                 <button class="fb-papply">OK</button>
               </div>
             </div>
-            <div class="fb-facet" data-attr="availability"><h3>Disponibilidad</h3><div class="fb-facet-list"></div></div>
-            <button class="fb-reset">Limpiar filtros</button>
+            <div class="fb-facet" data-attr="availability"><h3>${T.disponibilidad}</h3><div class="fb-facet-list"></div></div>
+            <button class="fb-reset">${T.limpiar}</button>
           </aside>
           <section class="fb-main">
             <div class="fb-toolbar">
               <div><span class="fb-counter"></span><span class="fb-timing"></span></div>
               <select class="fb-sort">
-                <option value="">Relevancia</option>
-                <option value="price:asc">Precio: menor a mayor</option>
-                <option value="price:desc">Precio: mayor a menor</option>
+                <option value="">${T.relevancia}</option>
+                <option value="price:asc">${T.precio_asc}</option>
+                <option value="price:desc">${T.precio_desc}</option>
               </select>
             </div>
             <div class="fb-results-wrap">
@@ -257,7 +312,7 @@
           </section>
         </div>
         <button class="fb-mobile-filter-btn" type="button" style="display:none">
-          Filtros<span class="fb-fc-badge" style="display:none">0</span>
+          ${T.filtros}<span class="fb-fc-badge" style="display:none">0</span>
         </button>
       </div>`;
     document.body.appendChild(modalEl);
@@ -368,7 +423,7 @@
     } catch (e) {
       infinite.loading = false;
       $('.fb-results', modalEl).insertAdjacentHTML('beforeend',
-        `<div class="fb-empty">Error: ${escapeHtml(e.message)}</div>`);
+        `<div class="fb-empty">${T.error}</div>`);
       return;
     }
     const dt = Math.round(performance.now() - t0);
@@ -382,7 +437,7 @@
 
     // Counter + timing solo en la primera página (no spam en cada scroll)
     if (includeFacets) {
-      $('.fb-counter', modalEl).innerHTML = `<b>${infinite.total.toLocaleString('es-ES')}</b> resultados`;
+      $('.fb-counter', modalEl).innerHTML = `<b>${infinite.total.toLocaleString('es-ES')}</b> ${T.resultados}`;
       $('.fb-timing', modalEl).textContent = ` · ${dt} ms (meili ${data.processingTimeMs ?? '?'} ms)`;
       renderFacets(data.facetDistribution);
       updateMobileBadge();
@@ -397,8 +452,8 @@
       if (!hits.length) {
         $('.fb-results', modalEl).innerHTML =
           `<div class="fb-empty" style="grid-column:1/-1;">
-            <div style="font-size:16px;margin-bottom:4px;">Sin resultados para "${escapeHtml(state.q)}"</div>
-            <div style="font-size:13px;color:#9ca3af;">Buscando alternativas semánticas…</div>
+            <div style="font-size:16px;margin-bottom:4px;">${T.sin_resultados} "${escapeHtml(state.q)}"</div>
+            <div style="font-size:13px;color:#9ca3af;">${T.quizas}</div>
           </div>`;
       }
       showDidYouMean(state.q, hits.length > 0);
@@ -408,7 +463,7 @@
     const pager = $('.fb-pager', modalEl);
     if (infinite.exhausted) {
       pager.innerHTML = infinite.loaded
-        ? `<div style="color:#6b7280;font-size:13px;padding:12px;">Has visto los ${infinite.loaded.toLocaleString('es-ES')} resultados</div>`
+        ? `<div style="color:#6b7280;font-size:13px;padding:12px;">${T.visto_todos} ${infinite.loaded.toLocaleString('es-ES')} ${T.visto_todos2}</div>`
         : '';
     } else {
       pager.innerHTML = `<div class="fb-sentinel" style="height:1px;"></div>`;
@@ -431,7 +486,7 @@
     const header =
       `<div style="grid-column:1/-1;font-size:14px;color:#0084be;font-weight:600;
                    border-top:1px solid #e5e7eb;margin-top:18px;padding-top:14px;">
-         Quizás buscabas también…
+         ${T.quizas_tambien}
        </div>`;
     if (append) {
       // Acumular tras los resultados existentes
@@ -440,8 +495,8 @@
       // Reemplazar el "Sin resultados" placeholder
       $('.fb-results', modalEl).innerHTML =
         `<div class="fb-empty" style="grid-column:1/-1;text-align:left;padding:16px 4px 4px;">
-          <div style="font-size:16px;margin-bottom:2px;">Sin resultados para "${escapeHtml(q)}"</div>
-          <div style="font-size:14px;color:#0084be;font-weight:600;margin-top:14px;">Quizás buscabas…</div>
+          <div style="font-size:16px;margin-bottom:2px;">${T.sin_resultados} "${escapeHtml(q)}"</div>
+          <div style="font-size:14px;color:#0084be;font-weight:600;margin-top:14px;">${T.quizas}</div>
         </div>` + hits.map(renderCard).join('');
     }
   }
@@ -488,13 +543,13 @@
   // (no rompemos filtros ni hace falta re-indexar)
   const FACET_LABELS = {
     availability: {
-      'in stock':     'Con stock',
-      'out of stock': 'Sin stock',
+      'in stock':     T.con_stock,
+      'out of stock': T.sin_stock,
     },
   };
 
   function labelFor(attr, val) {
-    return (FACET_LABELS[attr] && FACET_LABELS[attr][val]) || val || '(sin valor)';
+    return (FACET_LABELS[attr] && FACET_LABELS[attr][val]) || val || (PAGE_LANG === 'en' ? '(no value)' : '(sin valor)');
   }
 
   function renderFacets(dist) {
@@ -569,7 +624,9 @@
             const h = hits[0];
             const qLow = q.toLowerCase();
             const exact = (h.ean && h.ean.toLowerCase() === qLow) ||
-                          (h.mpn && h.mpn.toLowerCase() === qLow);
+                          (h.mpn && h.mpn.toLowerCase() === qLow) ||
+                          (h.ref_prov && h.ref_prov.toLowerCase() === qLow) ||
+                          (h.pid != null && String(h.pid) === q);
             if (exact || total === 1) {
               window.location.href = h.link;
               return;
@@ -577,7 +634,9 @@
           }
         } catch (_) { /* si falla la red, vamos a la página de resultados igualmente */ }
         // Múltiples resultados → página de resultados completa (estilo Doofinder)
-        window.location.href = '/search.php?description=1&auto=1&buscar=' + encodeURIComponent(q);
+        // En EN añadimos &language=en para forzar el idioma correcto en search.php
+        const langParam = PAGE_LANG === 'en' ? '&language=en' : '';
+        window.location.href = '/search.php?description=1&auto=1' + langParam + '&buscar=' + encodeURIComponent(q);
       });
     }
   }

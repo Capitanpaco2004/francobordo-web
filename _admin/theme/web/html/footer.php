@@ -108,7 +108,9 @@ use util\event;
 				if ( $.isFunction($.fn.uniform) ) {
 					$(".check, .check :checkbox, input:radio").uniform();
 					$("select:not(.skip)").uniform();
-					$('input:file[class!="skip"]').uniform({fileDefaultText: <?php echo '"' . TEXT_INPUT_FILE_EMPTY . '"'; ?>});
+					// jQuery Uniform sobre <input type="file"> rompe la subida (sobre todo con names de array
+					// tipo categories_image_categoria[3]). Desactivado: los file inputs quedan nativos.
+					// $('input:file[class!="skip"]').uniform({fileDefaultText: <?php echo '"' . TEXT_INPUT_FILE_EMPTY . '"'; ?>});
 				}
 
                 $("#langtabs > ul").tabs();

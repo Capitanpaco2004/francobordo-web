@@ -21,11 +21,18 @@ declare(strict_types=1);
 
 // --- Config (server-side; nunca expuesto al cliente) ---
 const MEILI_BASE     = 'http://100.82.226.46:7700';
-const MEILI_SEARCH_KEY = '04e7bbcffb10f654d2800faccd12204db712bfe954bc4b1d3cc5a22d7d43202b';
-const INDEX_NAME     = 'products';
+const MEILI_SEARCH_KEY = 'e86c194b8e7077d7524edc11e596b9eac5e9beba32d01639c29e366dd47ccd0a';  // search-only, patrón products* (ES+EN)
 const MAX_BODY       = 65536;   // 64 KB
 const CURL_TIMEOUT   = 5;
 const CURL_CONNECT_T = 2;
+
+// Índice según idioma (whitelist — no permitimos índices arbitrarios)
+$INDEX_BY_LANG = [
+    'es' => 'products',
+    'en' => 'products_en',
+];
+$lang  = $_GET['lang'] ?? 'es';
+$INDEX_NAME = $INDEX_BY_LANG[$lang] ?? 'products';   // fallback seguro a ES
 
 // --- CORS headers (igual para errores y éxito) ---
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
@@ -54,9 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 // --- Endpoint whitelist ---
 $endpoint = $_GET['endpoint'] ?? 'search';
 $ENDPOINTS = [
-    'search'       => '/indexes/' . INDEX_NAME . '/search',
+    'search'       => '/indexes/' . $INDEX_NAME . '/search',
     'multi-search' => '/multi-search',
-    'facet-search' => '/indexes/' . INDEX_NAME . '/facet-search',
+    'facet-search' => '/indexes/' . $INDEX_NAME . '/facet-search',
 ];
 if (!isset($ENDPOINTS[$endpoint])) {
     http_response_code(400);
@@ -83,31 +90,73 @@ if ($body !== '') {
         exit;
     }
 }
-if ($endpoint === 'search' && is_array($bodyJson)) {
-    $bodyJson['showRankingScore'] = true;
-    $body = json_encode($bodyJson);
+// --- Helper: POST a Meili. Devuelve [body|false, http_code, curl_error] ---
+function fb_meili_post(string $url, string $payload): array {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . MEILI_SEARCH_KEY,
+            'Content-Type: application/json',
+        ],
+        CURLOPT_TIMEOUT        => CURL_TIMEOUT,
+        CURLOPT_CONNECTTIMEOUT => CURL_CONNECT_T,
+        CURLOPT_FOLLOWLOCATION => false,
+        CURLOPT_FAILONERROR    => false,
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    // sin curl_close(): deprecado desde PHP 8.5 y sin efecto desde 8.0
+    return [$resp, $code, $err];
 }
 
-// --- Forward to Meili via Tailscale ---
 $url = MEILI_BASE . $ENDPOINTS[$endpoint];
-$ch = curl_init($url);
-curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_POST           => true,
-    CURLOPT_POSTFIELDS     => $body,
-    CURLOPT_HTTPHEADER     => [
-        'Authorization: Bearer ' . MEILI_SEARCH_KEY,
-        'Content-Type: application/json',
-    ],
-    CURLOPT_TIMEOUT        => CURL_TIMEOUT,
-    CURLOPT_CONNECTTIMEOUT => CURL_CONNECT_T,
-    CURLOPT_FOLLOWLOCATION => false,
-    CURLOPT_FAILONERROR    => false,
-]);
+$resp = null;
+$code = 0;
+$err  = '';
 
-$resp = curl_exec($ch);
-$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-$err  = curl_error($ch);
+// --- Búsqueda ESTRICTA por id de producto o referencia de proveedor ---
+// Si la query es "code-like" (un solo token con al menos un dígito), probamos
+// primero un match EXACTO por pid o ref_prov. Si lo hay, devolvemos SOLO eso:
+//   - pid       -> el producto y todas sus variantes (todas comparten pid)
+//   - ref_prov  -> el producto o la propiedad concreta con esa referencia
+// Si no hay match exacto, se cae a la búsqueda normal (híbrida) de abajo.
+if ($endpoint === 'search' && is_array($bodyJson)) {
+    $rawQ = trim((string)($bodyJson['q'] ?? ''));
+    if ($rawQ !== ''
+        && preg_match('/^[A-Za-z0-9][A-Za-z0-9._\/\-]{1,31}$/', $rawQ)
+        && preg_match('/\d/', $rawQ)) {
+        $clauses = [];
+        if (preg_match('/^\d+$/', $rawQ)) {
+            $clauses[] = 'pid = ' . $rawQ;
+        }
+        $clauses[] = 'ref_prov = "' . str_replace(['\\', '"'], ['\\\\', '\\"'], $rawQ) . '"';
+        $strict = $bodyJson;
+        $strict['q'] = '';
+        $strict['filter'] = implode(' OR ', $clauses);   // reemplaza filtros de faceta
+        unset($strict['hybrid']);                        // exacto: sin semántico
+        $strict['showRankingScore'] = true;
+        [$sResp, $sCode, $sErr] = fb_meili_post($url, json_encode($strict));
+        if ($sResp !== false && $sCode === 200) {
+            $sJson = json_decode($sResp, true);
+            if (is_array($sJson) && !empty($sJson['hits'])) {
+                $resp = $sResp; $code = $sCode; $err = $sErr;
+            }
+        }
+    }
+}
+
+// --- Forward normal a Meili (si la estricta no aplicó o no tuvo hits) ---
+if ($resp === null) {
+    if ($endpoint === 'search' && is_array($bodyJson)) {
+        $bodyJson['showRankingScore'] = true;
+        $body = json_encode($bodyJson);
+    }
+    [$resp, $code, $err] = fb_meili_post($url, $body);
+}
 
 if ($resp === false) {
     http_response_code(503);
@@ -127,7 +176,10 @@ echo $resp;
 if ($endpoint === 'search' && function_exists('fastcgi_finish_request')) {
     @fastcgi_finish_request();   // libera al cliente antes del log
 }
-if ($endpoint === 'search') {
+// El logging para el aprendiz de sinónimos sólo aplica al índice ES por ahora
+// (el synonym_learner.py sólo conoce el índice 'products'). Los clicks SÍ se
+// trackean en ambos idiomas porque popularity_score es por pid (idioma-agnóstico).
+if ($endpoint === 'search' && $lang === 'es') {
     try {
         $reqJson = json_decode($body, true);
         $q = is_array($reqJson) ? trim((string)($reqJson['q'] ?? '')) : '';

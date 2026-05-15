@@ -907,11 +907,28 @@ if ($isAction) {
 				}
 			}
 
+			// Descripción larga: del ser_export vía la IDSerie del BaseCode (igual que la rama de series).
+			// Fix 2026-05-13: antes los standalone insertaban products_description SIEMPRE vacía.
+			$descEn = '';
+			$descEs = '';
+			if (isset($codeMap[$baseCode]) && (int) $codeMap[$baseCode]['id_serie'] > 0) {
+				$sid = (int) $codeMap[$baseCode]['id_serie'];
+				if (isset($serMap[$sid])) {
+					$descEn = $serMap[$sid]['desc_html'] ?? '';
+					if ($descEn !== '') {
+						$descEs = translateIT($descEn);
+						if ($descEs === '') $descEs = '[TRADUCIR]<br>' . $descEn;
+					}
+				}
+			}
+
 			$nameEsSafe = tep_db_input($titleEs);
 			$nameEnSafe = tep_db_input(mb_substr($mainOrder['desc_en'] ?: $titleIt, 0, 80, 'UTF-8'));
+			$descEsSafe = tep_db_input($descEs);
+			$descEnSafe = tep_db_input($descEn);
 			tep_db_query("INSERT INTO products_description (products_id, language_id, products_name, products_description, products_seo_name, products_seo_url) VALUES
-				($productsId, " . LANG_ID_ES . ", '$nameEsSafe', '', '" . tep_db_input($nameForSeo) . "', ''),
-				($productsId, " . LANG_ID_EN . ", '$nameEnSafe', '', '" . tep_db_input($nameForSeo) . "', '')");
+				($productsId, " . LANG_ID_ES . ", '$nameEsSafe', '$descEsSafe', '" . tep_db_input($nameForSeo) . "', ''),
+				($productsId, " . LANG_ID_EN . ", '$nameEnSafe', '$descEnSafe', '" . tep_db_input($nameForSeo) . "', '')");
 
 			tep_db_query("INSERT INTO products_to_categories (products_id, categories_id) VALUES ($productsId, " . NEW_CATEGORY_ID . ")");
 

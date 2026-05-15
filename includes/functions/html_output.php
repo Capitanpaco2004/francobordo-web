@@ -100,77 +100,87 @@ function tep_image_thumb($sImagen, $nWidth, $nHeight, $sDefault = '', $forInstag
 	$format = strtolower(defined('IMAGEN_TIPO_IMAGEN') ? IMAGEN_TIPO_IMAGEN : 'JPG');
 	$quality = intval(defined('IMAGEN_COMPRESS_IMAGE') ? IMAGEN_COMPRESS_IMAGE : 75);
 
-	// Directorio del thumbnail y preparación del nombre del archivo
+	// Directorio del thumbnail
 	$pathInfo = pathinfo($sImagen);
 	$sPathThumbnail = $pathInfo['dirname'] . '/thumbnails/';
-	$sFileNameThumb = $pathInfo['filename'] . '_thumb_' . $nWidth . 'x' . $nHeight;
-	$fullPathThumb = $sPathThumbnail . $sFileNameThumb . '.' . $format;
-	$fullPathThumbWebP = $sPathThumbnail . $sFileNameThumb . '.webp';
+
 	// Si la imagen original no existe, devolvemos el mismo "no_image" sin crear nada
 	if (!file_exists($sImagen) || !is_file($sImagen)) {
 		$noImage = $sDefault ?: 'theme/web/images/general/no_image.jpg';
 		return $noImage;
 	}
 	$fileTime = filemtime($sImagen);
+
 	// Asegurar la creación del directorio de miniaturas
 	if (!is_dir($sPathThumbnail)) {
 		mkdir($sPathThumbnail, 0777, true);
-
 	}
 
-	// Si tenemos thumb, pero fue creada antes que la imagen normal, la borramos.
-	if( file_exists( $fullPathThumb ) && file_exists( $sImagen ) ) {
-		if (filemtime($fullPathThumb) < filemtime($sImagen)) {
-			unlink($sPathThumbnail . $sFileNameThumb);
-			unlink($fullPathThumbWebP);
+	// Si solo se pasa altura, calcular ancho proporcional (antes de fijar el nombre del archivo)
+	if (!$nWidth && $nHeight) {
+		try {
+			$probe = $manager->read($sImagen);
+			$nWidth = intval($probe->width() * ($nHeight / $probe->height()));
+		} catch (Exception $e) {
+			return $sDefault ?: 'theme/web/images/general/no_image.jpg';
 		}
 	}
 
-	// Si existe la imagen del thumb cargamos desde la cache y no queremos eliminarla
-	if( file_exists( $fullPathThumb ) && file_exists( $fullPathThumbWebP ) && $bDelete == 'false' )
-	{
-		// Mostramos la imagen ya guardada
+	// Generamos el thumbnail a 2x (HiDPI/retina): el HTML sigue usando el tamaño lógico
+	// nWidth x nHeight, pero el archivo tiene el doble de píxeles para verse nítido.
+	$nRealWidth  = (int)$nWidth  * 2;
+	$nRealHeight = (int)$nHeight * 2;
+
+	// Nombre del archivo según las dimensiones reales (así no choca con los thumbs 1x antiguos)
+	$sFileNameThumb = $pathInfo['filename'] . '_thumb_' . $nRealWidth . 'x' . $nRealHeight;
+	$fullPathThumb = $sPathThumbnail . $sFileNameThumb . '.' . $format;
+	$fullPathThumbWebP = $sPathThumbnail . $sFileNameThumb . '.webp';
+
+	// Si tenemos thumb pero es más antiguo que la imagen original, lo borramos.
+	if( file_exists( $fullPathThumb ) && filemtime( $fullPathThumb ) < $fileTime ) {
+		@unlink($fullPathThumb);
+		@unlink($fullPathThumbWebP);
+	}
+
+	// Si existe el thumb en cache (formato + webp) lo servimos
+	if( file_exists( $fullPathThumb ) && file_exists( $fullPathThumbWebP ) && $bDelete == 'false' ) {
 		return $fullPathThumb;
 	}
 
-	// Si la imagen existe y deseamos eliminarla
-	if (file_exists($sPathThumbnail . $sFileNameThumb) && $bDelete == 'true') {
-		unlink($fullPathThumb);
-		unlink($fullPathThumbWebP);
+	// Si pedimos eliminarlo
+	if ($bDelete == 'true') {
+		@unlink($fullPathThumb);
+		@unlink($fullPathThumbWebP);
 	}
 
 	try {
 		// Cargar la imagen original
 		$image = $manager->read($sImagen);
 
-		// Si solo se pasa altura, calcular ancho proporcional
-		if (!$nWidth && $nHeight) {
-			$imgWidth = $image->width();
-			$imgHeight = $image->height();
-
-			// Escalar proporcionalmente
-			$ratio = $nHeight / $imgHeight;
-			$nWidth = intval($imgWidth * $ratio);
-		}
-
-		// Redimensionar la imagen manteniendo el aspecto original
+		// Redimensionar a las dimensiones reales (2x) manteniendo el aspecto.
+		// contain() escala para llenar la caja (incluido upscale de originales pequeños).
+		// Relleno TRANSPARENTE: así las imágenes con fondo transparente (p.ej. los PNG de
+		// categoría sobre el contenedor gris) no salen con un rectángulo blanco alrededor.
+		// cover() recorta para llenar sin bordes.
 		if ($forInstagram) {
-			// Redimensionar la imagen para llenar el espacio disponible sin agregar espacios en blanco
-			$image->cover($nWidth, $nHeight);
+			$image->cover($nRealWidth, $nRealHeight);
 		} else {
-			$image->pad($nWidth, $nHeight, 'ffffff'); // rellena con blanco (JPG no soporta alpha)
+			$image->contain($nRealWidth, $nRealHeight, 'transparent');
 		}
 
-		// encode edited image
+		// El WebP se guarda primero porque conserva la transparencia (lo sirve el <picture>
+		// al ~99% de navegadores). jpg/gif no soportan alpha: aplanamos sobre blanco antes.
+		$image->toWebp($quality)->save($fullPathThumbWebP);
+
 		if( $format == 'png' ) {
 			$image->toPng(true)->save($fullPathThumb);
 		} elseif ($format == 'gif') {
+			$image->blendTransparency('ffffff');
 			$image->toGif($quality)->save($fullPathThumb);
-		}elseif ($format == 'jpg'){
+		} elseif ($format == 'jpg'){
+			$image->blendTransparency('ffffff');
 			$image->toJpeg($quality)->save($fullPathThumb);
 		}
-
-		$image->toWebp($quality)->save($fullPathThumbWebP);
 
 	} catch (Exception $e) {
 		// Manejo de errores

@@ -6,9 +6,9 @@
 	define('TEXT_ORIGIN_LOGIN', '<font color="#FF0000"><small><strong>NOTE:</strong></font></small> If you already have an account with us, please login at the <a href="%s"><u>login page</u></a>.');
 	define( 'TEXT_PROFESIONAL_WARNING', '<font color="#FF0000"><small><strong>NOTE:</strong></font></small> <b>You are registering as a professional, You will not be able to access our prices as a professional until it is validated by our staff that this account meets the professional requirements of the nautical sector. This validation can take up to 48 hours.</b><br /><b>We only register as professionals those companies or freelancers whose activity is the sale of nautical accessories and maintenance or repair of boats or ships.</b>' );
 	define('EMAIL_SUBJECT', 'Welcome to ' . STORE_NAME);
-	define('EMAIL_GREET_MR', 'Dear Mr. ' . stripslashes($_POST['lastname']) . ',' . "\n\n");
-	define('EMAIL_GREET_MS', 'Dear Ms. ' . stripslashes($_POST['lastname']) . ',' . "\n\n");
-	define('EMAIL_GREET_NONE', 'Dear ' . stripslashes($_POST['firstname']) . ',' . "\n\n");
+	define('EMAIL_GREET_MR', 'Dear Mr. ' . stripslashes($_POST['lastname'] ?? '') . ',' . "\n\n");
+	define('EMAIL_GREET_MS', 'Dear Ms. ' . stripslashes($_POST['lastname'] ?? '') . ',' . "\n\n");
+	define('EMAIL_GREET_NONE', 'Dear ' . stripslashes($_POST['firstname'] ?? '') . ',' . "\n\n");
 	define('EMAIL_WELCOME', 'We welcome you to <strong>' . STORE_NAME . '</strong>.' . "\n\n");
 	define('EMAIL_TEXT', 'You can now take part in the <strong>various services</strong> we have to offer you. Some of these services include:' . "\n\n" . '<li><strong>Permanent Cart</strong> - Any products added to your online cart remain there until you remove them, or check them out.' . "\n" . '<li><strong>Address Book</strong> - We can now deliver your products to another address other than yours! This is perfect to send birthday gifts direct to the birthday-person themselves.' . "\n" . '<li><strong>Order History</strong> - View your history of purchases that you have made with us.' . "\n" . '<li><strong>Products Reviews</strong> - Share your opinions on products with our other customers.' . "\n\n");
 	define('EMAIL_CONTACT', 'For help with any of our online services, please email the store-owner: ' . STORE_OWNER_EMAIL_ADDRESS . '.' . "\n\n");

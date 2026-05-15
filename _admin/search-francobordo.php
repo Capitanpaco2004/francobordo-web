@@ -207,6 +207,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         case 'suggestion_approve':
         case 'suggestion_reject':
             $sid = (int)($_POST['sid'] ?? 0);
+            $is_ajax = (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'XMLHttpRequest');
+            $ajax_ok = false;
+            $ajax_msg = '';
             if ($sid > 0) {
                 $row = tep_db_fetch_array(tep_db_query(
                     "SELECT q_norm, candidate FROM synonym_suggestions WHERE id=" . $sid));
@@ -217,20 +220,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 SET status='approved', reviewed_at=NOW(),
                                     reviewed_by=" . (int)$_SESSION['admin']['id'] . "
                                 WHERE id=" . $sid);
-                            $flash = ['type'=>'success', 'msg' =>
-                                "Sinónimo aplicado: {$row['q_norm']} ↔ {$row['candidate']}"];
+                            $ajax_ok = true;
+                            $ajax_msg = "Sinónimo aplicado: {$row['q_norm']} ↔ {$row['candidate']}";
                         } else {
-                            $flash = ['type'=>'error', 'msg' => 'Error aplicando sinónimo a Meili'];
+                            $ajax_msg = 'Error aplicando sinónimo a Meili';
                         }
                     } else {
                         tep_db_query("UPDATE synonym_suggestions
                             SET status='rejected', reviewed_at=NOW(),
                                 reviewed_by=" . (int)$_SESSION['admin']['id'] . "
                             WHERE id=" . $sid);
-                        $flash = ['type'=>'success', 'msg' => 'Rechazado'];
+                        $ajax_ok = true;
+                        $ajax_msg = 'Rechazado';
                     }
+                } else {
+                    $ajax_msg = 'Sugerencia no encontrada';
                 }
             }
+            if ($is_ajax) {
+                // Respuesta JSON — el JS quita el chip sin recargar la página
+                header('Content-Type: application/json');
+                echo json_encode(['ok' => $ajax_ok, 'msg' => $ajax_msg]);
+                exit;
+            }
+            $flash = ['type' => $ajax_ok ? 'success' : 'error', 'msg' => $ajax_msg];
             break;
         case 'add_synonym':
             $key = strtolower(trim($_POST['syn_key']  ?? ''));
@@ -527,38 +540,45 @@ if ($test_q !== '') {
         <?php endif; ?>
       </p>
     <?php endif; ?>
-    <?php if ($num_pending > 0): foreach ($suggestions_by_query as $qnorm => $rows): ?>
-      <div style="background:#f9fafb;padding:12px;border-radius:6px;margin-bottom:10px;">
-        <div style="font-size:14px;margin-bottom:8px;">
-          Cliente buscó: <b><?= htmlspecialchars($qnorm) ?></b>
-          <span style="color:var(--muted);font-size:12px;">
-            (<?= (int)$rows[0]['occurrences'] ?>x, sin encontrar nada bueno)
-          </span>
-        </div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;">
-          <?php foreach ($rows as $r): ?>
-            <form method="POST" style="display:inline;">
-              <input type="hidden" name="<?= tep_session_name() ?>" value="<?= tep_session_id() ?>">
-              <input type="hidden" name="sid" value="<?= (int)$r['id'] ?>">
-              <span style="display:inline-flex;align-items:center;gap:4px;background:white;border:1px solid var(--border);border-radius:999px;padding:4px 10px;">
-                <span><?= htmlspecialchars($qnorm) ?> ↔ <b><?= htmlspecialchars($r['candidate']) ?></b></span>
-                <span style="color:#9ca3af;font-size:11px;">(<?= round($r['confidence']*100) ?>%)</span>
-                <button name="action" value="suggestion_approve" type="submit"
-                        title="Aplicar este sinónimo en Meili"
-                        style="background:#10b981;color:white;border:0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;">✓</button>
-                <button name="action" value="suggestion_reject" type="submit"
-                        title="Descartar"
-                        style="background:#ef4444;color:white;border:0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;">✗</button>
-              </span>
-            </form>
+    <?php if ($num_pending > 0): ?>
+      <details>
+        <summary style="cursor:pointer;padding:10px 14px;background:#eef6fc;border-radius:6px;font-size:14px;font-weight:600;color:#0084be;user-select:none;">
+          Ver <?= count($suggestions_by_query) ?> queries con <?= $num_pending ?> sugerencias de sinónimo
+        </summary>
+        <div style="margin-top:10px;">
+          <?php foreach ($suggestions_by_query as $qnorm => $rows): ?>
+            <details class="fb-sug-query" style="background:#f9fafb;border-radius:6px;margin-bottom:6px;">
+              <summary style="cursor:pointer;padding:10px 12px;font-size:14px;user-select:none;">
+                Cliente buscó: <b><?= htmlspecialchars($qnorm) ?></b>
+                <span style="color:var(--muted);font-size:12px;">
+                  (<?= (int)$rows[0]['occurrences'] ?>x · <span class="fb-sug-count"><?= count($rows) ?></span> candidatos)
+                </span>
+              </summary>
+              <div class="fb-sug-chips" style="display:flex;flex-wrap:wrap;gap:8px;padding:0 12px 12px;">
+                <?php foreach ($rows as $r): ?>
+                  <form method="POST" class="fb-sug-form" style="display:inline;">
+                    <input type="hidden" name="<?= tep_session_name() ?>" value="<?= tep_session_id() ?>">
+                    <input type="hidden" name="sid" value="<?= (int)$r['id'] ?>">
+                    <span style="display:inline-flex;align-items:center;gap:4px;background:white;border:1px solid var(--border);border-radius:999px;padding:4px 10px;transition:opacity .2s;">
+                      <span><?= htmlspecialchars($qnorm) ?> ↔ <b><?= htmlspecialchars($r['candidate']) ?></b></span>
+                      <span style="color:#9ca3af;font-size:11px;">(<?= round($r['confidence']*100) ?>%)</span>
+                      <button name="action" value="suggestion_approve" type="submit"
+                              title="Aplicar este sinónimo en Meili"
+                              style="background:#10b981;color:white;border:0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;">✓</button>
+                      <button name="action" value="suggestion_reject" type="submit"
+                              title="Descartar"
+                              style="background:#ef4444;color:white;border:0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;">✗</button>
+                    </span>
+                  </form>
+                <?php endforeach; ?>
+              </div>
+            </details>
           <?php endforeach; ?>
         </div>
-      </div>
-    <?php endforeach; endif; ?>
-    <?php if ($num_pending > 0): ?>
-    <p style="color:var(--muted);font-size:12px;margin-top:8px;">
-      Aprobar añade el sinónimo bidireccional a Meili al instante. Rechazar marca la sugerencia como descartada (no volverá a aparecer).
-    </p>
+      </details>
+      <p style="color:var(--muted);font-size:12px;margin-top:8px;">
+        Aprobar añade el sinónimo bidireccional a Meili al instante. Rechazar marca la sugerencia como descartada (no volverá a aparecer).
+      </p>
     <?php endif; ?>
   </div>
 
@@ -824,6 +844,57 @@ if ($test_q !== '') {
   </p>
 
 </div>
+
+<script>
+// AJAX para aprobar/rechazar sinónimos sin recargar la página.
+(function () {
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.fb-sug-form button[name="action"]');
+    if (!btn) return;
+    e.preventDefault();
+
+    var form  = btn.closest('.fb-sug-form');
+    var chip  = btn.closest('span');
+    var query = btn.closest('.fb-sug-query');
+    var fd    = new FormData(form);
+    fd.set('action', btn.value);   // qué botón se pulsó
+
+    // Deshabilitar ambos botones del chip mientras va la petición
+    form.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+
+    fetch(window.location.href, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: fd,
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (!j.ok) {
+        alert('Error: ' + (j.msg || 'no se pudo procesar'));
+        form.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+        return;
+      }
+      // Fade out + quitar el chip
+      chip.style.opacity = '0';
+      setTimeout(function () {
+        form.remove();
+        // Actualizar contador de candidatos de esta query
+        if (query) {
+          var cntEl   = query.querySelector('.fb-sug-count');
+          var remain  = query.querySelectorAll('.fb-sug-form').length;
+          if (cntEl) cntEl.textContent = remain;
+          // Si la query se queda sin candidatos, quitarla entera
+          if (remain === 0) query.remove();
+        }
+      }, 200);
+    })
+    .catch(function () {
+      alert('Error de red — reintenta');
+      form.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+    });
+  });
+})();
+</script>
 
 <?php require THEME . 'html/footer.php'; ?>
 <?php require DIR_WS_INCLUDES . 'application_bottom.php'; ?>
