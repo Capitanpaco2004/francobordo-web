@@ -21,6 +21,8 @@ define('HEADING_ORDERS_STATUS', 'Status del pedido');
 define('HEADING_POINTS_COMMENT', 'Comentarios');
 define('HEADING_POINTS_STATUS', 'Situación de los Puntos');
 define('HEADING_POINTS_TOTAL', 'Puntos');
+define('HEADING_POINTS_VALUE', 'Valor');
+define('HEADING_POINTS_EXPIRES', 'Caduca el');
 
 define('TEXT_DEFAULT_COMMENT', 'Puntos por Compras');
 define('TEXT_DEFAULT_REDEEMED', 'Puntos Utilizados');
@@ -40,8 +42,8 @@ define('TEXT_POINTS_CONFIRMED', 'Confirmado');
 define('TEXT_POINTS_CANCELLED', 'Cancelado');
 define('TEXT_POINTS_REDEEMED', 'Utilizados');
 
-define('MY_POINTS_EXPIRE', 'Expiran el: ');
-define('MY_POINTS_CURRENT_BALANCE', '<b>Balance de Puntos :</b> %s puntos.');
+define('MY_POINTS_EXPIRE', 'Caducan el: ');
+define('MY_POINTS_CURRENT_BALANCE', '<b>Balance de Puntos :</b> %s puntos &nbsp;=&nbsp; <b>%s</b>');
 
 define('MY_POINTS_HELP_LINK', ' Por favor, compruebe o <a href="' . tep_href_link(FILENAME_MY_POINTS_HELP) . '" title="Promoción de puntos FAQ"><u>Lea la Ayuda</u></a> sobre nuestra promoción de puntos a nuestros clientes, para mas información.');
 

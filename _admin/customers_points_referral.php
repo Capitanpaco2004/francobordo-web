@@ -1,427 +1,232 @@
 <?php
 /*
-  $Id: customers_points_referral.php, V2.1rc2a 2008/SEP/29 11:05:21 dsa_ Exp $
-  created by Ben Zukrel, Deep Silver Accessories
-  http://www.deep-silver.com
-
-  osCommerce, Open Source E-Commerce Solutions
-  http://www.oscommerce.com
-
-  Copyright (c) 2005 osCommerce
-
-  Released under the GNU General Public License
-*/
+ * Points & Rewards V2.1rc2a — Ben Zukrel (Deep Silver Accessories) 2008, osCommerce, GPL.
+ *
+ * Refactor 2026-05-15:
+ * - Acciones (`confirm_points`, `cancel_points`, `adjustpoints`, `pe_rollback`, `delete_points`)
+ *   reescritas para usar tep_send_points_notification() (helper en includes/functions/redemptions.php).
+ * - Validaciones POST con (int)/cast y null-coalescing.
+ * - `tep_session_register('viewedSort'/'page')` eliminados.
+ * - Inicializadas $sort, $potype, $set_comment, $customer_balance, $points_expire_date.
+ * - Eliminadas las asignaciones muertas $sql = "OPTIMIZE TABLE ...".
+ *
+ * Nota: con USE_REFERRAL_SYSTEM='' el flujo RF está prácticamente OFF. Se mantiene la pantalla
+ * porque sí se sigue usando para RV (reviews) — USE_POINTS_FOR_REVIEWS=20.
+ */
 
   require('includes/application_top.php');
 
   require(DIR_WS_CLASSES . 'currencies.php');
   $currencies = new currencies();
 
-  $action = (isset($_GET['action']) ? $_GET['action'] : '');
+  $action = $_GET['action'] ?? '';
 
   if (tep_not_null($action)) {
     switch ($action) {
-      case 'confirm_points':
-        $uID = tep_db_prepare_input($_GET['uID']);
-        $customer_id = $_POST['customer_id'];
-        $points_pending = tep_db_prepare_input($_POST['points_pending']);
+      case 'confirm_points': {
+        $uID                     = (int) ($_GET['uID']        ?? 0);
+        $customer_id             = (int) ($_POST['customer_id'] ?? 0);
+        $points_pending          = (int) round((float) ($_POST['points_pending'] ?? 0));  // sin decimales
+        $points_type             = $_POST['points_type'] ?? '';
+        $date_added              = $_POST['date_added']  ?? '';
+        $customers_email_address = tep_db_prepare_input($_POST['customers_email_address'] ?? '');
 
-        if (tep_not_null(POINTS_AUTO_EXPIRES)){
-          $expire  = date('Y-m-d', strtotime('+ '. POINTS_AUTO_EXPIRES .' month'));
-          $expire_date = sprintf(EMAIL_TEXT_EXPIRE, tep_date_short($expire));
-	      tep_db_query("update " . TABLE_CUSTOMERS . " set customers_shopping_points = customers_shopping_points + '". $points_pending ."', customers_points_expires = '". $expire ."' where customers_id = '". (int)$customer_id ."'");
-        } else {
-	      tep_db_query("update " . TABLE_CUSTOMERS . " set customers_shopping_points = customers_shopping_points + '". $points_pending ."' where customers_id = '". (int)$customer_id ."'");          
-          $expire_date = sprintf(EMAIL_TEXT_EXPIRE, tep_date_short($_POST['customers_points_expires']));
+        if ($uID <= 0 || $customer_id <= 0) {
+            tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL));
         }
 
-        $customer_notified = '0';
-        if (isset($_POST['notify_confirm']) && ($_POST['notify_confirm'] == 'on')) {
-          $date_added = $_POST['date_added'];
-          $points_type = $_POST['points_type'];
-          $points_disc = (($_POST['points_type'] == 'RF') ? TEXT_TYPE_REFERRAL : TEXT_DEFAULT_REVIEWS);
-          $products_name = $_POST['products_name'];
-          $balance = ($_POST['customers_shopping_points'] + $points_pending);
-          $customer_balance = sprintf(EMAIL_TEXT_BALANCE, number_format($balance,POINTS_DECIMAL_PLACES), $currencies->format($balance * REDEEM_POINT_VALUE));
-          $customers_email_address = $_POST['customers_email_address'];
-          $customer_name = $_POST['customer_name'];
-          $gender = $_POST['customers_gender'];
-          $first_name = $_POST['customers_firstname'];
-          $last_name = $_POST['customers_lastname'];
-          $name = $first_name . ' ' . $last_name;
-
-          if (ACCOUNT_GENDER == 'true') {
-            if ($gender == 'm') {
-                $greet = sprintf(EMAIL_GREET_MR, $last_name);
+        tep_db_query('START TRANSACTION');
+        try {
+            if (tep_not_null(POINTS_AUTO_EXPIRES)) {
+                $expire = date('Y-m-d', strtotime('+' . (int) POINTS_AUTO_EXPIRES . ' month'));
+                tep_db_query("update " . TABLE_CUSTOMERS . " set customers_shopping_points = customers_shopping_points + '" . $points_pending . "', customers_points_expires = '" . $expire . "' where customers_id = '" . $customer_id . "'");
             } else {
-                $greet = sprintf(EMAIL_GREET_MS, $last_name);
+                tep_db_query("update " . TABLE_CUSTOMERS . " set customers_shopping_points = customers_shopping_points + '" . $points_pending . "' where customers_id = '" . $customer_id . "'");
             }
-          } else {
 
-          $greet = sprintf(EMAIL_GREET_NONE, $first_name);
-          }
-          if (tep_not_null(POINTS_AUTO_EXPIRES)){
-            $points_expire_date = $expire_date;
-          }
-		  $email = '<span style="padding: 0 30px; font-size: 18px; font-weight: bold; line-height: 14px; color: #1fa1d0;">' . $greet . '</span><br><br>
-					  <span style="padding: 0px 30px; display: block; line-height: 14px;">' . EMAIL_TEXT_INTRO . '</span><br><br>
-					  <table width="100%" style="line-height: 14px; font-size: 15px; font-family: Arial; letter-spacing: 0.2px; color: #23a2d1;" border="0" cellspacing="0" cellpadding="0">
-						  <tr>
-							  <td width="50%" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 30px; text-align: left;">
-								  ' . TABLE_HEADING_POINTS_TYPE . ' &nbsp;<b style="color: #4f4f4f;">' . $points_disc . '</b>
-							  </td>
-						  	  <td style="padding: 13px 23px; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4;">' . TABLE_HEADING_DATE_ADDED . ' &nbsp;<font style="color: #606060;">' . tep_date_short($date_added) . '</font></td>
-						  </tr>
-					  </table>
-					  <br>
-					  <table width="100%" style="padding: 0 44px; line-height: 20px; font-size: 15px; font-family: Arial; letter-spacing: 0.2px; color: #5f5f5f;" border="0" cellspacing="0" cellpadding="0">
-						<tr>';
-						  if ($points_type == 'RF')
-						  {
-							  $email .= '
-							  <td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								  ' . TEXT_INFO_REFERRED . '
-								<td style="padding: 13px 23px; border-top: 1px solid #e4e4e4;"><b>' . $customer_name . '</b></td>';
-						  }
-						  if ($points_type == 'RV')
-						  {
-							  $email .= '
-							  <td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								  ' . TEXT_INFO_PRODUCT_NAME . '
-							  </td>
-							  <td style="padding: 13px 23px; border-top: 1px solid #e4e4e4;"><b>' . $products_name . '</b></td>';
-						  }
-			  $email .= '
-						</tr>
-						<tr>
-							<td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								' . TABLE_HEADING_POINTS . '
-							</td>
-							<td style="padding: 13px 23px; border-top: 1px solid #e4e4e4;"><b>' . number_format($points_pending,POINTS_DECIMAL_PLACES) . '</b></td>
-						</tr>
-						<tr>
-							<td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								' . TABLE_HEADING_POINTS_VALUE . '
-							</td>
-							<td style="padding: 13px 23px; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4;"><b>' . $currencies->format($points_pending * REDEEM_POINT_VALUE) . '</b></td>
-						</tr>
-					</table>
-					<br><br>
-					<span style="padding: 0 0 0 30px; display: block; line-height: 16px;">' . 
-						$customer_balance . 
-						'<br>' .
-						$points_expire_date . 
-						'<br><br>' . 
-						sprintf(EMAIL_TEXT_POINTS_URL, tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS, '', 'SSL'), tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS, '', 'SSL')) . 
-						'<br><br>' . 
-						sprintf(EMAIL_TEXT_POINTS_URL_HELP, tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS_HELP, '', 'NONSSL'), tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS_HELP, '', 'NONSSL')) . 
-						'<br><br>' . 
-						EMAIL_TEXT_SUCCESS_POINTS . 
-						'<br>' . 
-						EMAIL_CONTACT . 
-						'<br>' . 
-						EMAIL_SEPARATOR . 
-						'<br><br>' . 
-						EMAIL_AUTO .
-					'</span>';
-
-			include( '../includes/languages/espanol.php' );
-			include( '../' . DIR_WS_MODULES . 'UHtmlEmails/'. ULTIMATE_HTML_EMAIL_LAYOUT .'/varios.php' );
-			$email = $sHtmlEmail;
-            tep_mail($name, $customers_email_address, EMAIL_TEXT_SUBJECT, $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS);
-
-          $customer_notified = '1';
-          $messageStack->add_session(sprintf(NOTICE_EMAIL_SENT_TO, $name . '(' . $customers_email_address . ').'), 'success');
+            if (isset($_POST['queue_confirm'])) {
+                tep_db_query("update " . TABLE_CUSTOMERS_POINTS_PENDING . " set points_status = 2 where unique_id = '" . $uID . "' limit 1");
+            } else {
+                tep_db_query("delete from " . TABLE_CUSTOMERS_POINTS_PENDING . " where unique_id = '" . $uID . "' limit 1");
+                $messageStack->add_session(NOTICE_RECORED_REMOVED, 'warning');
+            }
+            tep_db_query('COMMIT');
+        } catch (\Throwable $e) {
+            tep_db_query('ROLLBACK');
+            throw $e;
         }
 
-        if (isset($_POST['queue_confirm'])) {
-	      tep_db_query("update " . TABLE_CUSTOMERS_POINTS_PENDING . " set points_status = 2 where unique_id = '". (int)$uID ."' limit 1");
-	      $sql = "optimize table " . TABLE_CUSTOMERS_POINTS_PENDING . "";
-        } else {
-          $messageStack->add_session(NOTICE_RECORED_REMOVED, 'warning');
-          tep_db_query("delete from " . TABLE_CUSTOMERS_POINTS_PENDING . " where unique_id = '". (int)$uID ."' limit 1");
-          $sql = "optimize table " . TABLE_CUSTOMERS_POINTS_PENDING . "";
+        if (isset($_POST['notify_confirm']) && $_POST['notify_confirm'] == 'on') {
+            $new_balance = ((float) ($_POST['customers_shopping_points'] ?? 0)) + $points_pending;
+            $expire_msg  = tep_not_null(POINTS_AUTO_EXPIRES)
+                ? sprintf(EMAIL_TEXT_EXPIRE, tep_date_short(isset($expire) ? $expire : ($_POST['customers_points_expires'] ?? '')))
+                : null;
+
+            $extra = [
+                'points_type' => $points_type,
+                'date_added'  => $date_added,
+            ];
+            if ($points_type === 'RV' && !empty($_POST['products_name'])) {
+                $extra['products_name'] = $_POST['products_name'];
+            }
+            if ($points_type === 'RF' && !empty($_POST['customer_name'])) {
+                $extra['products_name'] = $_POST['customer_name'];  // reutilizamos slot products_name como "referido"
+            }
+
+            tep_send_points_notification([
+                'customer_id'         => $customer_id,
+                'customers_email'     => $customers_email_address,
+                'customers_gender'    => $_POST['customers_gender']    ?? '',
+                'customers_firstname' => $_POST['customers_firstname'] ?? '',
+                'customers_lastname'  => $_POST['customers_lastname']  ?? '',
+                'points_delta'        => $points_pending,
+                'new_balance'         => $new_balance,
+                'subject'             => EMAIL_TEXT_SUBJECT,
+                'expire_msg'          => $expire_msg,
+                'extra'               => $extra,
+            ]);
+
+            $name = trim(($_POST['customers_firstname'] ?? '') . ' ' . ($_POST['customers_lastname'] ?? ''));
+            $messageStack->add_session(sprintf(NOTICE_EMAIL_SENT_TO, $name . '(' . $customers_email_address . ').'), 'success');
         }
+
         $messageStack->add_session(SUCCESS_POINTS_UPDATED, 'success');
-        tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action'))));
+        tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(['uID', 'action'])));
         break;
-      case 'cancel_points':
-        $uID = tep_db_prepare_input($_GET['uID']);
-        $comment = tep_db_prepare_input($_POST['comment_cancel']);
-        $customer_id = $_POST['customers_id'];
-        $points_pending = tep_db_prepare_input($_POST['points_pending']);
+      }
 
-        $customer_notified = '0';
-        if (isset($_POST['notify_cancel']) && ($_POST['notify_cancel'] == 'on')) {
-          $date_added = $_POST['date_added'];
-          $points_type = $_POST['points_type'];
-          $points_disc = (($_POST['points_type'] == 'RF') ? TEXT_TYPE_REFERRAL : TEXT_DEFAULT_REVIEWS);
-          $products_name = $_POST['products_name'];
-          $balance = $_POST['customers_shopping_points'];
-          $customers_email_address = $_POST['customers_email_address'];
-          $customer_name = $_POST['customer_name'];
-          $gender = $_POST['customers_gender'];
-          $first_name = $_POST['customers_firstname'];
-          $last_name = $_POST['customers_lastname'];
-          $name = $first_name . ' ' . $last_name;
-          
-          $notify_comment = '';
-          if (isset($_POST['comment_cancel']) && tep_not_null($comment_cancel)) {
-            $notify_comment = sprintf(EMAIL_TEXT_COMMENT . ' ' . $comment_cancel) . "\n";
-          }
+      case 'cancel_points': {
+        $uID            = (int) ($_GET['uID']         ?? 0);
+        $comment_cancel = tep_db_prepare_input($_POST['comment_cancel'] ?? '');
+        $customer_id    = (int) ($_POST['customers_id'] ?? 0);
+        $points_pending = (int) round((float) ($_POST['points_pending'] ?? 0));  // sin decimales
+        $points_type    = $_POST['points_type'] ?? '';
+        $date_added     = $_POST['date_added']  ?? '';
+        $customers_email_address = tep_db_prepare_input($_POST['customers_email_address'] ?? '');
 
-          if (ACCOUNT_GENDER == 'true') {
-            if ($gender == 'm') {
-              $greet = sprintf(EMAIL_GREET_MR, $last_name);
-            } else {
-              $greet = sprintf(EMAIL_GREET_MS, $last_name);
+        if (isset($_POST['notify_cancel']) && $_POST['notify_cancel'] == 'on' && $customer_id > 0) {
+            $balance     = (float) ($_POST['customers_shopping_points'] ?? 0);
+            $expire_msg  = ($balance > 0 && tep_not_null(POINTS_AUTO_EXPIRES))
+                ? sprintf(EMAIL_TEXT_EXPIRE, tep_date_short($_POST['customers_points_expires'] ?? ''))
+                : null;
+
+            $extra = ['points_type' => $points_type, 'date_added' => $date_added];
+            if ($points_type === 'RV' && !empty($_POST['products_name'])) {
+                $extra['products_name'] = $_POST['products_name'];
             }
-          } else {
-              $greet = sprintf(EMAIL_GREET_NONE, $first_name);
-          }
-          if ($balance > 0) {
-            $customer_balance = sprintf(EMAIL_TEXT_BALANCE, number_format($balance,POINTS_DECIMAL_PLACES), $currencies->format($balance * REDEEM_POINT_VALUE));
-            if (tep_not_null(POINTS_AUTO_EXPIRES)){
-              $points_expire_date = "\n" . sprintf(EMAIL_TEXT_EXPIRE,  tep_date_short($_POST['customers_points_expires']));
+            if ($points_type === 'RF' && !empty($_POST['customer_name'])) {
+                $extra['products_name'] = $_POST['customer_name'];
             }
-          }
-		  $email = '<span style="padding: 0 30px; font-size: 18px; font-weight: bold; line-height: 14px; color: #1fa1d0;">' . $greet . '</span><br><br>
-					  <span style="padding: 0px 30px; display: block; line-height: 14px;">' . EMAIL_TEXT_BALANCE_CANCELLED . '</span><br><br>
-					  <table width="100%" style="line-height: 14px; font-size: 15px; font-family: Arial; letter-spacing: 0.2px; color: #23a2d1;" border="0" cellspacing="0" cellpadding="0">
-						  <tr>
-							  <td width="50%" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 30px; text-align: left;">
-								  ' . TABLE_HEADING_POINTS_TYPE . ' &nbsp;<b style="color: #4f4f4f;">' . $points_disc . '</b>
-							  </td>
-						  	  <td style="padding: 13px 23px; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4;">' . TABLE_HEADING_DATE_ADDED . ' &nbsp;<font style="color: #606060;">' . tep_date_short($date_added) . '</font></td>
-						  </tr>
-					  </table>
-					  <br>
-					  <table width="100%" style="padding: 0 44px; line-height: 20px; font-size: 15px; font-family: Arial; letter-spacing: 0.2px; color: #5f5f5f;" border="0" cellspacing="0" cellpadding="0">
-						<tr>';
-						  if ($points_type == 'RF')
-						  {
-							  $email .= '
-							  <td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								  ' . TEXT_INFO_REFERRED . '
-								<td style="padding: 13px 23px; border-top: 1px solid #e4e4e4;"><b>' . $customer_name . '</b></td>';
-						  }
-						  if ($points_type == 'RV')
-						  {
-							  $email .= '
-							  <td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								  ' . TEXT_INFO_PRODUCT_NAME . '
-							  </td>
-							  <td style="padding: 13px 23px; border-top: 1px solid #e4e4e4;"><b>' . $products_name . '</b></td>';
-						  }
-			  $email .= '
-						</tr>
-						<tr>
-							<td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								' . TABLE_HEADING_POINTS . '
-							</td>
-							<td style="padding: 13px 23px; border-top: 1px solid #e4e4e4;"><b>' . number_format($points_pending,POINTS_DECIMAL_PLACES) . '</b></td>
-						</tr>
-						<tr>
-							<td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								' . TABLE_HEADING_POINTS_VALUE . '
-							</td>
-							<td style="padding: 13px 23px; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4;"><b>' . $currencies->format($points_pending * REDEEM_POINT_VALUE) . '</b></td>
-						</tr>
-					</table>
-					<br><br>
-					<span style="padding: 0 0 0 30px; display: block; line-height: 16px;">' . 
-						$notify_comment .
-						'<br><br>' .
-						$customer_balance . 
-						'<br>' .
-						$points_expire_date . 
-						'<br><br>' . 
-						sprintf(EMAIL_TEXT_POINTS_URL, tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS, '', 'SSL'), tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS, '', 'SSL')) . 
-						'<br><br>' . 
-						sprintf(EMAIL_TEXT_POINTS_URL_HELP, tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS_HELP, '', 'NONSSL'), tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS_HELP, '', 'NONSSL')) . 
-						'<br><br>' . 
-						EMAIL_TEXT_SUCCESS_POINTS . 
-						'<br>' . 
-						EMAIL_CONTACT . 
-						'<br>' . 
-						EMAIL_SEPARATOR . 
-						'<br><br>' . 
-						EMAIL_AUTO .
-					'</span>';
 
-			include( '../includes/languages/espanol.php' );
-			include( '../' . DIR_WS_MODULES . 'UHtmlEmails/'. ULTIMATE_HTML_EMAIL_LAYOUT .'/varios.php' );
-			$email = $sHtmlEmail;
-        tep_mail($name, $customers_email_address, EMAIL_TEXT_SUBJECT, $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS);
+            tep_send_points_notification([
+                'customer_id'         => $customer_id,
+                'customers_email'     => $customers_email_address,
+                'customers_gender'    => $_POST['customers_gender']    ?? '',
+                'customers_firstname' => $_POST['customers_firstname'] ?? '',
+                'customers_lastname'  => $_POST['customers_lastname']  ?? '',
+                'points_delta'        => -$points_pending,
+                'new_balance'         => $balance,
+                'subject'             => EMAIL_TEXT_SUBJECT,
+                'comment'             => tep_not_null($comment_cancel) ? $comment_cancel : null,
+                'expire_msg'          => $expire_msg,
+                'extra'               => $extra,
+            ]);
 
-        $customer_notified = '1';
-        $messageStack->add_session(sprintf(NOTICE_EMAIL_SENT_TO, $name . '(' . $customers_email_address . ').'), 'success');
+            $name = trim(($_POST['customers_firstname'] ?? '') . ' ' . ($_POST['customers_lastname'] ?? ''));
+            $messageStack->add_session(sprintf(NOTICE_EMAIL_SENT_TO, $name . '(' . $customers_email_address . ').'), 'success');
         }
-        $database_queue = '0';
+
         if (isset($_POST['queue_cancel'])) {
-          if (isset($_POST['comment_cancel']) && tep_not_null($comment_cancel)) {
-            $set_comment = ", points_comment = '" . $comment_cancel . "'";
-          }
- 	      tep_db_query("update " . TABLE_CUSTOMERS_POINTS_PENDING . " set points_status = 3 " . $set_comment . " where unique_id = '". (int)$uID ."' limit 1");
- 	      $sql = "optimize table " . TABLE_CUSTOMERS_POINTS_PENDING . "";          
-        $database_queue = '1';
-        $messageStack->add_session(SUCCESS_DATABASE_UPDATED, 'success');
+            $set_comment = tep_not_null($comment_cancel) ? ", points_comment = '" . $comment_cancel . "'" : '';
+            tep_db_query("update " . TABLE_CUSTOMERS_POINTS_PENDING . " set points_status = 3 " . $set_comment . " where unique_id = '" . $uID . "' limit 1");
+            $messageStack->add_session(SUCCESS_DATABASE_UPDATED, 'success');
         } else {
-           tep_db_query("delete from " . TABLE_CUSTOMERS_POINTS_PENDING . " where unique_id = '". (int)$uID ."' limit 1");
-           $sql = "optimize table " . TABLE_CUSTOMERS_POINTS_PENDING . "";
+            tep_db_query("delete from " . TABLE_CUSTOMERS_POINTS_PENDING . " where unique_id = '" . $uID . "' limit 1");
         }
 
-        tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action'))));
+        tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(['uID', 'action'])));
         break;
-     case 'adjustpoints':
-        $uID = tep_db_prepare_input($_GET['uID']);
-        $adjust = tep_db_prepare_input($_POST['points_to_aj']);
+      }
 
-        $points_adjusted = false;
-        if (tep_not_null($adjust)) {
-  	      tep_db_query("update " . TABLE_CUSTOMERS_POINTS_PENDING . " set points_pending = '" . $adjust . "' where unique_id = '". (int)$uID ."' limit 1");
-  	      $sql = "optimize table " . TABLE_CUSTOMERS_POINTS_PENDING . "";
+      case 'adjustpoints': {
+        $uID    = (int) ($_GET['uID'] ?? 0);
+        $adjust = $_POST['points_to_aj'] ?? '';
+
+        if (tep_not_null($adjust) && is_numeric($adjust) && $uID > 0) {
+            // Convención francobordo 2026-05-15: puntos sin decimales
+            $adjust_int = (int) round($adjust);
+            tep_db_query("update " . TABLE_CUSTOMERS_POINTS_PENDING . " set points_pending = '" . $adjust_int . "' where unique_id = '" . $uID . "' limit 1");
         } else {
-          $messageStack->add_session(WARNING_DATABASE_NOT_UPDATED, 'warning');
+            $messageStack->add_session(WARNING_DATABASE_NOT_UPDATED, 'warning');
         }
-        tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action'))));
+        tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(['uID', 'action'])));
         break;
-      case 'pe_rollback':
-        $uID = tep_db_prepare_input($_GET['uID']);
-        $customer_id = tep_db_prepare_input($_POST['customer_id']);
-        $comment_roll = tep_db_prepare_input($_POST['comment_roll']);
-        $points_pending = tep_db_prepare_input($_POST['points_pending']);
+      }
 
-		tep_db_query("update " . TABLE_CUSTOMERS . " set customers_shopping_points = customers_shopping_points - '". $points_pending ."' where customers_id = '". (int)$customer_id ."'");
- 
-        if (isset($_POST['comment_roll']) && tep_not_null($comment_roll)) {
-          $set_comment = ", points_comment = '" . $comment_roll . "'";
+      case 'pe_rollback': {
+        $uID                     = (int) ($_GET['uID']  ?? 0);
+        $customer_id             = (int) ($_POST['customer_id']    ?? 0);
+        $comment_roll            = tep_db_prepare_input($_POST['comment_roll'] ?? '');
+        $points_pending          = (int) round((float) ($_POST['points_pending'] ?? 0));  // sin decimales
+        $points_type             = $_POST['points_type'] ?? '';
+        $date_added              = $_POST['date_added']  ?? '';
+        $customers_email_address = tep_db_prepare_input($_POST['customers_email_address'] ?? '');
+
+        tep_db_query('START TRANSACTION');
+        try {
+            tep_db_query("update " . TABLE_CUSTOMERS . " set customers_shopping_points = customers_shopping_points - '" . $points_pending . "' where customers_id = '" . $customer_id . "'");
+            $set_comment = tep_not_null($comment_roll) ? ", points_comment = '" . $comment_roll . "'" : '';
+            tep_db_query("update " . TABLE_CUSTOMERS_POINTS_PENDING . " set points_status = 1 " . $set_comment . " where unique_id = '" . $uID . "' limit 1");
+            tep_db_query('COMMIT');
+        } catch (\Throwable $e) {
+            tep_db_query('ROLLBACK');
+            throw $e;
         }
 
-	    tep_db_query("update " . TABLE_CUSTOMERS_POINTS_PENDING . " set points_status = 1 " . $set_comment . " where unique_id = '". (int)$uID ."' limit 1");
-	    $sql = "optimize table " . TABLE_CUSTOMERS_POINTS_PENDING . "";
+        if (isset($_POST['notify_roll']) && $_POST['notify_roll'] == 'on' && $customer_id > 0) {
+            $balance    = (float) ($_POST['customers_shopping_points'] ?? 0);
+            $expire_msg = ($balance > 0 && tep_not_null(POINTS_AUTO_EXPIRES))
+                ? sprintf(EMAIL_TEXT_EXPIRE, tep_date_short($_POST['customers_points_expires'] ?? ''))
+                : null;
 
-        $customer_notified = '0';
-        if (isset($_POST['notify_roll']) && ($_POST['notify_roll'] == 'on')) {
-          $date_added = $_POST['date_added'];
-          $points_type = $_POST['points_type'];
-          $points_disc = (($_POST['points_type'] == 'RF') ? TEXT_TYPE_REFERRAL : TEXT_DEFAULT_REVIEWS);
-          $products_name = $_POST['products_name'];
-          $balance = ($_POST['customers_shopping_points'] - $points_pending);
-          $customers_email_address = $_POST['customers_email_address'];
-          $customer_name = $_POST['customer_name'];
-          $gender = $_POST['customers_gender'];
-          $first_name = $_POST['customers_firstname'];
-          $last_name = $_POST['customers_lastname'];
-          $name = $first_name . ' ' . $last_name;
-
-          $notify_comment = '';
-          if (isset($_POST['comment_roll']) && tep_not_null($comment_roll)) {
-            $notify_comment = sprintf(EMAIL_TEXT_ROLL_COMMENT . ' ' . $comment_roll) . "\n";
-          }
-
-          if (ACCOUNT_GENDER == 'true') {
-            if ($gender == 'm') {
-              $greet = sprintf(EMAIL_GREET_MR, $last_name);
-            } else {
-              $greet = sprintf(EMAIL_GREET_MS, $last_name);
+            $extra = ['points_type' => $points_type, 'date_added' => $date_added];
+            if ($points_type === 'RV' && !empty($_POST['products_name'])) {
+                $extra['products_name'] = $_POST['products_name'];
             }
-          } else {
-              $greet = sprintf(EMAIL_GREET_NONE, $first_name);
-          }
-          if ($balance > 0) {
-            $customer_balance = sprintf(EMAIL_TEXT_BALANCE, number_format($balance,POINTS_DECIMAL_PLACES), $currencies->format($balance * REDEEM_POINT_VALUE));
-            if (tep_not_null(POINTS_AUTO_EXPIRES)){
-              $points_expire_date = sprintf(EMAIL_TEXT_EXPIRE, tep_date_short($customer['customers_points_expires']));
+            if ($points_type === 'RF' && !empty($_POST['customer_name'])) {
+                $extra['products_name'] = $_POST['customer_name'];
             }
-          }
-		  $email = '<span style="padding: 0 30px; font-size: 18px; font-weight: bold; line-height: 14px; color: #1fa1d0;">' . $greet . '</span><br><br>
-					  <span style="padding: 0px 30px; display: block; line-height: 14px;">' . EMAIL_TEXT_INTRO . '</span><br><br>
-					  <table width="100%" style="line-height: 14px; font-size: 15px; font-family: Arial; letter-spacing: 0.2px; color: #23a2d1;" border="0" cellspacing="0" cellpadding="0">
-						  <tr>
-							  <td width="50%" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 30px; text-align: left;">
-								  ' . TABLE_HEADING_POINTS_TYPE . ' &nbsp;<b style="color: #4f4f4f;">' . $points_disc . '</b>
-							  </td>
-						  	  <td style="padding: 13px 23px; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4;">' . TABLE_HEADING_DATE_ADDED . ' &nbsp;<font style="color: #606060;">' . tep_date_short($date_added) . '</font></td>
-						  </tr>
-					  </table>
-					  <br>
-					  <table width="100%" style="padding: 0 44px; line-height: 20px; font-size: 15px; font-family: Arial; letter-spacing: 0.2px; color: #5f5f5f;" border="0" cellspacing="0" cellpadding="0">
-						<tr>';
-						  if ($points_type == 'RF')
-						  {
-							  $email .= '
-							  <td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								  ' . TEXT_INFO_REFERRED . '
-								<td style="padding: 13px 23px; border-top: 1px solid #e4e4e4;"><b>' . $customer_name . '</b></td>';
-						  }
-						  if ($points_type == 'RV')
-						  {
-							  $email .= '
-							  <td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								  ' . TEXT_INFO_PRODUCT_NAME . '
-							  </td>
-							  <td style="padding: 13px 23px; border-top: 1px solid #e4e4e4;"><b>' . $products_name . '</b></td>';
-						  }
-			  $email .= '
-						</tr>
-						<tr>
-							<td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								' . TABLE_HEADING_POINTS . '
-							</td>
-							<td style="padding: 13px 23px; border-top: 1px solid #e4e4e4;"><b>' . number_format($points_pending,POINTS_DECIMAL_PLACES) . '</b></td>
-						</tr>
-						<tr>
-							<td width="178" style="vertical-align: top; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4; border-right: 1px solid #e4e4e4; padding: 13px 0 13px 16px; text-align: left;">
-								' . TABLE_HEADING_POINTS_VALUE . '
-							</td>
-							<td style="padding: 13px 23px; border-top: 1px solid #e4e4e4; border-bottom: 1px solid #e4e4e4;"><b>' . $currencies->format($points_pending * REDEEM_POINT_VALUE) . '</b></td>
-						</tr>
-					</table>
-					<br><br>
-					<span style="padding: 0 0 0 30px; display: block; line-height: 16px;">' . 
-						$notify_comment .
-						'<br><br>' .
-						EMAIL_TEXT_BALANCE_ROLL_BACK . 
-						'<br>' .
-						$customer_balance . 
-						'<br>' .
-						$points_expire_date . 
-						'<br><br>' . 
-						sprintf(EMAIL_TEXT_POINTS_URL, tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS, '', 'SSL'), tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS, '', 'SSL')) . 
-						'<br><br>' . 
-						sprintf(EMAIL_TEXT_POINTS_URL_HELP, tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS_HELP, '', 'NONSSL'), tep_catalog_href_link(FILENAME_CATALOG_MY_POINTS_HELP, '', 'NONSSL')) . 
-						'<br><br>' . 
-						EMAIL_TEXT_SUCCESS_POINTS . 
-						'<br>' . 
-						EMAIL_CONTACT . 
-						'<br>' . 
-						EMAIL_SEPARATOR . 
-						'<br><br>' . 
-						EMAIL_AUTO .
-					'</span>';
 
-			include( '../includes/languages/espanol.php' );
-			include( '../' . DIR_WS_MODULES . 'UHtmlEmails/'. ULTIMATE_HTML_EMAIL_LAYOUT .'/varios.php' );
-			$email = $sHtmlEmail;
-        tep_mail($name, $customers_email_address, EMAIL_TEXT_SUBJECT, $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS);
+            tep_send_points_notification([
+                'customer_id'         => $customer_id,
+                'customers_email'     => $customers_email_address,
+                'customers_gender'    => $_POST['customers_gender']    ?? '',
+                'customers_firstname' => $_POST['customers_firstname'] ?? '',
+                'customers_lastname'  => $_POST['customers_lastname']  ?? '',
+                'points_delta'        => $points_pending,
+                'new_balance'         => $balance,
+                'subject'             => EMAIL_TEXT_SUBJECT,
+                'comment'             => tep_not_null($comment_roll) ? $comment_roll : null,
+                'expire_msg'          => $expire_msg,
+                'extra'               => $extra,
+            ]);
 
-        $customer_notified = '1';
-        $messageStack->add_session(sprintf(NOTICE_EMAIL_SENT_TO, $name . '(' . $customers_email_address . ').'), 'success');
+            $name = trim(($_POST['customers_firstname'] ?? '') . ' ' . ($_POST['customers_lastname'] ?? ''));
+            $messageStack->add_session(sprintf(NOTICE_EMAIL_SENT_TO, $name . '(' . $customers_email_address . ').'), 'success');
         }
 
         $messageStack->add_session(SUCCESS_POINTS_UPDATED, 'success');
         tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL));
         break;
-     case 'delete_points':
-        $uID = tep_db_prepare_input($_GET['uID']);
+      }
 
-        tep_db_query("delete from " . TABLE_CUSTOMERS_POINTS_PENDING . " where unique_id = '". (int)$uID ."' limit 1");
-        $sql = "optimize table " . TABLE_CUSTOMERS_POINTS_PENDING . "";
+      case 'delete_points': {
+        $uID = (int) ($_GET['uID'] ?? 0);
+        tep_db_query("delete from " . TABLE_CUSTOMERS_POINTS_PENDING . " where unique_id = '" . $uID . "' limit 1");
         $messageStack->add_session(NOTICE_RECORED_REMOVED, 'warning');
-
-        tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action'))));
+        tep_redirect(tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(['uID', 'action'])));
         break;
+      }
     }
   }
 
@@ -430,15 +235,14 @@
 
 <?php require(THEME . 'html/header.php'); ?>
 
-<script language="javascript" src="includes/general.js"></script>
-<script language="javascript"><!--
+<script src="includes/general.js"></script>
+<script><!--
 function validate(field) {
-  var valid = "0123456789."
+  var valid = "0123456789.";
   var ok = "yes";
-  var temp;
- for (var i=0; i<field.value.length; i++) {
-  temp = "" + field.value.substring(i, i+1);
-  if (valid.indexOf(temp) == "-1") ok = "no";
+  for (var i = 0; i < field.value.length; i++) {
+    var temp = "" + field.value.substring(i, i+1);
+    if (valid.indexOf(temp) == "-1") ok = "no";
   }
   if (ok == "no") {
     alert("<?php echo POINTS_ENTER_JS_ERROR; ?>");
@@ -464,15 +268,15 @@ function validate(field) {
   }
 
 // drop-down filter array
-  $filter_array = array( array('id' => '1', 'text' => TEXT_POINTS_PENDING), 
+  $filter_array = array( array('id' => '1', 'text' => TEXT_POINTS_PENDING),
                                    array('id' => '2', 'text' => TEXT_POINTS_CONFIRMED),
                                    array('id' => '3', 'text' => TEXT_POINTS_CANCELLED),
                                    array('id' => '4', 'text' => TEXT_SHOW_ALL));
-                                   
-  $potype_array = array( array('id' => '1', 'text' => TEXT_SHOW_ALL), 
+
+  $potype_array = array( array('id' => '1', 'text' => TEXT_SHOW_ALL),
                                    array('id' => '2', 'text' => TEXT_TYPE_REFERRAL),
                                    array('id' => '3', 'text' => TEXT_TYPE_REVIEW));
-                                   
+
      $point_or_points = ((POINTS_PER_AMOUNT_PURCHASE > 1) ? HEADING_POINTS : HEADING_POINT);
 ?>
       <tr>
@@ -504,101 +308,65 @@ function validate(field) {
                 <td class="dataTableHeadingContent" align="right"><?php echo TABLE_HEADING_ACTION; ?>&nbsp;</td>
               </tr>
 <?php
-//$potype ='';
- switch ($potype) {
-  case '1':
-    $potype = "where p.points_type != 'SP'";
-      break;
-  case '2':
-      $potype = "where p.points_type = 'RF'";
-      break;
-  case '3':
-      $potype = "where p.points_type = 'RV'";
-      break;
-  default:
-      $potype = "where p.points_type != 'SP'";
-  }
-  
-//sort view
-   if (isset($_GET['viewedSort'])){
-     $viewedSort = $_GET['viewedSort'];
-     tep_session_register('viewedSort');
-   }
-   if (isset($_GET['page']))
-   {
-     $page = $_GET['page'];
-     tep_session_register('page');
-   }
-   if(!isset($page)) $page = 1;
- 
-   switch ($viewedSort) {
-       case "c_name-asc":
-         $sort .= "c.customers_lastname";
-       break;
-       case "c_name-desc":
-         $sort .= "c.customers_lastname desc";
-       break;
-       case "p_type-asc":
-         $sort .= "p.points_type";
-       break;
-       case "p_type-desc":
-         $sort .= "p.points_type desc";
-       break;
-       case "points-asc":
-         $sort .= "p.points_pending";
-       break;
-       case "points-desc":
-         $sort .= "p.points_pending desc";
-       break;
-       case "date-asc":
-         $sort .= "p.date_added";
-       break;
-       case "date-desc":
-         $sort .= "p.date_added desc";
-       break;
-       case "p_status-asc":
-         $sort .= "p.points_status";
-       break;
-       case "p_status-desc":
-         $sort .= "p.points_status desc";
-       break;
-        default:
-        $sort .= "p.unique_id desc";
-   }
+    $potype_in = $_GET['potype'] ?? '';
+    switch ($potype_in) {
+        case '2': $potype = "where p.points_type = 'RF'"; break;
+        case '3': $potype = "where p.points_type = 'RV'"; break;
+        case '1':
+        default:  $potype = "where p.points_type != 'SP'"; break;
+    }
+
+    $viewedSort = $_GET['viewedSort'] ?? '';
+    $page       = (int) ($_GET['page'] ?? 1);
+    if ($page < 1) $page = 1;
+
+    $sort_map = [
+        'c_name-asc'    => 'c.customers_lastname',
+        'c_name-desc'   => 'c.customers_lastname desc',
+        'p_type-asc'    => 'p.points_type',
+        'p_type-desc'   => 'p.points_type desc',
+        'points-asc'    => 'p.points_pending',
+        'points-desc'   => 'p.points_pending desc',
+        'date-asc'      => 'p.date_added',
+        'date-desc'     => 'p.date_added desc',
+        'p_status-asc'  => 'p.points_status',
+        'p_status-desc' => 'p.points_status desc',
+    ];
+    $sort = $sort_map[$viewedSort] ?? 'p.unique_id desc';
 
 	$search = '';
     if (isset($_GET['search']) && tep_not_null($_GET['search'])) {
-	    $search = tep_db_input(tep_db_prepare_input($_GET['search']));
-	    $search = "and (p.customer_id ='" . (int)$search . "' or c.customers_email_address like '%" . $search . "%')";
+	    $search_in = tep_db_input(tep_db_prepare_input($_GET['search']));
+	    $search = "and (p.customer_id ='" . (int) $search_in . "' or c.customers_email_address like '%" . $search_in . "%')";
     }
-    
-    $filter = (!isset($_GET['filter'])) ? 1 : $_GET['filter'];
-    $filter = 'and p.points_status = ' . (int)tep_db_prepare_input((int)$filter);
-//    if (!isset($_GET['potype'])) $potype = "where p.points_type != 'SP'";
-    if ($_GET['filter'] == '4') $filter = 'and p.points_status != 0';
-    $pending_points_query_raw = "select p.*, c.customers_gender, c.customers_lastname, c.customers_firstname, c.customers_email_address, c.customers_shopping_points, c.customers_points_expires from " . TABLE_CUSTOMERS_POINTS_PENDING . " p left join " . TABLE_CUSTOMERS . " c on c.customers_id = p.customer_id $potype $filter $search order by $sort";
-    $pending_points_split = new splitPageResults($_GET['page'], MAX_DISPLAY_SEARCH_RESULTS, $pending_points_query_raw, $pending_points_query_numrows);
-    $pending_points_query = tep_db_query($pending_points_query_raw);
-    
+
+    $filter_in = $_GET['filter'] ?? '1';
+    $filter    = 'and p.points_status = ' . (int) tep_db_prepare_input((int) $filter_in);
+    if ($filter_in === '4') $filter = 'and p.points_status != 0';
+
+    $pending_points_query_raw = "select p.*, c.customers_gender, c.customers_lastname, c.customers_firstname, c.customers_email_address, c.customers_shopping_points, c.customers_points_expires from " . TABLE_CUSTOMERS_POINTS_PENDING . " p left join " . TABLE_CUSTOMERS . " c on c.customers_id = p.customer_id " . $potype . " " . $filter . " " . $search . " order by " . $sort;
+    $page_ref                 = $_GET['page'] ?? null;  // splitPageResults toma el 1er arg por referencia
+    $pending_points_split     = new splitPageResults($page_ref, MAX_DISPLAY_SEARCH_RESULTS, $pending_points_query_raw, $pending_points_query_numrows);
+    $pending_points_query     = tep_db_query($pending_points_query_raw);
+
     while ($pending_points = tep_db_fetch_array($pending_points_query)) {
 
 	 if ($pending_points['points_type'] == 'RF') {
        $order_query = tep_db_query("select o.customers_name, o.payment_method, s.orders_status_name, ot.text as order_total from " . TABLE_ORDERS . " o, " . TABLE_ORDERS_TOTAL . " ot, " . TABLE_ORDERS_STATUS . " s where o.orders_id=ot.orders_id and o.orders_id = '" . (int)$pending_points['orders_id'] . "' and s.language_id = '" . (int)$languages_id . "' and ot.class = 'ot_total' limit 1");
        $order = tep_db_fetch_array($order_query);
-       $uInfo_array = array_merge($pending_points, $order); 
+       $uInfo_array = array_merge($pending_points, $order);
 	   $link = '<a href="' . tep_href_link(FILENAME_ORDERS . '?oID=' . $pending_points['orders_id'] . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.gif', ICON_PREVIEW_EDIT) . '</a>&nbsp;';
      }
 
 	 if ($pending_points['points_type'] == 'RV') {
-       $reviews_query = tep_db_query("select r.reviews_id, p.products_name from " . TABLE_REVIEWS . " r left join " . TABLE_PRODUCTS_DESCRIPTION . " p on p.products_id = r.products_id and p.language_id = '" . (int)$languages_id . "' where r.products_id = '" . $pending_points['orders_id'] . "' and r.customers_id = '" . (int)$pending_points['customer_id'] . "' limit 1");
-	   if( tep_db_num_rows( $reviews_query ) > 0 )
-	   {
+       $reviews_query = tep_db_query("select r.reviews_id, p.products_name from " . TABLE_REVIEWS . " r left join " . TABLE_PRODUCTS_DESCRIPTION . " p on p.products_id = r.products_id and p.language_id = '" . (int)$languages_id . "' where r.products_id = '" . (int) $pending_points['orders_id'] . "' and r.customers_id = '" . (int)$pending_points['customer_id'] . "' limit 1");
+	   if (tep_db_num_rows($reviews_query) > 0) {
 		   $reviews = tep_db_fetch_array($reviews_query);
 		   $uInfo_array = array_merge($pending_points, $reviews);
-	   }
-	   else
+	   } else {
 		   $uInfo_array = $pending_points;
-	   $link = '<a href="' . tep_href_link(FILENAME_REVIEWS, 'page=' . $_GET['page'] . '&rID=' . $reviews['reviews_id'] . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.gif', ICON_REVIEWS_EDIT) . '</a>&nbsp;';
+	   }
+	   $link = '<a href="' . tep_href_link(FILENAME_REVIEWS, 'page=' . ($_GET['page'] ?? 1) . '&rID=' . ($reviews['reviews_id'] ?? 0) . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.gif', ICON_REVIEWS_EDIT) . '</a>&nbsp;';
      }
 
      if ((!isset($_GET['uID']) || (isset($_GET['uID']) && ($_GET['uID'] == $pending_points['unique_id']))) && !isset($uInfo)) {
@@ -611,6 +379,7 @@ function validate(field) {
        echo '<tr class="dataTableRow" onmouseover="rowOverEffect(this)" onmouseout="rowOutEffect(this)" onclick="document.location.href=\'' . tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID')) . 'uID=' . $pending_points['unique_id']) . '\'">' . "\n";
      }
 
+	$points_status_name = '';
 	if ($pending_points['points_status'] == 1) $points_status_name = TEXT_POINTS_PENDING;
 	if ($pending_points['points_status'] == 2) $points_status_name = TEXT_POINTS_CONFIRMED;
 	if ($pending_points['points_status'] == 3) $points_status_name = '<font color="FF0000">' . TEXT_POINTS_CANCELLED . '</font>';
@@ -632,8 +401,8 @@ function validate(field) {
               <tr>
                 <td colspan="7"><table border="0" width="100%" cellspacing="0" cellpadding="2">
                   <tr>
-                    <td class="smallText" valign="top"><?php echo $pending_points_split->display_count($pending_points_query_numrows, MAX_DISPLAY_SEARCH_RESULTS, $_GET['page'], TEXT_DISPLAY_NUMBER_OF_ORDERS); ?></td>
-                    <td class="smallText" align="right"><?php echo $pending_points_split->display_links($pending_points_query_numrows, MAX_DISPLAY_SEARCH_RESULTS, MAX_DISPLAY_PAGE_LINKS, $_GET['page'], tep_get_all_get_params(array('page', 'uID', 'action'))); ?></td>
+                    <td class="smallText" valign="top"><?php echo $pending_points_split->display_count($pending_points_query_numrows, MAX_DISPLAY_SEARCH_RESULTS, $_GET['page'] ?? 1, TEXT_DISPLAY_NUMBER_OF_ORDERS); ?></td>
+                    <td class="smallText" align="right"><?php echo $pending_points_split->display_links($pending_points_query_numrows, MAX_DISPLAY_SEARCH_RESULTS, MAX_DISPLAY_PAGE_LINKS, $_GET['page'] ?? 1, tep_get_all_get_params(array('page', 'uID', 'action'))); ?></td>
                   </tr>
 <!-- Yes, you may remove this advertising clause. //-->
                   <tr>
@@ -660,7 +429,7 @@ function validate(field) {
     case 'confirm':
       $heading[] = array('text' => '<b>' . TEXT_CONFIRM_POINTS . '</b>');
 
-      $contents = array('form' => tep_draw_form('points_confirm', FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action')) . 'uID=' . $uInfo->unique_id . '&action=confirm_points'));      
+      $contents = array('form' => tep_draw_form('points_confirm', FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action')) . 'uID=' . $uInfo->unique_id . '&action=confirm_points'));
       $value_field = TEXT_CONFIRM_POINTS_LONG. '<br>';
       $contents[] = array('text' => $value_field);
       $contents[] = array('text' => tep_draw_checkbox_field('notify_confirm', '', true) . ' ' . TEXT_NOTIFY_CUSTOMER);
@@ -691,7 +460,7 @@ function validate(field) {
 	  if ( $uInfo->points_type == 'RV') {
         $contents[] = array('text' => tep_draw_hidden_field('products_name', $uInfo->products_name));
 	  }
-      
+
       $contents[] = array('align' => 'center', 'text' => '<br>' . tep_image_submit('button_cancel_points.gif', BUTTON_TEXT_CANCEL_PENDING_POINTS) . ' <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action')) . 'uID=' . $uInfo->unique_id) . '">' . tep_image_button('button_cancel.gif', IMAGE_CANCEL) . '</a>');
       break;
     case 'adjust':
@@ -701,7 +470,7 @@ function validate(field) {
       $contents[] = array('text' => '<b>'. TEXT_INFO_HEADING_ADJUST_POINTS . '</b><br>');
       $value_field = TEXT_ADJUST_INTRO . '<br><br>' . TEXT_POINTS_TO_ADJUST . '<br>'. tep_draw_input_field('points_to_aj', '' , 'onkeyup="validate(this)"');
       $contents[] = array('text' => $value_field);
-           
+
       $contents[] = array('align' => 'center', 'text' => '<br>' . tep_image_submit('button_adjust_points.gif', BUTTON_TEXT_ADJUST_POINTS) . ' <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action')) . 'uID=' . $uInfo->unique_id) . '">' . tep_image_button('button_cancel.gif', IMAGE_CANCEL) . '</a>');
       break;
     case 'rollback':
@@ -746,17 +515,17 @@ function validate(field) {
 		if ($uInfo->points_status == 3) {
 		  $contents[] = array('text' => '<a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action')) . 'uID=' . $uInfo->unique_id . '&action=confirm') . '">' . tep_image_button('button_confirm_points.gif', BUTTON_TEXT_CONFIRM_PENDING_POINTS) . '</a> <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action')) . 'uID=' . $uInfo->unique_id . '&action=adjust') . '">' . tep_image_button('button_adjust_points.gif', BUTTON_TEXT_ADJUST_POINTS) . '</a> <a href="' . tep_href_link(FILENAME_ORDERS . '?oID=' . $uInfo->orders_id . '&action=edit') . '">' . tep_image_button('button_details.gif', IMAGE_DETAILS) . '</a> <a href="' . tep_href_link(FILENAME_MAIL, 'selected_box=tools&customer=' . $uInfo->customers_email_address) . '">' . tep_image_button('button_email.gif', IMAGE_EMAIL) . '</a> <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS_REFERRAL, tep_get_all_get_params(array('uID', 'action')) . 'uID=' . $uInfo->unique_id . '&action=delete') . '">' . tep_image_button('button_delete.gif', BUTTON_TEXT_REMOVE_RECORD) . '</a>');
 		}
-		
+
 		if($uInfo->points_comment == 'TEXT_DEFAULT_REFERRAL') {
 		   $uInfo->points_comment = TEXT_DEFAULT_REFERRAL;
 		}
 		if($uInfo->points_comment == 'TEXT_DEFAULT_REVIEWS') {
 		   $uInfo->points_comment = TEXT_DEFAULT_REVIEWS;
 		}
-		
+
 		if ($uInfo->points_type == 'RF') {
 		  $order_link = '<a href="' . tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action')) . 'oID=' . $uInfo->orders_id . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.gif', ICON_PREVIEW_EDIT) . '</a>&nbsp;';
-		  
+
 		  $contents[] = array('text' => '<br><b>' . TEXT_INFO_POINTS_COMMENT . '</b><br>' . $uInfo->points_comment);
           $contents[] = array('text' => '<br>' . TEXT_INFO_REFERRED . ' ' . $uInfo->customers_name);
           $contents[] = array('text' => TEXT_INFO_ORDER_ID . ' ' . $uInfo->orders_id . ' ' . $order_link);
@@ -766,8 +535,8 @@ function validate(field) {
           $contents[] = array('text' => '<br>' . TEXT_INFO_CURRENT_BALANCE . ' ' . number_format($uInfo->customers_shopping_points,POINTS_DECIMAL_PLACES). ' ' . HEADING_POINTS);
         }
 		if ($uInfo->points_type == 'RV') {
-		  $review_link = '<a href="' . tep_href_link(FILENAME_REVIEWS, 'page=' . $_GET['page'] . '&rID=' . $uInfo->reviews_id . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.gif', ICON_REVIEWS_EDIT) . '</a>&nbsp;';
-		  
+		  $review_link = '<a href="' . tep_href_link(FILENAME_REVIEWS, 'page=' . ($_GET['page'] ?? 1) . '&rID=' . $uInfo->reviews_id . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.gif', ICON_REVIEWS_EDIT) . '</a>&nbsp;';
+
 		  $contents[] = array('text' => '<br><b>' . TEXT_INFO_POINTS_COMMENT . '</b><br>' . $uInfo->points_comment);
           $contents[] = array('text' => '<br>' . TEXT_INFO_PRODUCT_ID . ' ' . $uInfo->orders_id);
           $contents[] = array('text' => TEXT_INFO_PRODUCT_NAME . '<br>' . $uInfo->products_name);
@@ -797,5 +566,3 @@ function validate(field) {
 <!-- body_eof //-->
 
 <?php require(THEME . 'html/footer.php'); ?>
-
-<?php require(DIR_WS_INCLUDES . 'application_bottom.php'); ?>

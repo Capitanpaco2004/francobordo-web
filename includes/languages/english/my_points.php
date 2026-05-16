@@ -21,6 +21,8 @@ define('HEADING_ORDERS_STATUS', 'Order Status');
 define('HEADING_POINTS_COMMENT', 'Comments');
 define('HEADING_POINTS_STATUS', 'Points Status');
 define('HEADING_POINTS_TOTAL', 'Points');
+define('HEADING_POINTS_VALUE', 'Value');
+define('HEADING_POINTS_EXPIRES', 'Expires on');
 
 define('TEXT_DEFAULT_COMMENT', 'Shopping Points');
 define('TEXT_DEFAULT_REDEEMED', 'Redeemed Points');

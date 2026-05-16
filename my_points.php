@@ -53,38 +53,47 @@ function rowOutEffect(object) {
             </tr>
 <?php
   $has_point = tep_get_shopping_points($customer_id);
+  $expires   = ['customers_points_expires' => null];
   if ($has_point > 0) {
-?>
-              <td class="main"><?php echo sprintf(MY_POINTS_CURRENT_BALANCE, number_format($has_point,POINTS_DECIMAL_PLACES),$currencies->format(tep_calc_shopping_pvalue($has_point))); ?></td>
-<?php
-	  if (tep_not_null(POINTS_AUTO_EXPIRES)) {
-		  $expires_query = tep_db_query("select customers_points_expires from " . TABLE_CUSTOMERS . " where customers_id = '" . (int)$customer_id . "' and customers_points_expires > curdate() limit 1");
-		  $expires = tep_db_fetch_array($expires_query);
-?>
-              <td class="main" align="left"><?php echo '<strong>' . MY_POINTS_EXPIRE . '</strong> ' . tep_date_short($expires['customers_points_expires']); ?></td>
-<?php
+      if (tep_not_null(POINTS_AUTO_EXPIRES)) {
+          $expires_query = tep_db_query("select customers_points_expires from " . TABLE_CUSTOMERS . " where customers_id = '" . (int)$customer_id . "' and customers_points_expires > curdate() limit 1");
+          $expires_row   = tep_db_fetch_array($expires_query);
+          if (is_array($expires_row)) $expires = $expires_row;
       }
+      $caducidad_html = tep_not_null($expires['customers_points_expires'])
+          ? '&nbsp;&nbsp;&nbsp;<strong>' . MY_POINTS_EXPIRE . '</strong> ' . tep_date_short($expires['customers_points_expires'])
+          : '';
+?>
+              <td class="main"><?php echo sprintf(MY_POINTS_CURRENT_BALANCE, number_format($has_point, POINTS_DECIMAL_PLACES, ',', '.'), $currencies->format(tep_calc_shopping_pvalue($has_point))) . $caducidad_html; ?></td>
+<?php
   } else {
-         echo'<td class="main"><strong>' . TEXT_NO_POINTS . '</strong></td>';
+         echo '<td class="main"><strong>' . TEXT_NO_POINTS . '</strong></td>';
   }
 ?>
             </tr>
           </table>
 <?php
-$hoy=strtotime('now');
-    $pending_points_query = "select unique_id, orders_id, points_pending, points_comment, date_added, points_status, points_type from " . TABLE_CUSTOMERS_POINTS_PENDING . " where customer_id = '" . (int)$customer_id . "' and ( DATE_ADD( date_added, INTERVAL 1 YEAR)> curdate() )  order by unique_id desc";
+    // Solo mostrar el historial si los puntos del cliente NO han caducado
+    $expires_date = $expires['customers_points_expires'] ?? null;
+    $points_alive = ($has_point > 0) && tep_not_null($expires_date) && (strtotime($expires_date) > strtotime('today'));
+
+    $expires_months = (int) POINTS_AUTO_EXPIRES;
+    if ($expires_months <= 0) $expires_months = 12;
+
+    $pending_points_query = "select unique_id, orders_id, points_pending, points_comment, date_added, points_status, points_type from " . TABLE_CUSTOMERS_POINTS_PENDING . " where customer_id = '" . (int)$customer_id . "' and ( DATE_ADD( date_added, INTERVAL " . $expires_months . " MONTH ) > curdate() )  order by unique_id desc";
     $pending_points_split = new splitPageResults($pending_points_query, MAX_DISPLAY_POINTS_RECORD);
     $pending_points_query = tep_db_query($pending_points_split->sql_query);
 
-    if (tep_db_num_rows($pending_points_query)) {
+    if ($points_alive && tep_db_num_rows($pending_points_query)) {
 ?>
           <table border="0" width="100%" cellspacing="1" cellpadding="2" class="productListing-heading">
             <tr class="productListing-heading">
-              <td class="productListing-heading"width="13%"><?php echo HEADING_ORDER_DATE; ?></td>
-              <td class="productListing-heading"width="25%"><?php echo HEADING_ORDERS_NUMBER; ?></td>
-              <td class="productListing-heading" width="35%"><?php echo HEADING_POINTS_COMMENT; ?></td>
-              <td class="productListing-heading"><?php echo HEADING_POINTS_STATUS; ?></td>
-              <td class="productListing-heading" align="right"><?php echo HEADING_POINTS_TOTAL; ?></td>
+              <td class="productListing-heading" width="11%"><?php echo HEADING_ORDER_DATE; ?></td>
+              <td class="productListing-heading" width="22%"><?php echo HEADING_ORDERS_NUMBER; ?></td>
+              <td class="productListing-heading" width="29%"><?php echo HEADING_POINTS_COMMENT; ?></td>
+              <td class="productListing-heading" width="14%"><?php echo HEADING_POINTS_STATUS; ?></td>
+              <td class="productListing-heading" width="12%" align="right"><?php echo HEADING_POINTS_TOTAL; ?></td>
+              <td class="productListing-heading" width="12%" align="right"><?php echo HEADING_POINTS_VALUE; ?></td>
             </tr>
           </table>
           <table border="0" width="100%" cellspacing="1" cellpadding="2" class="infoBox">
@@ -95,6 +104,8 @@ $hoy=strtotime('now');
     while ($pending_points = tep_db_fetch_array($pending_points_query)) {
 	    $orders_status_query = tep_db_query("select o.orders_id, o.orders_status, s.orders_status_name from " . TABLE_ORDERS . " o, " . TABLE_ORDERS_STATUS . " s where o.customers_id = '" . (int)$customer_id . "' and o.orders_id = '" . (int)$pending_points['orders_id'] . "' and o.orders_status = s.orders_status_id and s.language_id = '" . (int)$languages_id . "'");
 	    $orders_status = tep_db_fetch_array($orders_status_query);
+	    if (!is_array($orders_status)) $orders_status = ['orders_id' => 0, 'orders_status' => 0, 'orders_status_name' => ''];  // fila sin pedido asociado (orders_id=0)
+	    $referred_name = [];
 	    
 	    if ($pending_points['points_status'] == '1') $points_status_name = TEXT_POINTS_PENDING;
 	    if ($pending_points['points_status'] == '2') $points_status_name = TEXT_POINTS_CONFIRMED;
@@ -141,20 +152,13 @@ $hoy=strtotime('now');
 		$orders_status['orders_status_name'] = '<span class="pointWarning">' . TEXT_STATUS_ADMINISTATION . '</span>';
 		$pending_points['orders_id'] = '<span class="pointWarning">' . TEXT_ORDER_ADMINISTATION . '</span>';
 	}
-	  $fecha_puntos = $pending_points['date_added'];
-	  $hoy = getdate();
-	  
-
-	$dias	= (strtotime('now')-strtotime($fecha_puntos))/86400;
-
-if ($dias>365) { $points_status_name= 'Caducados';}
-	  
 ?>
-                  <td class="productListing-data"width="13%"><?php echo tep_date_short($pending_points['date_added']); ?></td>
-                  <td class="productListing-data"width="25%"><?php echo '#' . $pending_points['orders_id'] . '&nbsp;&nbsp;' . $orders_status['orders_status_name']; ?></td>                    
-                  <td class="productListing-data" width="35%"><?php echo  $pending_points['points_comment'] .'&nbsp;' . $referred_name['customers_name']; ?></td>                    
-                  <td class="productListing-data"><?php echo  $points_status_name; ?></td>                    
-                  <td class="productListing-data" align="right"><?php echo number_format($pending_points['points_pending'],POINTS_DECIMAL_PLACES); ?></td>
+                  <td class="productListing-data" width="11%"><?php echo tep_date_short($pending_points['date_added']); ?></td>
+                  <td class="productListing-data" width="22%"><?php echo '#' . $pending_points['orders_id'] . '&nbsp;&nbsp;' . $orders_status['orders_status_name']; ?></td>
+                  <td class="productListing-data" width="29%"><?php echo $pending_points['points_comment'] . '&nbsp;' . ($referred_name['customers_name'] ?? ''); ?></td>
+                  <td class="productListing-data" width="14%"><?php echo $points_status_name; ?></td>
+                  <td class="productListing-data" width="12%" align="right"><?php echo number_format($pending_points['points_pending'], POINTS_DECIMAL_PLACES, ',', '.'); ?></td>
+                  <td class="productListing-data" width="12%" align="right"><?php echo $currencies->format($pending_points['points_pending'] * REDEEM_POINT_VALUE); ?></td>
                 </tr>
 <?php
 	}

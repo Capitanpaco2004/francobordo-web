@@ -33,90 +33,56 @@ class ot_redemptions {
 	}
 
 	public function process() {
-		global $order, $currencies, $customer_shopping_points_spending, $bActiveCheckoutOnePage;
+		global $order, $currencies, $customer_shopping_points_spending;
 
-		if ($customer_shopping_points_spending && $_SESSION['customer_shopping_points_spending']) {
+		if ($customer_shopping_points_spending && isset($_SESSION['customer_shopping_points_spending'])) {
 			$customer_shopping_points_spending = $_SESSION['customer_shopping_points_spending'];
 		}
 
-		// if customer is using points to pay
-		if (isset($customer_shopping_points_spending) && is_numeric($customer_shopping_points_spending) && ($customer_shopping_points_spending > 0)) {
-			$nPointValue      = tep_calc_shopping_pvalue($customer_shopping_points_spending);
-			$nPointValueFinal = $nPointValue;
-
-			// Variables
-			$aProductos = [];
-
-			// Recorremos productos para guardar el total con sus tax
-			foreach ($order->products as $aProducto) {
-				// Si no existe el nuevo impuesto lo creamos
-				if (!array_key_exists($aProducto['tax_description'], $aProductos)) {
-					$aProductos[$aProducto['tax_description']] = ['con_tax' => 0, 'sin_tax' => 0, 'tax' => $aProducto['tax']];
-				}
-
-				// Vamos aumentando
-				$aProductos[$aProducto['tax_description']]['con_tax'] += $aProducto['final_price'] * (1 + ($aProducto['tax'] / 100));
-				$aProductos[$aProducto['tax_description']]['sin_tax'] += $aProducto['final_price'];
-			}
-
-			// Variable auxiliar para ir descontando al valor de los puntos
-			$nAuxPoint = $nPointValue;
-
-			// Variable auxiliar por si acaso existe un iva o varios
-			$bTax = false;
-
-			if (count($aProductos) > 1) {
-				$bTax = true;
-			}
-
-			// Recorremos los tax con la suma de sus productos
-			foreach ($aProductos as $sTax => $value) {
-				// Tax
-				$nTax = (1 + ($value['tax'] / 100));
-
-				// Descuento
-				$nDescuentoConTax = $nAuxPoint;
-				$nDescuentoSinTax = $nDescuentoConTax / $nTax;
-				$nDescuentoResto  = $nDescuentoConTax - $nDescuentoSinTax;
-
-				// Producto
-				$nProductoSinTax = $value['sin_tax'] - ($bTax ? $nDescuentoResto : $nDescuentoSinTax);
-				$nProductoConTax = $nProductoSinTax * $nTax;
-				$nProductoResto  = $nProductoConTax - $nProductoSinTax;
-
-				// Descontamos del tax el tax del producto por si tiene mas cosas como tax de envio,seguro etc
-				$nSubTax = $order->info['tax_groups'][$sTax] - ($value['con_tax'] - $value['sin_tax']);
-
-				// Restamos tax
-				$nAux = $order->info['tax_groups'][$sTax];
-
-				if ($bTax) {
-					$order->info['tax_groups'][$sTax] = $nProductoResto + $nSubTax;
-				} else {
-					$order->info['tax_groups'][$sTax] -= $nDescuentoResto;
-				}
-
-				// Restamos descuento
-				$nAuxPoint -= $nProductoResto;
-
-				// Descontamos
-				$nPointValueFinal -= $nAux - $order->info['tax_groups'][$sTax];
-			}
-
-			$order->info['total']          -= $nPointValue;
-			$order->info['payment_method'] = ($order->info['total'] > 0) ? $order->info['payment_method'] . '+' . str_replace(':', '', TEXT_POINTS) : str_replace(':', '', TEXT_POINTS);
-
-			$module       = substr((string)$GLOBALS['shipping']['id'], 0, strpos((string)$GLOBALS['shipping']['id'], '_'));
-			$shipping_tax = tep_get_tax_rate($GLOBALS[$module]->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id']);
-
-			$this->output[] = [
-				'title'    => MODULE_ORDER_TOTAL_REDEMPTIONS_TEXT . ':',
-				'text_tax' => '<span class="red">-' . $currencies->format($nPointValue, true, $order->info['currency'], $order->info['currency_value'] . '</span>'),
-				'text'     => '<span class="red">-' . $currencies->format(($bActiveCheckoutOnePage ? $nPointValueFinal + tep_calculate_tax($nPointValueFinal, $shipping_tax) : $nPointValueFinal), true, $order->info['currency'], $order->info['currency_value'] . '</span>'),
-				'value'    => $nPointValueFinal,
-				'value'    => $nPointValueFinal + tep_calculate_tax($nPointValueFinal, $shipping_tax),
-			];
+		if (!isset($customer_shopping_points_spending) || !is_numeric($customer_shopping_points_spending) || ($customer_shopping_points_spending <= 0)) {
+			return;
 		}
+
+		// REDEEM_POINT_VALUE se interpreta como precio FINAL con IVA inc. (Opción A — el cliente ve los puntos como €€ brutos)
+		$nPointValue = tep_calc_shopping_pvalue($customer_shopping_points_spending);
+
+		// Peso bruto del carrito por tipo de IVA — para prorratear el IVA del descuento entre grupos
+		$aGrupos     = [];
+		$nTotalBruto = 0;
+		foreach ($order->products as $aProducto) {
+			$sKey = $aProducto['tax_description'];
+			if (!isset($aGrupos[$sKey])) {
+				$aGrupos[$sKey] = ['bruto' => 0, 'tax' => (float)$aProducto['tax']];
+			}
+			$nBruto = $aProducto['final_price'] * (1 + ($aProducto['tax'] / 100)) * $aProducto['qty'];
+			$aGrupos[$sKey]['bruto'] += $nBruto;
+			$nTotalBruto             += $nBruto;
+		}
+
+		// Bajar el IVA de cada grupo en proporción al peso bruto del grupo en el carrito
+		if ($nTotalBruto > 0) {
+			foreach ($aGrupos as $sKey => $aGrupo) {
+				$nShare    = $nPointValue * ($aGrupo['bruto'] / $nTotalBruto);
+				$nIvaShare = ($aGrupo['tax'] > 0) ? $nShare * ($aGrupo['tax'] / (100 + $aGrupo['tax'])) : 0;
+				if (isset($order->info['tax_groups'][$sKey])) {
+					$order->info['tax_groups'][$sKey] -= $nIvaShare;
+				}
+			}
+		}
+
+		$order->info['total']         -= $nPointValue;
+		$order->info['payment_method'] = ($order->info['total'] > 0)
+			? $order->info['payment_method'] . '+' . str_replace(':', '', TEXT_POINTS)
+			: str_replace(':', '', TEXT_POINTS);
+
+		$sFormatted = $currencies->format($nPointValue, true, $order->info['currency'], $order->info['currency_value']);
+
+		$this->output[] = [
+			'title'    => MODULE_ORDER_TOTAL_REDEMPTIONS_TEXT . ':',
+			'text'     => '<span class="red">-' . $sFormatted . '</span>',
+			'text_tax' => '<span class="red">-' . $sFormatted . '</span>',
+			'value'    => $nPointValue,
+		];
 	}
 
 	public function install() {
