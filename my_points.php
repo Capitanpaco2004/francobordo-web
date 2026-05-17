@@ -80,7 +80,8 @@ function rowOutEffect(object) {
     $expires_months = (int) POINTS_AUTO_EXPIRES;
     if ($expires_months <= 0) $expires_months = 12;
 
-    $pending_points_query = "select unique_id, orders_id, points_pending, points_comment, date_added, points_status, points_type from " . TABLE_CUSTOMERS_POINTS_PENDING . " where customer_id = '" . (int)$customer_id . "' and ( DATE_ADD( date_added, INTERVAL " . $expires_months . " MONTH ) > curdate() )  order by unique_id desc";
+    // points_type='EX' son filas internas de caducidad (no visibles al cliente)
+    $pending_points_query = "select unique_id, orders_id, points_pending, points_comment, date_added, points_status, points_type from " . TABLE_CUSTOMERS_POINTS_PENDING . " where customer_id = '" . (int)$customer_id . "' and points_type != 'EX' and ( DATE_ADD( date_added, INTERVAL " . $expires_months . " MONTH ) > curdate() )  order by unique_id desc";
     $pending_points_split = new splitPageResults($pending_points_query, MAX_DISPLAY_POINTS_RECORD);
     $pending_points_query = tep_db_query($pending_points_split->sql_query);
 

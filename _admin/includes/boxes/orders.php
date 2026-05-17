@@ -7,6 +7,7 @@
 <?php echo tep_admin_files_boxes(FILENAME_ORDERS_STATUS, '<i class="bullet"></i> ' . BOX_LOCALIZATION_ORDERS_STATUS); ?>
 <?php echo tep_admin_files_boxes('update_masive_orders.php', '<i class="bullet"></i> Actualizador masivo de estados'); ?>
 <?php echo tep_admin_files_boxes("arreglar_pedidos_qfac.php", "<i class=\"bullet\"></i> Arreglar pedidos QFac"); ?>
+<?php echo tep_admin_files_boxes('arreglar-pedidos-sin-ciudad.php', '<i class="bullet"></i> Arreglar pedidos sin ciudad'); ?>
 <div>
 	<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> RMA <i class="fa fa-angle-right"></i></a>
 	<div class="sbmn">

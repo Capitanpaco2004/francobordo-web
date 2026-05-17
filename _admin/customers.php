@@ -314,8 +314,8 @@ if( tep_not_null($action) )
 						$messageStack->addSession( 'mensaje', 'El código postal del cliente en la dirección #' . $key . ' no puede tener menos de ' . ENTRY_POSTCODE_MIN_LENGTH . ' caracteres.' );
 
 					// Comprobamos la ciudad
-					//if( intval( $entry_city_id[$key] ) == 0 && $entry_city[$key] == '' )
-					//	$messageStack->add( 'La ciudad del cliente en la dirección #' . $key . ' no puede tener menos de ' . ENTRY_CITY_MIN_LENGTH . ' caracteres.' );
+					if( intval( $entry_city_id[$key] ) == 0 && $entry_city[$key] == '' )
+						$messageStack->addSession( 'mensaje', 'La ciudad del cliente en la dirección #' . $key . ' es obligatoria.' );
 
 					// Comprobamos el pais
 					if( $entry_country_id[$key] == false )

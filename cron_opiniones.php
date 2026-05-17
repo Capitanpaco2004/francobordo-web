@@ -34,7 +34,10 @@ define('SISTEMA_OPINION_DIAS_DELETE', '30');
 					// Si no existe el pedido, continuamos con otro y borramos la opinion por que jamas sera contestada
 					if( tep_db_num_rows( $aDatosOrders ) == 0 )
 					{
-						die(0);
+						// Fix 2026-05-16: antes era die(0) que mataba todo el cron al primer huérfano.
+						// Borramos la opinión huérfana y seguimos con el resto.
+						tep_db_query( 'delete from opinion where id_opinion = ' . (int)$aDatoOpinion['id_opinion'] );
+						continue;
 					}
 
 					// Obtenemos el pedido

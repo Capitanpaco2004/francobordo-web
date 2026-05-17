@@ -512,6 +512,7 @@ foreach ($rows as $row) {
 	if (!$inOnlyCodes && $row['STATUS'] !== '' && in_array($row['STATUS'], ['D', 'X', 'F', 'N', '0'], true)) { $skippedStatus++; continue; }
 	if (!$inOnlyCodes && $row['NOT_SELL'] !== '' && in_array(strtoupper($row['NOT_SELL']), ['X', 'Y', 'YES', 'SI', 'TRUE', '1'], true)) { $skippedStatus++; continue; }
 	if (isset($existing[strtolower($sku)])) { $skippedExisting++; continue; }
+	if (!empty($row['EAN']) && isset($existing[strtolower($row['EAN'])])) { $skippedExisting++; continue; }
 	$net = tremNum($row['EXPORT']);
 	if ($net === null || $net <= 0) { $skippedBadPrice++; continue; }
 	$row['_NET'] = $net;

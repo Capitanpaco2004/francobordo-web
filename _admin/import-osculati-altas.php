@@ -201,6 +201,12 @@ function getExistingBaseCodes() {
 	$q = tep_db_query("SELECT LOWER(p.reference_prov) AS r FROM products p WHERE p.reference_prov IS NOT NULL AND p.reference_prov != '' AND $f");
 	while ($row = tep_db_fetch_array($q)) $existing[$row['r']] = true;
 
+	// EAN global (identificador único GS1) — sin scope por marca, comparte namespace con SKUs/refs
+	$q = tep_db_query("SELECT LOWER(product_ean) AS m FROM products WHERE product_ean IS NOT NULL AND product_ean != ''");
+	while ($row = tep_db_fetch_array($q)) $existing[$row['m']] = true;
+	$q = tep_db_query("SELECT LOWER(products_attributes_ean) AS m FROM products_attributes WHERE products_attributes_ean IS NOT NULL AND products_attributes_ean != ''");
+	while ($row = tep_db_fetch_array($q)) $existing[$row['m']] = true;
+
 	return $existing;
 }
 
@@ -503,6 +509,15 @@ if ($isAction) {
 		foreach (array_keys($bases) as $bc) {
 			if (isset($existing[strtolower($bc)])) { $anyExists = true; break; }
 		}
+		// Check EAN global: si algún OrderCode de la serie tiene EAN ya en BD, saltar la serie entera
+		if (!$anyExists) {
+			foreach ($bases as $bc => $orders) {
+				foreach ($orders as $it) {
+					$_ean = strtolower(trim($it['ean'] ?? ''));
+					if ($_ean !== '' && isset($existing[$_ean])) { $anyExists = true; break 2; }
+				}
+			}
+		}
 		if ($anyExists) { $skippedPartial++; continue; }
 
 		// Agrupar por marca para detectar series mixtas (ej. anclas Fortress + bolsas Osculati en serie 175).
@@ -539,9 +554,19 @@ if ($isAction) {
 
 	// Standalone (sin serie o serie con 1 solo BaseCode) — 1 BaseCode = 1 producto sin variantes
 	$newStandalone = [];
+	$skippedStandaloneEan = 0;
 	foreach ($basesNoSerie as $bc => $orders) {
-		if (!isset($existing[strtolower($bc)])) $newStandalone[$bc] = $orders;
+		if (isset($existing[strtolower($bc)])) continue;
+		// Check EAN global de cualquier OrderCode del producto suelto
+		$_eanHit = false;
+		foreach ($orders as $it) {
+			$_ean = strtolower(trim($it['ean'] ?? ''));
+			if ($_ean !== '' && isset($existing[$_ean])) { $_eanHit = true; break; }
+		}
+		if ($_eanHit) { $skippedStandaloneEan++; continue; }
+		$newStandalone[$bc] = $orders;
 	}
+	if ($skippedStandaloneEan > 0) logMsg("Sueltos saltados por EAN ya en BD: $skippedStandaloneEan");
 
 	// Filtro por codes específicos: solo series/sueltos que contienen al menos un BaseCode pedido
 	if (!empty($onlyCodes)) {

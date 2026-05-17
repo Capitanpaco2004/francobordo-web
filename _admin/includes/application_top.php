@@ -210,6 +210,8 @@ if (
 $excludedFilesFromLogin = [
 	'recover_cart_sales_cron.php',
 	'cron_transportistas.php',
+	'customers_points_expire.php',
+	'cron_maintenance.php',
 	FILENAME_LOGIN_ADMIN,
 	FILENAME_PASSWORD_FORGOTTEN,
 	FILENAME_FORBIDDEN,

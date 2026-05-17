@@ -44,7 +44,20 @@
 	if( isset( $_POST['zone_id'] ) )
 	{
 		// Actualizamos la ZONE ID
-		tep_db_query( 'UPDATE address_book SET entry_city_id = ' . (int)$_POST['city_id'] . ', entry_postcode = ' . $_POST['postcode'] . ', entry_zone_id = ' . (int)$_POST['zone_id'] . ' WHERE address_book_id = ' . $customer_default_address_id . ';' );
+			// Validamos y resolvemos city desde id (parche city-fix 2026-05-16)
+		$_city_id = (int)$_POST['city_id'];
+		$_postcode = tep_db_input(tep_db_prepare_input($_POST['postcode']));
+		$_zid = (int)$_POST['zone_id'];
+		$_city_name = '';
+		if( $_city_id > 0 ) {
+			$_cq = tep_db_query( 'SELECT name FROM cities WHERE id = ' . $_city_id . ' LIMIT 1' );
+			if( $_crow = tep_db_fetch_array($_cq) ) $_city_name = $_crow['name'];
+		}
+		if( $_city_id == 0 || $_city_name == '' ) {
+			$messageStack->add_session( 'checkout_address', 'Selecciona una ciudad de la lista para continuar.', 'error' );
+			tep_redirect( tep_href_link( FILENAME_CHECKOUT_SELECT_ZONE, '', 'SSL' ) );
+		}
+		tep_db_query( 'UPDATE address_book SET entry_city_id = ' . $_city_id . ', entry_city = "' . tep_db_input($_city_name) . '", entry_postcode = "' . $_postcode . '", entry_zone_id = ' . $_zid . ' WHERE address_book_id = ' . (int)$customer_default_address_id );
 
 		// Redireccionamos
 		tep_redirect( FILENAME_CHECKOUT_SHIPPING );

@@ -1,8 +1,11 @@
 <?php
+// Refactor 2026-05-16: SQL injection cerrado (casts), guardia User-Agent cPanel-Cron,
+// lockfile para evitar solapamientos, display_errors=0 (solo a log).
+
 // Configuración de errores y límites
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
-ini_set('log_errors', 1);
+ini_set('display_errors', '0');   // No mostrar errores en respuesta HTTP (endpoint público)
+ini_set('log_errors', '1');
 ini_set('error_log', __DIR__ . '/temp/error.log');
 
 ini_set('memory_limit', '-1');
@@ -27,6 +30,21 @@ foreach ([$tempDir, $logDir, $downloadDir] as $dir) {
     if (!is_dir($dir)) {
         mkdir($dir, 0755, true);
     }
+}
+
+// Guardia: solo invocaciones desde el cron (User-Agent cPanel-Cron).
+// Endpoint público en el frontend; sin este check, cualquiera podría disparar actualizaciones masivas de precios.
+if (($_SERVER['HTTP_USER_AGENT'] ?? '') !== 'cPanel-Cron') {
+    http_response_code(403);
+    exit('Forbidden');
+}
+
+// Lockfile: evitar que dos ejecuciones del cron solapen y procesen el mismo CSV dos veces.
+$lockFile   = $tempDir . '/actuprice_minderest.lock';
+$lockHandle = fopen($lockFile, 'c+');
+if (!$lockHandle || !flock($lockHandle, LOCK_EX | LOCK_NB)) {
+    http_response_code(423);
+    exit('Locked: hay otra ejecución del cron en curso');
 }
 // Archivo de log para este proceso
 $sLogName = 'log_minderest_' . date('d-m-Y_H-i-s') . '.txt';
@@ -113,6 +131,7 @@ $nI = 0; // Contador de productos procesados
 $firstRow = true; // Flag para omitir la primera línea (encabezado)
 
 // Procesar cada línea del CSV descargado
+$nSkippedUnknown = 0;
 while ($aImport->read()) {
     // Saltar la primera fila (encabezados)
     if ($firstRow) {
@@ -120,53 +139,71 @@ while ($aImport->read()) {
         continue;
     }
 
-    $sId        = $aImport->get(0);
-    $sPrice     = $aImport->get(1);
-    $nIncreased = $aImport->get(17);
+    $sId        = (string) $aImport->get(0);
+    $sPrice     = (float) $aImport->get(1);     // cast: el CSV es externo, cierra SQLi
+    $nIncreased = (int) $aImport->get(17);
     $nAtriPrice = 0;
 
-    if ($sId == '' || $sPrice == '') {
+    if ($sId === '' || $sPrice <= 0) {
         continue;
     }
 
     // Separar ID en caso de que sea un producto-atributo
     $aId = explode('-', $sId);
-    $productId = $aId[0];
+    $productId = (int) $aId[0];
+
+    if ($productId <= 0 || !isset($aProductosMind[$productId])) {
+        $nSkippedUnknown++;
+        writeLog($fLog, '"Saltado: product_id no existe en tienda o ID inválido: ' . $sId . '"');
+        continue;
+    }
+
+    $productBasePrice = (float) $aProductosMind[$productId]['price'];
+    $productName      = $aProductosMind[$productId]['name'];
 
     // Si es un atributo (tiene segundo valor y es mayor que 0)
-    if (isset($aId[1]) && $aId[1] > 0) {
-        $attributeId = $aId[1];
-        $nAtriPrice = $sPrice - $aProductosMind[$productId]['price'];
-        if ($aProductsAttributes[$productId][$attributeId]['price'] != abs(round($nAtriPrice, 4))) {
-            $msg = '"Actualizado producto-atributo \'' . $aProductosMind[$productId]['name'] . ' (' .
+    if (isset($aId[1]) && (int) $aId[1] > 0) {
+        $attributeId = (int) $aId[1];
+
+        if (!isset($aProductsAttributes[$productId][$attributeId])) {
+            $nSkippedUnknown++;
+            writeLog($fLog, '"Saltado atributo desconocido: ' . $sId . '"');
+            continue;
+        }
+
+        $nAtriPrice = $sPrice - $productBasePrice;
+        $attrCurrent = (float) $aProductsAttributes[$productId][$attributeId]['price'];
+
+        if ($attrCurrent != abs(round($nAtriPrice, 4))) {
+            $msg = '"Actualizado producto-atributo \'' . $productName . ' (' .
                    $aProductsAttributes[$productId][$attributeId]['option'] . ' - ' .
                    $aProductsAttributes[$productId][$attributeId]['option_value'] . ')\'"; Precio base: \'' .
-                   $aProductosMind[$productId]['price'] . '\'; Añadido anterior: \'' .
-                   $aProductsAttributes[$productId][$attributeId]['price'] . '\'; Añadido nuevo: \'' .
-                   $nAtriPrice . '\'';
+                   $productBasePrice . '\'; Añadido anterior: \'' .
+                   $attrCurrent . '\'; Añadido nuevo: \'' . $nAtriPrice . '\'';
             writeLog($fLog, $msg);
 
-            tep_db_query('UPDATE products_attributes SET options_values_price = "' . abs($nAtriPrice) .
+            tep_db_query('UPDATE products_attributes SET options_values_price = "' . (float) abs($nAtriPrice) .
                          '", price_prefix = "' . ($nAtriPrice < 0 ? '-' : '+') .
                          '" WHERE products_attributes_id = ' . $attributeId);
             tep_db_query('UPDATE products SET products_last_modified = now() WHERE products_id = ' . $productId);
         }
     } else {
         // Producto normal
-        $porcentajeOferta = round(100 - (($sPrice * 100) / $aProductosMind[$productId]['price'])) . '%';
-        if ($nIncreased == 1 && $porcentajeOferta < 5) {
+        $porcentajeOferta = (float) round(100 - (($sPrice * 100) / $productBasePrice));
+        if ($nIncreased === 1 && $porcentajeOferta < 5) {
             // Si tiene oferta, eliminarla
             if (isset($aProductsSpecials[$productId])) {
-                $msg = '"Eliminada oferta \'' . $aProductosMind[$productId]['name'] . '\'; Oferta: \'' .
+                $specialId = (int) $aProductsSpecials[$productId]['id'];
+                $msg = '"Eliminada oferta \'' . $productName . '\'; Oferta: \'' .
                        $aProductsSpecials[$productId]['price'] . '\' "';
                 writeLog($fLog, $msg);
-                writeLog($fLog, 'Query lanzada "DELETE FROM specials WHERE specials_id = ' . $aProductsSpecials[$productId]['id'] . '"');
-                tep_db_query('DELETE FROM specials WHERE specials_id = ' . $aProductsSpecials[$productId]['id']);
+                writeLog($fLog, 'Query lanzada "DELETE FROM specials WHERE specials_id = ' . $specialId . '"');
+                tep_db_query('DELETE FROM specials WHERE specials_id = ' . $specialId);
             }
             // Actualizar precio si ha subido
-            if ($aProductosMind[$productId]['price'] != $sPrice) {
-                $msg = '"Actualizado producto que ha subido de precio \'' . $aProductosMind[$productId]['name'] .
-                       '\'; Precio anterior: \'' . $aProductosMind[$productId]['price'] .
+            if ($productBasePrice != $sPrice) {
+                $msg = '"Actualizado producto que ha subido de precio \'' . $productName .
+                       '\'; Precio anterior: \'' . $productBasePrice .
                        '\'; Precio nuevo: \'' . $sPrice . '\' "';
                 writeLog($fLog, $msg);
                 tep_db_query('UPDATE products SET products_price = "' . $sPrice .
@@ -175,26 +212,28 @@ while ($aImport->read()) {
         } else {
             // Gestión de ofertas o actualización de precio para productos sin incremento
             if (isset($aProductsSpecials[$productId])) {
-                if ($aProductsSpecials[$productId]['price'] != $sPrice) {
-                    $msg = '"Actualizada Oferta \'' . $aProductosMind[$productId]['name'] .
-                           '\'; Oferta anterior: \'' . $aProductsSpecials[$productId]['price'] .
+                $specialId    = (int) $aProductsSpecials[$productId]['id'];
+                $specialPrice = (float) $aProductsSpecials[$productId]['price'];
+                if ($specialPrice != $sPrice) {
+                    $msg = '"Actualizada Oferta \'' . $productName .
+                           '\'; Oferta anterior: \'' . $specialPrice .
                            '\'; Oferta nueva: \'' . $sPrice . '\' "';
                     writeLog($fLog, $msg);
                     tep_db_query('UPDATE specials SET specials_new_products_price = "' . $sPrice .
-                                 '", specials_last_modified = now(), status = 1 WHERE specials_id = ' . $aProductsSpecials[$productId]['id']);
+                                 '", specials_last_modified = now(), status = 1 WHERE specials_id = ' . $specialId);
                     tep_db_query('UPDATE products SET products_last_modified = now() WHERE products_id = ' . $productId);
                 }
             } else {
-                if ($aProductosMind[$productId]['price'] > $sPrice && $porcentajeOferta > 5) {
-                    $msg = '"Creada Oferta \'' . $aProductosMind[$productId]['name'] .
-                           '\'; Precio base: \'' . $aProductosMind[$productId]['price'] .
+                if ($productBasePrice > $sPrice && $porcentajeOferta > 5) {
+                    $msg = '"Creada Oferta \'' . $productName .
+                           '\'; Precio base: \'' . $productBasePrice .
                            '\'; Oferta nueva: \'' . $sPrice . '\' "';
                     writeLog($fLog, $msg);
                     tep_db_query('INSERT INTO specials (products_id, specials_new_products_price, specials_date_added, status)
                                   VALUES (' . $productId . ', "' . $sPrice . '", now(), 1)');
-                } elseif ($aProductosMind[$productId]['price'] != $sPrice) {
-                    $msg = '"Actualizado producto que ha bajado de precio \'' . $aProductosMind[$productId]['name'] .
-                           '\'; Precio anterior: \'' . $aProductosMind[$productId]['price'] .
+                } elseif ($productBasePrice != $sPrice) {
+                    $msg = '"Actualizado producto que ha bajado de precio \'' . $productName .
+                           '\'; Precio anterior: \'' . $productBasePrice .
                            '\'; Precio nuevo: \'' . $sPrice . '\' "';
                     writeLog($fLog, $msg);
                     tep_db_query('UPDATE products SET products_price = "' . $sPrice .
@@ -206,6 +245,10 @@ while ($aImport->read()) {
     $nI++;
 }
 
+if ($nSkippedUnknown > 0) {
+    writeLog($fLog, '"Total filas saltadas por producto/atributo desconocido: ' . $nSkippedUnknown . '"');
+}
+
 // Tiempo total de ejecución
 $endTime = microtime(true);
 $executionTime = round(($endTime - $startTime), 2);
@@ -213,10 +256,18 @@ $executionTime = round(($endTime - $startTime), 2);
 // Log: Fin del importador
 writeLog($fLog, '"Finalizado importador Minderest"');
 
-// Renombrar el log para marcar la finalización
-$finalLogName = preg_replace('/\.txt/i', '_fin.txt', $sLogName);
+// Renombrar el log para marcar la finalización (sustitución exacta del sufijo)
+$finalLogName = (substr($sLogName, -4) === '.txt')
+    ? substr($sLogName, 0, -4) . '_fin.txt'
+    : $sLogName . '_fin.txt';
 rename($logFilePath, $logDir . '/' . $finalLogName);
 fclose($fLog);
+
+// Liberar lockfile (PHP también lo libera al terminar, pero explícito es mejor)
+if (isset($lockHandle) && is_resource($lockHandle)) {
+    flock($lockHandle, LOCK_UN);
+    fclose($lockHandle);
+}
 ?>
 
 <!DOCTYPE html>

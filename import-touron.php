@@ -188,9 +188,7 @@ try {
         throw new Exception("Error en actualizaciones: " . $e->getMessage());
     }
 
-    // Productos no en XML - TEMPORALMENTE DESHABILITADO PARA DEBUGGING
-    showProgressWeb("⚠️ SALTANDO procesamiento de productos no presentes en XML (para debugging)", 'warning');
-    /*
+    // Productos no en XML - reactivado 2026-05-16 tras meses comentado por debug.
     showProgressWeb("Procesando productos no presentes en XML...");
     try {
         updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAllAtris, $aAllStockAtris);
@@ -198,7 +196,6 @@ try {
     } catch (Exception $e) {
         throw new Exception("Error procesando productos no presentes: " . $e->getMessage());
     }
-    */
 
     // Confirmar transacción
     $commitResult = tep_db_query("COMMIT");

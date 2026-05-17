@@ -108,9 +108,10 @@ function update($sTable, $aValues, $sWhere, $aDatabase)
 	// Preparamos la consulta de update
 	$sInsert = 'UPDATE ' . $sTable . ' SET ';
 
-	// Recorremos los campos y componemos el update
+	// Recorremos los campos y componemos el update. Fix 2026-05-16: $aValue ahora se escapa con tep_db_input.
+	// El CSV de Dismarina sólo trae stock numérico hoy, pero la función era vulnerable por diseño.
 	foreach( $aValues as $sKey => $aValue )
-		$sInsert .= $sKey . ' = "' . $aValue . '", ';
+		$sInsert .= $sKey . ' = "' . tep_db_input( (string) $aValue ) . '", ';
 	$sInsert = substr( $sInsert, 0, -2 );
 
 	// Añadimos el where

@@ -5,8 +5,9 @@
 	// Incluimos clase tools
 	include( 'includes/classes/tools.php' );
 
+	// Fix 2026-05-16: errores solo al log, no a la respuesta (endpoint público).
 	error_reporting(E_ALL & ~E_NOTICE);
-	ini_set('display_errors', 1);
+	ini_set('display_errors', '0');
 
 	// Salto de línea según contexto (web o CLI)
 	$br = php_sapi_name() === 'cli' ? "\n" : "<br>\n";
@@ -28,30 +29,33 @@
 	//Definimos ruta para las clases
 	define('PATH_UPDATE_MASIVE_ORDERS', realpath(DIR_FS_ADMIN) . '/includes/modules/update_masive_orders/');
 
-	// Webklex IMAP (reemplazo de ext-imap eliminada en PHP 8.4)
-	$cm = new \Webklex\PHPIMAP\ClientManager();
-	$oClient = $cm->make([
-		'host'          => 'mail.francobordo.com',
-		'port'          => 993,
-		'encryption'    => 'ssl',
-		'validate_cert' => false,
-		'username'      => 'transporte',
-		'password'      => 'Paco0908;',
-		'protocol'      => 'imap',
-	]);
-
-	$oClient->connect();
-	$oFolder = $oClient->getFolder('INBOX');
-
-	// Buscar emails no eliminados desde ayer
-	$sSince = date('d M Y', strtotime('-1 day'));
-	$aMessages = $oFolder->query()->since($sSince)->get();
-
 	// Array para guardar transportista y sus feeds
 	$aEmails = array();
 
-	foreach ($aMessages as $oMessage)
-	{
+	// Fix 2026-05-16: bloque IMAP envuelto en try/catch — si falla la conexión o el query
+	// (excepción GetMessagesFailedException), seguimos con DHL en lugar de abortar el cron.
+	try {
+		// Webklex IMAP (reemplazo de ext-imap eliminada en PHP 8.4)
+		$cm = new \Webklex\PHPIMAP\ClientManager();
+		$oClient = $cm->make([
+			'host'          => 'mail.francobordo.com',
+			'port'          => 993,
+			'encryption'    => 'ssl',
+			'validate_cert' => false,
+			'username'      => 'transporte',
+			'password'      => 'Paco0908;',
+			'protocol'      => 'imap',
+		]);
+
+		$oClient->connect();
+		$oFolder = $oClient->getFolder('INBOX');
+
+		// Buscar emails no eliminados desde ayer
+		$sSince = date('d M Y', strtotime('-1 day'));
+		$aMessages = $oFolder->query()->since($sSince)->get();
+
+		foreach ($aMessages as $oMessage)
+		{
 		$sSubject = $oMessage->getSubject();
 
 		// Vamos a preparar la key de nuestro array global a través del asunto del email
@@ -101,8 +105,13 @@
 		}
 	}
 
-	// Cerramos conexion
-	$oClient->disconnect();
+		// Cerramos conexion
+		$oClient->disconnect();
+	} catch (\Throwable $e) {
+		echo "Aviso: IMAP falló - " . $e->getMessage() . $br;
+		error_log('cron_transportistas IMAP error: ' . $e->getMessage());
+		// Seguimos al bloque DHL.
+	}
 
 	//Incluimos clases
 	require(PATH_UPDATE_MASIVE_ORDERS . 'update_masive_orders.php');

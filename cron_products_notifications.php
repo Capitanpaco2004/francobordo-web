@@ -4,22 +4,31 @@
 	
 	
 	// Recorremos los usuarios que estan esperando ser notificados
-	$aUsuarios = tep_db_query( 'select products_id, customers_email_address, atributo, idioma from products_notifications' );
-	
+	// Fix 2026-05-16: JOIN con customers para conocer si el suscriptor es cliente registrado.
+	// La query original NO seleccionaba customers_id y la condición de RGPD evaluaba siempre false.
+	$aUsuarios = tep_db_query( 'SELECT pn.products_id, pn.customers_email_address, pn.atributo, pn.idioma, c.customers_id
+								FROM products_notifications pn
+								LEFT JOIN customers c ON c.customers_email_address = pn.customers_email_address' );
+
 	// Obtenemos los emails de clientes que si estan suscritos a enviarnos correos
 	$aEmailsSubscribed = array_values( pharaonix_getArrayAssociativeSql( 'SELECT c.customers_email_address FROM customers c INNER JOIN rgpd_account_term rgat on(rgat.customers_id = c.customers_id) WHERE rgat.id_term_pivacy_trade = 3', 'customers_email_address', 'customers_email_address', false, 1 ) );
-	
+
+	$nNotificados = 0;
 	while( $aUsuario = tep_db_fetch_array( $aUsuarios ) )
 	{
-		// Si el cliente existe y no tiene suscrito pasamos
-		if( $aUsuario['customers_id'] != 'null' && !in_array( $aUsuario['customers_email_address'], $aEmailsSubscribed ) )
-			continue;	
+		// Reiniciar acumulador de atributos por usuario (fix 2026-05-16: antes se filtraba entre iteraciones)
+		$aAtributos = array();
+
+		// Si el cliente es registrado y NO ha aceptado comunicaciones comerciales (rgpd term 3), no notificar.
+		// Si no es cliente registrado (suscripción anónima), notificar siempre (es transaccional).
+		if( !empty( $aUsuario['customers_id'] ) && !in_array( $aUsuario['customers_email_address'], $aEmailsSubscribed ) )
+			continue;
 		
 		// Comprobamos si existe la tabla products_stock para mirar clientes que esten con notificaciones por atributos
 		if( existsTableDb( 'products_stock' ) )
 		{
-			// Obtenemos el producto
-			$aStock = tep_db_query( 'SELECT * FROM products_stock ps INNER JOIN products_description pd ON (ps.products_id = pd.products_id) WHERE ps.products_stock_attributes = "' . $aUsuario['atributo'] . '" and ps.products_id = ' . $aUsuario['products_id'] );
+			// Obtenemos el producto. atributo puede ser '1-934' o combinación; viene de products_notifications (controlada por checkout) — se escapa por seguridad.
+			$aStock = tep_db_query( 'SELECT * FROM products_stock ps INNER JOIN products_description pd ON (ps.products_id = pd.products_id) WHERE ps.products_stock_attributes = "' . tep_db_input( $aUsuario['atributo'] ) . '" and ps.products_id = ' . (int) $aUsuario['products_id'] );
 
 			// Si hemos encontrado el producto
 			if( tep_db_num_rows( $aStock ) > 0 )
@@ -47,20 +56,21 @@
 							$aAttrib = explode( '-', $aAttrib );
 
 							// Obtenemos la opcion
-							$aOption = tep_db_query( 'SELECT products_options_name FROM products_options WHERE products_options_id = ' . $aAttrib[0] . ' AND  language_id = ' . $aIdioma['id'] . ';' );
+							$aOption = tep_db_query( 'SELECT products_options_name FROM products_options WHERE products_options_id = ' . (int) $aAttrib[0] . ' AND  language_id = ' . (int) $aIdioma['id'] . ';' );
 							$aOption = tep_db_fetch_array( $aOption );
 
 							// Obtenemos el valor
-							$aValue = tep_db_query( 'SELECT products_options_values_name FROM products_options_values WHERE products_options_values_id = ' . $aAttrib[1] . ' AND  language_id = ' . $aIdioma['id'] . ';' );
+							$aValue = tep_db_query( 'SELECT products_options_values_name FROM products_options_values WHERE products_options_values_id = ' . (int) ($aAttrib[1] ?? 0) . ' AND  language_id = ' . (int) $aIdioma['id'] . ';' );
 							$aValue = tep_db_fetch_array( $aValue );
 
 							// Añadimos el registro al email
+							if (!isset($aAtributos[$aIdioma['id']])) $aAtributos[$aIdioma['id']] = '';
 							$aAtributos[$aIdioma['id']] .= $aOption['products_options_name'] . ': ' . $aValue['products_options_values_name'] . '<br/>';
 						}
 					}
 
 					// Obtenemos los usuarios a notificar
-					$aClientes = tep_db_query( 'SELECT * FROM products_notifications WHERE products_id = ' . $aStock['products_id'] . ' AND atributo = "' . $aStock['products_stock_attributes'] . '";' );
+					$aClientes = tep_db_query( 'SELECT * FROM products_notifications WHERE products_id = ' . (int) $aStock['products_id'] . ' AND atributo = "' . tep_db_input( $aStock['products_stock_attributes'] ) . '";' );
 
 					// Recorremos las notificaciones
 					while( $aCliente = tep_db_fetch_array( $aClientes ) )
@@ -93,7 +103,8 @@
 						tep_mail( $aCliente['customers_firstname'], $aCliente['customers_email_address'], $sAsunto, $sEmail, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS_NOREPLY );
 
 						// Eliminamos el registro de aviso
-						tep_db_query( 'DELETE FROM products_notifications WHERE id = ' . $aCliente['id'] . ';' );
+						tep_db_query( 'DELETE FROM products_notifications WHERE id = ' . (int) $aCliente['id'] . ';' );
+						$nNotificados++;
 					}
 				}
 				else
@@ -102,7 +113,7 @@
 		}
 		
 		// Obtenemos el producto
-		$aStock = tep_db_query( 'SELECT * FROM products p INNER JOIN products_description pd ON (p.products_id = pd.products_id) WHERE p.products_id = ' . $aUsuario['products_id'] );
+		$aStock = tep_db_query( 'SELECT * FROM products p INNER JOIN products_description pd ON (p.products_id = pd.products_id) WHERE p.products_id = ' . (int) $aUsuario['products_id'] );
 
 		// Si hemos encontrado el producto
 		if( tep_db_num_rows( $aStock ) > 0 )
@@ -113,7 +124,7 @@
 			if( $aStock['products_quantity'] > 0 )
 			{
 				// Obtenemos los usuarios a notificar
-				$aClientes = tep_db_query( 'SELECT * FROM products_notifications WHERE products_id = ' . $aStock['products_id'] );
+				$aClientes = tep_db_query( 'SELECT * FROM products_notifications WHERE products_id = ' . (int) $aStock['products_id'] );
 
 				// Recorremos las notificaciones
 				while( $aCliente = tep_db_fetch_array( $aClientes ) )
@@ -151,7 +162,9 @@
 			}
 		}
 	}
-	// Email informativo
-mail( 'f.rodriguez@francobordo.com', '[CORRECTO] Notificador de productos', 'Se ha actualizado con exito la tienda Francobordo.', 'MIME-Version: 1.0' . "\r\n" . 'Content-type: text/plain; charset=UTF-8' . "\r\n" . 'From:info@francobordo.com' . "\r\n" );
+	// Email informativo solo si hubo notificaciones reales (fix 2026-05-16: antes spameaba diario aunque nadie recibiera)
+	if ($nNotificados > 0) {
+		mail( 'f.rodriguez@francobordo.com', '[CORRECTO] Notificador de productos - ' . $nNotificados . ' avisos enviados', 'Se han enviado ' . $nNotificados . ' avisos de reposición a clientes.', 'MIME-Version: 1.0' . "\r\n" . 'Content-type: text/plain; charset=UTF-8' . "\r\n" . 'From:info@francobordo.com' . "\r\n" );
+	}
 
 ?>

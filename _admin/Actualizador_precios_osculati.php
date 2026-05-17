@@ -127,15 +127,24 @@ function fmt4($v) { return number_format((float)$v, 4, '.', ''); }
 
 function loadProducts() {
 	$rows = [];
-	$r = tep_db_query("SELECT products_id, products_model, products_price, products_cost FROM products WHERE manufacturers_id = " . OSCULATI_MFG_ID);
+	// Scope: manufacturer Osculati (259) + origin osculati% + cross-linked
+	// (reference_prov con formato OSC BC NN.NNN.NN[+suffix]).
+	$sql = "SELECT products_id, products_model, reference_prov, products_price, products_cost
+	        FROM products
+	        WHERE manufacturers_id = " . OSCULATI_MFG_ID . "
+	           OR products_import_origin LIKE 'osculati%'
+	           OR (reference_prov IS NOT NULL AND reference_prov <> ''
+	               AND reference_prov RLIKE '^[0-9]{2}\\.[0-9]{3}\\.[0-9]{2}')";
+	$r = tep_db_query($sql);
 	while ($p = tep_db_fetch_array($r)) {
 		$pid = (int)$p['products_id'];
 		$rows[$pid] = [
-			'pid'   => $pid,
-			'model' => stripSuffix(trim((string)$p['products_model'])),
-			'price' => (float)$p['products_price'],
-			'cost'  => (float)$p['products_cost'],
-			'attrs' => [],
+			'pid'      => $pid,
+			'model'    => stripSuffix(trim((string)$p['products_model'])),
+			'ref_prov' => stripSuffix(trim((string)$p['reference_prov'])),
+			'price'    => (float)$p['products_price'],
+			'cost'     => (float)$p['products_cost'],
+			'attrs'    => [],
 		];
 	}
 	return $rows;
@@ -154,6 +163,7 @@ function loadAttributes(array $pids) {
 			'options_id' => (int)$a['options_id'],
 			'values_id'  => (int)$a['options_values_id'],
 			'code'       => stripSuffix($code),
+			'code_rp'    => stripSuffix(trim((string)$a['reference_prov'])),
 			'cur_delta'  => (float)$a['options_values_price'],
 			'cur_prefix' => $a['price_prefix'],
 		];
@@ -205,6 +215,10 @@ function buildPlan(array $prods, array $xlsx, array $g1prods, array $g1attrs, fl
 
 		if (!$hasAttrs) {
 			$row = $xlsx[$p['model']] ?? null;
+			// Fallback cross-link: si el model no matchea, probar reference_prov (OSC BC)
+			if (!$row && !empty($p['ref_prov']) && $p['ref_prov'] !== $p['model']) {
+				$row = $xlsx[$p['ref_prov']] ?? null;
+			}
 			if (!$row) {
 				$plan['unmatched_codes'][] = $p['model'];
 				$plan['skipped_no_match']++;
@@ -256,6 +270,10 @@ function buildPlan(array $prods, array $xlsx, array $g1prods, array $g1attrs, fl
 		$variants = [];
 		foreach ($p['attrs'] as $a) {
 			$row = $xlsx[$a['code']] ?? null;
+			// Fallback cross-link: si reference no matchea, probar reference_prov
+			if (!$row && !empty($a['code_rp']) && $a['code_rp'] !== $a['code']) {
+				$row = $xlsx[$a['code_rp']] ?? null;
+			}
 			if (!$row) {
 				$plan['unmatched_codes'][] = $a['code'];
 				continue;

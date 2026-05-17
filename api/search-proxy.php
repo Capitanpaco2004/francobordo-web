@@ -20,10 +20,10 @@
 declare(strict_types=1);
 
 // --- Config (server-side; nunca expuesto al cliente) ---
-const MEILI_BASE     = 'http://100.82.226.46:7700';
+const MEILI_BASE     = 'http://217.127.199.171:28700';
 const MEILI_SEARCH_KEY = 'e86c194b8e7077d7524edc11e596b9eac5e9beba32d01639c29e366dd47ccd0a';  // search-only, patrón products* (ES+EN)
 const MAX_BODY       = 65536;   // 64 KB
-const CURL_TIMEOUT   = 5;
+const CURL_TIMEOUT   = 25;
 const CURL_CONNECT_T = 2;
 
 // Índice según idioma (whitelist — no permitimos índices arbitrarios)

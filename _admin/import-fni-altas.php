@@ -541,6 +541,7 @@ foreach ($rows as $row) {
 	if (empty($onlyCodes) && $selectedBrand !== 'all' && strcasecmp($row['BRAND'], $selectedBrand) !== 0) { $skippedBrandFilter++; continue; }
 
 	if (isset($existing[strtolower($sku)])) { $skippedExisting++; continue; }
+	if (!empty($row['EAN']) && isset($existing[strtolower($row['EAN'])])) { $skippedExisting++; continue; }
 	$net = fniParseNum($row['NET_PRICE']);
 	if ($net === null || $net < 0) { $skippedBadPrice++; continue; }
 	$pub = fniParseNum($row['PUBLIC']);
