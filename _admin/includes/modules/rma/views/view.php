@@ -130,7 +130,7 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
                     <i class="fa fa-home"></i> Estado actual
                 </div>
                 <div class="oeCntd rows sp10 ax">
-                    <form class="rmaListStatus rows sp10" method="post" action="<?php echo tep_href_link('rma.php', 'action=change-status'); ?>">
+                    <form class="rmaListStatus rows sp10 column a12" method="post" action="<?php echo tep_href_link('rma.php', 'action=change-status'); ?>">
                         <select name="id_status" class="column a12 skip" id="id_status">
                             <?php foreach ($statuses as $status): ?>
                                 <option value="<?php echo $status['id']; ?>" <?php echo ($rmaDetail['status_id'] == $status['id'] ? 'selected' : ''); ?>><?php echo $status['text']; ?></option>
@@ -222,6 +222,33 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
                     <div class="oeCntd">
                         <p><strong><?php echo $rmaDetail['option_return']; ?></strong></p>
                         <p><strong>Comentarios del cliente</strong>: <?php echo $rmaDetail['comments']; ?></p>
+
+                        <?php
+                        // Adjuntos del cliente (fotos / PDFs subidos al crear el RMA)
+                        $attQ = tep_db_query("SELECT id, filename_original, filename_stored, mime_type, size_bytes, date_added FROM rma_attachments WHERE id_rma = " . (int) $rmaDetail['id_rma'] . " ORDER BY id ASC");
+                        $nAtt = tep_db_num_rows($attQ);
+                        ?>
+                        <?php if ($nAtt > 0): ?>
+                            <p style="margin-top:10px"><strong>Adjuntos del cliente</strong> (<?php echo $nAtt; ?>):</p>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px">
+                            <?php while ($a = tep_db_fetch_array($attQ)):
+                                $url = '/images/rma/' . (int) $rmaDetail['id_rma'] . '/' . rawurlencode($a['filename_stored']);
+                                $isImg = (strpos($a['mime_type'], 'image/') === 0);
+                                $kb = round($a['size_bytes'] / 1024);
+                            ?>
+                                <a href="<?php echo $url; ?>" target="_blank" title="<?php echo htmlspecialchars($a['filename_original']); ?> (<?php echo $kb; ?> KB)"
+                                   style="display:inline-block;width:90px;text-align:center;text-decoration:none;color:#333;border:1px solid #ddd;border-radius:4px;padding:4px;background:#fff">
+                                    <?php if ($isImg): ?>
+                                        <img src="<?php echo $url; ?>" alt="" style="max-width:80px;max-height:80px;object-fit:cover;border-radius:3px" />
+                                    <?php else: ?>
+                                        <div style="width:80px;height:80px;display:flex;align-items:center;justify-content:center;background:#f4f4f4;border-radius:3px;font-size:11px;color:#666">📄 PDF</div>
+                                    <?php endif; ?>
+                                    <div style="font-size:10px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo htmlspecialchars($a['filename_original']); ?></div>
+                                    <div style="font-size:9px;color:#888"><?php echo $kb; ?> KB</div>
+                                </a>
+                            <?php endwhile; ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -238,8 +265,53 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
 							<em>No se ha seleccionado ninguno</em>
 						<?php endif; ?>
 
+						<?php
+						// Preview de puntos a acreditar si el método es de puntos
+						$calcPreview = rmaCalcRefundPoints($rmaDetail['id_rma']);
+						$isPointsMethod = $calcPreview && in_array($calcPreview['payment_method'], [RMA_PAYMENT_METHOD_POINTS_LEGACY, RMA_PAYMENT_METHOD_POINTS_BONUS], true);
+						?>
+						<?php if ($isPointsMethod): ?>
+							<div style="margin-top:10px;padding:10px;background:#eaf6fb;border:1px solid #1fa1d0;border-radius:4px;font-size:12px;color:#155a78">
+								<?php if (!empty($calcPreview['already_credited_at'])): ?>
+									<strong>✓ Puntos ya acreditados</strong> el <?php echo htmlspecialchars($calcPreview['already_credited_at']); ?>.
+								<?php else: ?>
+									<strong>Al pasar a "Devolución por puntos" se acreditarán:</strong>
+									<div style="margin-top:5px;line-height:1.5">
+										Importe bruto: <strong><?php echo number_format($calcPreview['importe_bruto'], 2, ',', '.'); ?>€</strong> (PVP IVA inc × <?php echo $calcPreview['quantity']; ?>)<br>
+										<?php if ($calcPreview['pickup_cost'] > 0): ?>
+											− recogida: −<?php echo number_format($calcPreview['pickup_cost'], 2, ',', '.'); ?>€<br>
+											Importe neto: <strong><?php echo number_format($calcPreview['importe_neto'], 2, ',', '.'); ?>€</strong><br>
+										<?php endif; ?>
+										<?php if ($calcPreview['bonus_eur'] > 0): ?>
+											+ bonus 10%: +<?php echo number_format($calcPreview['bonus_eur'], 2, ',', '.'); ?>€
+											<?php if ($calcPreview['bonus_capped']): ?>
+												<span style="color:#a02020">(capado a 50€)</span>
+											<?php endif; ?>
+											<br>
+										<?php endif; ?>
+										Total a reembolsar: <strong><?php echo number_format($calcPreview['total_eur'], 2, ',', '.'); ?>€</strong><br>
+										<span style="font-size:14px;color:#1fa1d0">→ <strong><?php echo number_format($calcPreview['puntos'], 0, ',', '.'); ?> puntos</strong></span>
+										<span style="color:#888">(1 pt = <?php echo number_format($calcPreview['point_value'], 2, ',', '.'); ?>€)</span>
+									</div>
+									<?php if ($calcPreview['warn_no_lines']): ?>
+										<div style="margin-top:8px;padding:6px;background:#f5d6d6;border:1px solid #a02020;color:#701818;border-radius:3px">
+											⚠ No se encontró el producto en el pedido — importe = 0. Revisa el RMA antes de aprobar.
+										</div>
+									<?php elseif ($calcPreview['warn_neto_zero']): ?>
+										<div style="margin-top:8px;padding:6px;background:#f0f0d6;border:1px solid #b89500;color:#7a5f00;border-radius:3px">
+											⚠ El coste de recogida (<?php echo number_format($calcPreview['pickup_cost'], 2, ',', '.'); ?>€) es ≥ al importe del producto (<?php echo number_format($calcPreview['importe_bruto'], 2, ',', '.'); ?>€). No se acreditarán puntos.
+										</div>
+									<?php endif; ?>
+									<?php if ($calcPreview['warn_multilines']): ?>
+										<div style="margin-top:8px;padding:6px;background:#f0f0d6;border:1px solid #b89500;color:#7a5f00;border-radius:3px">
+											ℹ El producto aparece en <strong><?php echo $calcPreview['order_lines_count']; ?> líneas</strong> del pedido (atributos distintos). Se usa el precio <strong>promedio</strong>. Revisa si los precios difieren mucho.
+										</div>
+									<?php endif; ?>
+								<?php endif; ?>
+							</div>
+						<?php endif; ?>
                     </div>
-					<form class="rows sp12" method="post" action="<?php echo tep_href_link('rma.php', 'action=change-payment-method'); ?>">
+					<form class="rows sp12 column a12" method="post" action="<?php echo tep_href_link('rma.php', 'action=change-payment-method'); ?>">
 						<p><strong>Cambiar método de reembolso</strong></p>
 						<p>
 							<select name="payment_method" class="column a12 skip" id="payment_method">
@@ -266,6 +338,17 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
 						<?php if ($rmaDetail['type_return'] != ''): ?>
 	                        <strong><?php echo $rmaDetail['type_return']; ?></strong>
 
+							<!-- Coste de recogida (€) que se descontará del reembolso -->
+							<form class="rows sp10 column a12" method="post" action="<?php echo tep_href_link('rma.php', 'action=change-pickup-cost'); ?>" style="margin-top:8px;padding:8px;background:#f4f4f4;border:1px solid #ddd;border-radius:4px">
+								<label class="column a12" style="font-weight:bold;font-size:12px;color:#555;margin-bottom:4px;display:block">Coste de recogida (€)</label>
+								<div style="display:flex;gap:6px;align-items:center">
+									<input type="number" name="pickup_cost" step="0.01" min="0" value="<?php echo $rmaDetail['pickup_cost'] !== null ? number_format((float)$rmaDetail['pickup_cost'], 2, '.', '') : ''; ?>" placeholder="0.00" style="flex:1;padding:5px;font-size:12px;border:1px solid #aaa;border-radius:3px" />
+									<button type="submit" class="xbutton verde" style="padding:5px 10px;font-size:11px">Guardar</button>
+								</div>
+								<small style="color:#888;display:block;margin-top:3px">Vacío = sin descuento. Se resta del importe a reembolsar.</small>
+								<input type="hidden" name="id" value="<?php echo $rmaDetail['id']; ?>" />
+							</form>
+
 	                        <?php if (intval($rmaDetail['agencia']) == 1): ?>
 	                            <label class="column a03 tright">Nombre:</label>
 	                            <div class="column a09"><?php echo $aAddressReturn['entry_name']; ?></div>
@@ -289,7 +372,7 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
 						<?php endif; ?>
                     </div>
 					<div class="oeCntd rows sp10 ax xform">
-						<form class="rows sp12" method="post" action="<?php echo tep_href_link('rma.php', 'action=change-return-method'); ?>">
+						<form class="rows sp12 column a12" method="post" action="<?php echo tep_href_link('rma.php', 'action=change-return-method'); ?>">
 							<p><strong>Cambiar retorno</strong></p>
 							<p>
 								<select name="type_return" class="column a12 skip" id="type_return">

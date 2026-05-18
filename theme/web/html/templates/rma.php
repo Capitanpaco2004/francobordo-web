@@ -26,7 +26,7 @@
     <?php endif; ?>
 
     <?php if ($nStep == 1 ): ?>
-        <form action="<?php echo tep_href_link(FILENAME_RMA, 'orders_id=' . $rma->ordersID . '&products_id=' . $rma->productsID); ?>" method="POST" class="rmaPage">
+        <form action="<?php echo tep_href_link(FILENAME_RMA, 'orders_id=' . $rma->ordersID . '&products_id=' . $rma->productsID); ?>" method="POST" enctype="multipart/form-data" class="rmaPage">
             <input type="hidden" name="step" value="2"/>
             <?php $rma->getFieldsForm($aFields); ?>
             <div class="rmaComments">
@@ -40,6 +40,17 @@
                     </p>
                     <p><?php echo RMA_COMMENTS; ?></p>
                     <p><textarea name="comments" required></textarea></p>
+
+                    <!-- Adjuntos del cliente (fotos / PDF) — opcional, hasta 5 archivos de 5 MB -->
+                    <p class="rmaTitleText" style="margin-top:12px"><strong>Adjuntar fotos o documentos (opcional)</strong></p>
+                    <p style="font-size:0.85em;color:#666;margin:2px 0 6px">Hasta 5 archivos (JPG, PNG, GIF, WEBP, HEIC, PDF). Máx. 5 MB cada uno. Añádelos de uno en uno o varios a la vez.</p>
+                    <p>
+                        <input type="file" name="attachments[]" multiple accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,application/pdf,.heic,.heif" class="rmaAttachments" />
+                        <span class="rmaAddMoreHint" style="display:none;color:#a02020;font-size:0.85em;margin-left:8px">Máximo 5 archivos alcanzado</span>
+                    </p>
+                    <p class="rmaAttachmentsCount" style="margin:4px 0;font-size:0.85em;color:#1fa1d0;font-weight:bold"></p>
+                    <ul class="rmaAttachmentsPreview" style="list-style:none;padding:0;margin:6px 0;font-size:0.85em;color:#555"></ul>
+
                     <?php if (!$rma->showReembolso($_POST['option_return'])): ?>
                         <p><label><input type="checkbox" name="conditions" required /> <?php echo RMA_CONDITIONS; ?> <a href="https://www.francobordo.com/condiciones-generales-i-3.html" target="_blank"><?php echo RMA_CONDITIONS_VIEW; ?></a></label></p>
                     <?php endif; ?>
@@ -71,18 +82,30 @@
                 <li style="display: none;"><small><?php echo sprintf(RMA_PAYMENT_REMINDER, $rma->paymentMethodDefault); ?></small></li>
             </ul>
 
+                <?php
+                // "No coincide con lo que solicité" (id=5): no preguntamos por la recogida
+                // — el operador admin la gestiona manualmente. Para el resto de razones
+                // con reembolso, mostramos la sección normal.
+                $bShowRecogida = ((int) ($_POST['option_return'] ?? 0) !== 5);
+                ?>
+                <?php if ($bShowRecogida): ?>
                 <p class="rmaTitleText"><?php echo RMA_RETURN_PRODUCT; ?></p>
                 <ul class="rmaList">
                     <?php foreach ($rma->typesReturn as $Type): ?>
                         <li>
                             <label><input type="radio" name="type_return" value="<?php echo $Type['id']; ?>" required data-agencia="<?php echo $Type['agencia']; ?>" class="rmaTypeReturn"> <?php echo $Type['text']; ?></label>
-                            <?php if ((float)$Type['price_cost'] > 0): ?>
+                            <?php
+                            // Solo mostrar el subtexto auto de coste si el texto del catálogo no
+                            // trae ya su propio <small> embebido (algunos tipos tienen detalle custom).
+                            if ((float) $Type['price_cost'] > 0 && stripos($Type['text'], '<small') === false): ?>
                                 <small><?php echo sprintf(RMA_RETURN_PRICE_COST, number_format($Type['price_cost'], 2).'€'); ?></small>
                             <?php endif; ?>
                         </li>
                     <?php endforeach; ?>
                 </ul>
+                <?php endif; ?>
 
+            <?php if ($bShowRecogida): ?>
             <div class="rmaTypeReturnView" data-agencia="1">
                 <p class="rmaTitleText"><?php echo RMA_RETURN_ADDRESS_AGENCY; ?></p>
                 <p>
@@ -122,6 +145,7 @@
                     </select>
                 </p>
             </div>
+            <?php endif; /* bShowRecogida */ ?>
             <p><label><input type="checkbox" name="conditions" required /> <?php echo RMA_CONDITIONS; ?> <a href="href="https://www.francobordo.com/condiciones-generales-i-3.html" target="_blank"><?php echo RMA_CONDITIONS_VIEW; ?></a></label></p>
             <p class="rmaButtons">
                 <button type="submit" name="rmaNext" class="Button buttonBig buttonFirst"><?php echo RMA_PROCESS; ?></button>

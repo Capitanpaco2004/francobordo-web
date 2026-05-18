@@ -85,11 +85,16 @@ class Box
         // Variables
         global $sPathTemplate, $currencies;
 
+        $rawAmount = $this->getInsuranceAmount($order);
+        if ($rawAmount <= 0) {
+            return '';
+        }
+
         // Retornamos el template
         return tools::includeTemplate(
             $sPathTemplate . '/box_choose_insurance.php',
             [
-                'insurance_amount' => ($currencies->format($this->getInsuranceAmount($order)))
+                'insurance_amount' => ($currencies->format($rawAmount))
             ]
         );
     }

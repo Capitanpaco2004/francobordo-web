@@ -2,6 +2,16 @@
 
 include('includes/modules/rma/install.php');
 
+// Métodos de reembolso que acreditan puntos al cliente al pasar el RMA a status=13.
+// id=1  : método legacy "Puntos" (sin bonus) — solo accesible vía admin para ajustes manuales
+// id=5  : método "Saldo en tu cuenta + 10% bonus" — el visible para el cliente
+const RMA_PAYMENT_METHOD_POINTS_LEGACY = 1;
+const RMA_PAYMENT_METHOD_POINTS_BONUS  = 5;
+// Cap en € sobre el bonus del +10% (límite máximo de bonificación adicional)
+const RMA_REFUND_BONUS_MAX_EUR = 50.00;
+// Status del RMA que dispara la acreditación de puntos
+const RMA_STATUS_REFUND_POINTS = 13;
+
 function rmaSection() {
     global $sAction, $sTitle;
 
@@ -35,6 +45,14 @@ function rmaSection() {
             break;
         case 'change-return-method':
             tep_db_perform(TABLE_RMA, array('type_return' => intval($_POST['type_return'])), 'update', 'id_rma = '. intval($_POST['id']));
+            tep_redirect(tep_href_link('rma.php', 'action=view&id=' . intval($_POST['id'])));
+            break;
+        case 'change-pickup-cost':
+            // Coste de recogida (€) que el operador descuenta del importe a reembolsar.
+            // NULL si se deja vacío; valor positivo si se introduce.
+            $sRaw = trim((string) ($_POST['pickup_cost'] ?? ''));
+            $aFields = ['pickup_cost' => ($sRaw === '' ? 'null' : (float) str_replace(',', '.', $sRaw))];
+            tep_db_perform(TABLE_RMA, $aFields, 'update', 'id_rma = '. intval($_POST['id']));
             tep_redirect(tep_href_link('rma.php', 'action=view&id=' . intval($_POST['id'])));
             break;
         case 'save-types-return':
@@ -265,6 +283,194 @@ Estados de las devoluciones
 
  */
 
+/**
+ * Calcula el desglose de puntos que se acreditarían al cliente si se aprueba el RMA $id_rma
+ * como devolución por puntos.
+ *
+ * Devuelve array con: importe_bruto (PVP IVA inc × qty), pickup_cost, importe_neto, bonus_eur,
+ * bonus_capped (bool), total_eur, puntos, point_value, already_credited_at, payment_method.
+ * Devuelve null si no se encuentra el RMA o no tiene productos asociados.
+ */
+function rmaCalcRefundPoints($id_rma) {
+    $id_rma = (int) $id_rma;
+    // Cabecera del RMA (sin JOIN para evitar duplicados si orders_products tiene varias líneas
+    // con el mismo orders_id+products_id por atributos distintos)
+    $q = tep_db_query("
+        SELECT id_rma, customers_id, orders_id, products_id, quantity,
+               payment_method, pickup_cost, points_credited_at
+        FROM " . TABLE_RMA . "
+        WHERE id_rma = " . $id_rma . " LIMIT 1
+    ");
+    $row = tep_db_fetch_array($q);
+    if (!$row) return null;
+
+    // Precio del producto en el pedido. Si hay varias líneas con el mismo (orders_id, products_id)
+    // por distintos atributos, promediamos — el operador debería revisar a mano si los precios
+    // difieren significativamente entre líneas. final_price ya incluye los modifiers de atributos.
+    $qp = tep_db_query("
+        SELECT AVG(final_price) AS unit_price, AVG(products_tax) AS tax_pct, COUNT(*) AS nlines
+        FROM orders_products
+        WHERE orders_id = " . (int) $row['orders_id'] . "
+          AND products_id = " . (int) $row['products_id'] . "
+    ");
+    $rp = tep_db_fetch_array($qp);
+    if (!$rp || $rp['unit_price'] === null) {
+        $row['products_price'] = 0;
+        $row['products_tax']   = 0;
+        $row['nlines']         = 0;
+    } else {
+        $row['products_price'] = (float) $rp['unit_price'];
+        $row['products_tax']   = (float) $rp['tax_pct'];
+        $row['nlines']         = (int) $rp['nlines'];
+    }
+
+    $rate = (float) REDEEM_POINT_VALUE;
+    if ($rate <= 0) $rate = 0.05; // fallback defensivo
+
+    $price_iva_unit = (float) $row['products_price'] * (1 + (float) $row['products_tax'] / 100.0);
+    $importe_bruto  = $price_iva_unit * (int) $row['quantity'];
+    $pickup_cost    = (float) $row['pickup_cost'];
+    $importe_neto   = max(0.0, $importe_bruto - $pickup_cost);
+
+    $bonus_eur    = 0.0;
+    $bonus_capped = false;
+    if ((int) $row['payment_method'] === RMA_PAYMENT_METHOD_POINTS_BONUS) {
+        $bonus_raw    = $importe_neto * 0.10;
+        $bonus_eur    = min($bonus_raw, RMA_REFUND_BONUS_MAX_EUR);
+        $bonus_capped = $bonus_raw > RMA_REFUND_BONUS_MAX_EUR;
+    }
+    $total_eur = $importe_neto + $bonus_eur;
+    $puntos    = (int) round($total_eur / $rate);
+
+    return [
+        'id_rma'         => $id_rma,
+        'customers_id'   => (int) $row['customers_id'],
+        'orders_id'      => (int) $row['orders_id'],
+        'products_id'    => (int) $row['products_id'],
+        'quantity'       => (int) $row['quantity'],
+        'payment_method' => (int) $row['payment_method'],
+        'price_iva_unit' => $price_iva_unit,
+        'importe_bruto'  => $importe_bruto,
+        'pickup_cost'    => $pickup_cost,
+        'importe_neto'   => $importe_neto,
+        'bonus_eur'      => $bonus_eur,
+        'bonus_capped'   => $bonus_capped,
+        'total_eur'      => $total_eur,
+        'puntos'         => $puntos,
+        'point_value'    => $rate,
+        'already_credited_at' => $row['points_credited_at'],
+        // Avisos para el operador (mostrados en el preview admin)
+        'warn_neto_zero'    => ($importe_neto <= 0 && $importe_bruto > 0),
+        'warn_no_lines'     => ($importe_bruto <= 0),
+        'warn_multilines'   => ((int) $row['nlines'] > 1),
+        'order_lines_count' => (int) $row['nlines'],
+    ];
+}
+
+/**
+ * Acredita los puntos del RMA $id_rma al cliente. Idempotente: si ya se acreditaron
+ * (points_credited_at IS NOT NULL) o el payment_method no es de puntos, no hace nada.
+ *
+ * - Inserta fila en customers_points_pending (status=2)
+ * - Suma al saldo del cliente (con GREATEST por seguridad)
+ * - Marca rma.points_credited_at = NOW()
+ * - Registra en customers_points_audit (si la tabla existe)
+ */
+function rmaCreditRefundPoints($id_rma) {
+    global $login_id;
+    $calc = rmaCalcRefundPoints($id_rma);
+    if (!$calc) return false;
+    // Solo acreditar si es un método de puntos
+    if (!in_array($calc['payment_method'], [RMA_PAYMENT_METHOD_POINTS_LEGACY, RMA_PAYMENT_METHOD_POINTS_BONUS], true)) {
+        return false;
+    }
+    // Idempotencia
+    if (!empty($calc['already_credited_at'])) return false;
+    if ($calc['puntos'] <= 0) return false;
+
+    $cID    = $calc['customers_id'];
+    $oID    = $calc['orders_id'];
+    $puntos = $calc['puntos'];
+
+    $sComment = sprintf(
+        'Devolución RMA #%d — %s€ IVA inc.%s%s',
+        $calc['id_rma'],
+        number_format($calc['importe_bruto'], 2, ',', '.'),
+        ($calc['pickup_cost'] > 0 ? ' − recogida ' . number_format($calc['pickup_cost'], 2, ',', '.') . '€' : ''),
+        ($calc['bonus_eur'] > 0
+            ? ' + bonus ' . number_format($calc['bonus_eur'], 2, ',', '.') . '€' . ($calc['bonus_capped'] ? ' (capado a 50€)' : '')
+            : '')
+    );
+
+    // Saldo antes (para auditoría)
+    $r = tep_db_query("SELECT customers_shopping_points FROM " . TABLE_CUSTOMERS . " WHERE customers_id = " . $cID);
+    $row = tep_db_fetch_array($r);
+    $saldoAntes = (int) round((float) $row['customers_shopping_points']);
+
+    tep_db_query('START TRANSACTION');
+    tep_db_query("
+        INSERT INTO " . TABLE_CUSTOMERS_POINTS_PENDING . "
+          (customer_id, orders_id, points_pending, date_added, points_status, points_type, points_comment)
+        VALUES (" . $cID . ", " . $oID . ", " . $puntos . ", NOW(), 2, 'SP', '" . tep_db_input($sComment) . "')
+    ");
+    $insertId = (int) tep_db_insert_id();
+    tep_db_query("
+        UPDATE " . TABLE_CUSTOMERS . "
+        SET customers_shopping_points = GREATEST(0, customers_shopping_points + " . $puntos . ")
+        WHERE customers_id = " . $cID . " LIMIT 1
+    ");
+    tep_db_query("
+        UPDATE " . TABLE_RMA . "
+        SET points_credited_at = NOW()
+        WHERE id_rma = " . $calc['id_rma'] . " LIMIT 1
+    ");
+    tep_db_query('COMMIT');
+
+    // Saldo después
+    $r = tep_db_query("SELECT customers_shopping_points FROM " . TABLE_CUSTOMERS . " WHERE customers_id = " . $cID);
+    $row = tep_db_fetch_array($r);
+    $saldoDespues = (int) round((float) $row['customers_shopping_points']);
+
+    // Auditoría (solo si la tabla existe)
+    $checkTbl = tep_db_query("SHOW TABLES LIKE 'customers_points_audit'");
+    if (tep_db_num_rows($checkTbl) > 0) {
+        $adminEmail = '';
+        if (!empty($login_id)) {
+            $q2 = tep_db_query("SELECT admin_email_address FROM admin WHERE admin_id = " . (int) $login_id . " LIMIT 1");
+            $r2 = tep_db_fetch_array($q2);
+            $adminEmail = $r2['admin_email_address'] ?? '';
+        }
+        tep_db_perform('customers_points_audit', [
+            'admin_id'          => (int) ($login_id ?? 0),
+            'admin_email'       => $adminEmail,
+            'customer_id'       => $cID,
+            'action'            => 'rma_refund',
+            'pending_unique_id' => $insertId,
+            'points_delta'      => $puntos,
+            'balance_before'    => $saldoAntes,
+            'balance_after'     => $saldoDespues,
+            'data_after'        => json_encode([
+                'rma_id'        => $calc['id_rma'],
+                'orders_id'     => $oID,
+                'products_id'   => $calc['products_id'],
+                'quantity'      => $calc['quantity'],
+                'price_iva_unit'=> $calc['price_iva_unit'],
+                'pickup_cost'   => $calc['pickup_cost'],
+                'bonus_eur'     => $calc['bonus_eur'],
+                'bonus_capped'  => $calc['bonus_capped'],
+                'total_eur'     => $calc['total_eur'],
+                'payment_method'=> $calc['payment_method'],
+            ], JSON_UNESCAPED_UNICODE),
+            'comment'           => $sComment,
+            'notify_sent'       => 0,
+            'ip'                => $_SERVER['REMOTE_ADDR'] ?? null,
+            'created_at'        => 'now()',
+        ]);
+    }
+
+    return true;
+}
+
  function rmaChangeStatus() {
      $id = intval($_POST['id']);
      $id_status = intval($_POST['id_status']);
@@ -272,22 +478,10 @@ Estados de las devoluciones
      $id_status_previous = intval($_POST['id_status_previous']);
      if ($id_status_previous <> $id_status) {
 
-		 // Si el estado es devolución por puntos
-		 if( $id_status == 13 )
-		 {
-			 // Obtenemos al usuario
-			 $aCustomer = tep_db_query( 'SELECT customers_id, orders_id, products_id FROM rma WHERE id_rma = "' . $id . '";' );
-			 $aCustomer = tep_db_fetch_array( $aCustomer );
-
-			 // Obtenemos el precio de la devolución
-			 $aPrice = tep_db_query( 'SELECT products_price FROM orders_products WHERE orders_id = "' . $aCustomer['orders_id'] . '" AND products_id = "' . $aCustomer['products_id'] . '";' );
-			 $aPrice = tep_db_fetch_array( $aPrice );
-
-			 // Actualizamos los puntos del cliente
-			 tep_db_query( 'UPDATE customers SET customers_shopping_points = customers_shopping_points + ' . ( $aPrice['products_price'] / 0.06 ) . ' WHERE customers_id = "' . $aCustomer['customers_id'] . '";' );
-
-			 // Añadimos log
-			 tep_db_query( 'INSERT INTO customers_points_pending (customer_id, orders_id, points_pending, points_comment, date_added, points_status) VALUES ("' . $aCustomer['customers_id'] . '", "' . $aCustomer['orders_id'] . '", "' . ( $aPrice['products_price'] / 0.06 ) . '", "Puntos añadidos del RMA con ID: ' . $id . '", NOW(), 2);' );
+		 // Si el estado es "Devolución por puntos": acreditar puntos al cliente con/sin bonus
+		 // según el payment_method elegido. Solo se acredita una vez (idempotencia vía points_credited_at).
+		 if ($id_status == RMA_STATUS_REFUND_POINTS) {
+		     rmaCreditRefundPoints($id);
 		 }
 
 		 tep_db_perform(TABLE_RMA, array('status' => $id_status, 'date_modify' => 'now()'), 'update', 'id_rma = '. $id);

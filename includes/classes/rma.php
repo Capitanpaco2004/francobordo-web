@@ -21,6 +21,7 @@ class rma {
     public $paymentMethods;
     private $validFields = array('option_return', 'quantity','comments', 'type_return', 'address', 'address_return', 'date_return', 'schedule_return', 'payment_method', 'payment_method_default');
     public $idRma;
+    public $idRmaInt = 0;
     private $orderStatus;
     private $orderStatusAccepted = array();
     private $textNoReturn;
@@ -217,7 +218,7 @@ class rma {
     */
 
     private function checkTypesReturns() {
-        if ( $this->Antiguedad ) {
+        if ( $this->Antiguedad !== false ) {
             $sSql = 'SELECT tr.agencia, tr.id, tr.price_cost, trd.text FROM '.TABLE_RMA_TYPES_RETURN.' tr LEFT JOIN '.TABLE_RMA_TYPES_RETURN_DESCRIPTION.' trd on tr.id = trd.id_type_return WHERE trd.languages_id = ' . $this->languagesID .' AND tr.active = 1 ORDER BY tr.price_cost DESC';
             $aSql = tep_db_query($sSql);
             if (tep_db_num_rows($aSql)) {
@@ -235,7 +236,7 @@ class rma {
     */
 
     private function checkPaymentMehtods() {
-        if ( $this->Antiguedad ) {
+        if ( $this->Antiguedad !== false ) {
             $sSql = 'SELECT pm.is_address, pm.id, pmd.text FROM '.TABLE_RMA_PAYMENT_METHODS.' pm LEFT JOIN '.TABLE_RMA_PAYMENT_METHODS_DESCRIPTION.' pmd on pm.id = pmd.id_payment_method WHERE pmd.languages_id = ' . $this->languagesID .' AND pm.active = 1';
             $aSql = tep_db_query($sSql);
             if (tep_db_num_rows($aSql)) {
@@ -416,18 +417,117 @@ class rma {
 
         tep_db_perform(TABLE_RMA, $aDatos);
 
-        $this->idRma = str_pad(tep_db_insert_id(), 10, "0", STR_PAD_LEFT);
+        $this->idRmaInt = (int) tep_db_insert_id();
+        $this->idRma    = str_pad($this->idRmaInt, 10, "0", STR_PAD_LEFT);
 
         $aDatos = array();
-        $aDatos['id_rma'] = $this->idRma;
+        $aDatos['id_rma'] = $this->idRmaInt;
         $aDatos['id_status'] = RMA_DEFAULT_ID;
         $aDatos['date_added'] = 'now()';
         tep_db_perform(TABLE_RMA_STATUS_HISTORY, $aDatos);
         $this->getHistoryStatus();
+
+        // Mover los archivos adjuntos (si los hay) de _tmp a la carpeta definitiva del RMA
+        if (!empty($aFields['rma_upload_token'])) {
+            $this->finalizeUploads($aFields['rma_upload_token'], $this->idRmaInt);
+        }
     }
 
     public function checkOptionReturn() {
         return in_array(intval($_POST['option_return']), $this->optionsReturnValidsID);
+    }
+
+    // ---------- Adjuntos del cliente al crear el RMA ----------
+    public static function getAllowedMimes() {
+        return ['image/jpeg','image/png','image/gif','image/webp','image/heic','image/heif','application/pdf'];
+    }
+    public static function getAllowedExtensions() {
+        return ['jpg','jpeg','png','gif','webp','heic','heif','pdf'];
+    }
+    public static function getMaxFileSizeBytes() { return 5 * 1024 * 1024; }   // 5 MB
+    public static function getMaxFiles()         { return 5; }
+
+    /**
+     * Procesa $_FILES['attachments'] (input file multiple) y guarda los archivos
+     * válidos en images/rma/_tmp/{token}/. Devuelve el token o '' si ninguno fue válido.
+     * El token se pasa por hidden field hasta el step final, donde finalizeUploads()
+     * los mueve a images/rma/{id_rma}/ y los registra en rma_attachments.
+     */
+    public function processUploads() {
+        if (empty($_FILES['attachments']) || empty($_FILES['attachments']['name'][0])) return '';
+        $files = $_FILES['attachments'];
+        $count = min(count($files['name']), self::getMaxFiles());
+        $baseDir = DIR_FS_CATALOG . 'images/rma/_tmp';
+        if (!is_dir($baseDir)) @mkdir($baseDir, 0755, true);
+
+        $token = bin2hex(random_bytes(16));
+        $dir = $baseDir . '/' . $token;
+        if (!@mkdir($dir, 0755, true)) return '';
+
+        $valid = 0;
+        for ($i = 0; $i < $count; $i++) {
+            if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
+            if ((int) $files['size'][$i] <= 0 || (int) $files['size'][$i] > self::getMaxFileSizeBytes()) continue;
+            $orig = basename($files['name'][$i]);
+            $ext  = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
+            if (!in_array($ext, self::getAllowedExtensions(), true)) continue;
+            // Verificar mime real (no solo el reportado por el cliente)
+            $realMime = @mime_content_type($files['tmp_name'][$i]) ?: $files['type'][$i];
+            if (!in_array($realMime, self::getAllowedMimes(), true)) continue;
+
+            $stored = sprintf('%02d_%s.%s', $i, bin2hex(random_bytes(8)), $ext);
+            $target = $dir . '/' . $stored;
+            if (move_uploaded_file($files['tmp_name'][$i], $target)) {
+                @chmod($target, 0644);
+                file_put_contents($target . '.meta', json_encode([
+                    'original' => substr($orig, 0, 255),
+                    'mime'     => $realMime,
+                    'size'     => (int) $files['size'][$i],
+                ], JSON_UNESCAPED_UNICODE));
+                $valid++;
+            }
+        }
+        if ($valid === 0) { @rmdir($dir); return ''; }
+        return $token;
+    }
+
+    /**
+     * Mueve los archivos de images/rma/_tmp/{token}/ a images/rma/{id_rma}/
+     * y los registra en la tabla rma_attachments. Token se sanea para evitar path traversal.
+     */
+    public function finalizeUploads($token, $idRmaInt) {
+        if (!$token || !$idRmaInt) return;
+        $token = preg_replace('/[^a-f0-9]/i', '', (string) $token);
+        if ($token === '') return;
+        $srcDir = DIR_FS_CATALOG . 'images/rma/_tmp/' . $token;
+        if (!is_dir($srcDir)) return;
+        $dstDir = DIR_FS_CATALOG . 'images/rma/' . (int) $idRmaInt;
+        if (!is_dir($dstDir)) @mkdir($dstDir, 0755, true);
+
+        foreach (scandir($srcDir) as $f) {
+            if ($f === '.' || $f === '..' || substr($f, -5) === '.meta') continue;
+            $srcFile = $srcDir . '/' . $f;
+            if (!is_file($srcFile)) continue;
+            $dstFile = $dstDir . '/' . $f;
+
+            $meta = ['original' => $f, 'mime' => @mime_content_type($srcFile) ?: 'application/octet-stream', 'size' => (int) filesize($srcFile)];
+            if (is_file($srcFile . '.meta')) {
+                $m = json_decode(@file_get_contents($srcFile . '.meta'), true);
+                if (is_array($m)) $meta = array_merge($meta, $m);
+                @unlink($srcFile . '.meta');
+            }
+            if (@rename($srcFile, $dstFile)) {
+                tep_db_perform('rma_attachments', [
+                    'id_rma'            => (int) $idRmaInt,
+                    'filename_original' => substr((string) $meta['original'], 0, 255),
+                    'filename_stored'   => substr($f, 0, 96),
+                    'mime_type'         => substr((string) $meta['mime'], 0, 64),
+                    'size_bytes'        => (int) $meta['size'],
+                    'date_added'        => 'now()',
+                ]);
+            }
+        }
+        @rmdir($srcDir);
     }
 
     public function showReembolso($id_return) {

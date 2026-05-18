@@ -4278,3 +4278,151 @@ if (!function_exists('stock_en_atributos')) {
 		return $val['products_stock_quantity'];
 	}
 }
+
+// ===================================================================================
+// Devolución manual en puntos (admin orders.php) — 2026-05-18
+// El operador introduce el importe en € desde el panel del pedido; opcionalmente
+// añade el bonus +10% (capado a +50€) y se acreditan puntos al cliente.
+// El handler está en orders.php case 'refund-points'.
+// ===================================================================================
+if (!function_exists('buttonDevolverPuntos')) {
+function buttonDevolverPuntos($oID) {
+    $oID = (int) $oID;
+    if ($oID <= 0) return '';
+
+    // Total del pedido IVA inc.
+    $q = tep_db_query(sprintf('SELECT value FROM orders_total WHERE orders_id=%d AND class="ot_total" LIMIT 1', $oID));
+    $r = tep_db_fetch_array($q);
+    if (!$r) return '';
+    $total = round((float) $r['value'], 2);
+
+    // Cliente del pedido + saldo actual
+    $q = tep_db_query(sprintf('SELECT o.customers_id, c.customers_shopping_points
+        FROM orders o LEFT JOIN customers c ON c.customers_id = o.customers_id
+        WHERE o.orders_id = %d LIMIT 1', $oID));
+    $r = tep_db_fetch_array($q);
+    if (!$r || !$r['customers_id']) return '';
+    $saldoActual = (int) round((float) $r['customers_shopping_points']);
+
+    $rate = (float) (defined('REDEEM_POINT_VALUE') ? REDEEM_POINT_VALUE : 0.05);
+    if ($rate <= 0) $rate = 0.05;
+    $puntosBase = (int) round($total / $rate);
+
+    $rateStr      = number_format($rate, 2, ',', '.');
+    $totalStr     = number_format($total, 2, '.', '');
+    $saldoStr     = number_format($saldoActual, 0, ',', '.');
+    $puntosStr    = number_format($puntosBase, 0, ',', '.');
+    $actionUrl    = tep_href_link('orders.php', 'action=refund-points&oID=' . $oID);
+
+    ob_start();
+    ?>
+    <div style="margin-top:14px;padding:10px;background:#eaf6fb;border:1px solid #c0d8e8;border-radius:4px;font-family:Arial,sans-serif">
+      <p style="margin:0 0 4px;font-weight:bold;color:#155a78;font-size:13px">Devolver en puntos</p>
+      <p style="margin:0 0 8px;font-size:11px;color:#666">Saldo actual del cliente: <strong><?php echo $saldoStr; ?> pts</strong>. Conversión: 1 pt = <?php echo $rateStr; ?> €.</p>
+      <form method="post" action="<?php echo $actionUrl; ?>" id="refund-points-form" style="margin:0;padding:0;border:none">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 6px">
+          <input type="number" step="0.01" min="0" name="amount" id="refund-points-amount"
+                 value="<?php echo $totalStr; ?>"
+                 style="text-align:right;width:90px;height:auto;margin:0;padding:5px;border:1px solid #aaa;border-radius:3px"
+                 autocomplete="off" />
+          <span style="font-size:12px;color:#666">€</span>
+          <span style="font-size:12px;color:#888">=</span>
+          <strong id="refund-points-preview" style="color:#155a78;font-size:13px"><?php echo $puntosStr; ?> pts</strong>
+        </div>
+        <label style="display:block;font-size:11px;color:#444;margin:4px 0 8px;cursor:pointer">
+          <input type="checkbox" name="bonus" id="refund-points-bonus" value="1" style="vertical-align:middle" />
+          Aplicar bonus <strong>+10%</strong> (máx. +50€)
+        </label>
+        <button type="submit" class="buttonS"
+                style="background:#155a78;color:#fff;border:none;padding:6px 14px;border-radius:3px;cursor:pointer;font-weight:bold;font-size:12px">
+          Devolver en puntos
+        </button>
+      </form>
+      <script>
+      (function(){
+        var pv = <?php echo json_encode($rate); ?>;
+        var maxBonus = 50.00;
+        var $amount = document.getElementById('refund-points-amount');
+        var $bonus  = document.getElementById('refund-points-bonus');
+        var $prev   = document.getElementById('refund-points-preview');
+        var $form   = document.getElementById('refund-points-form');
+        function update(){
+          var v = parseFloat($amount.value) || 0;
+          var bEur = $bonus.checked ? Math.min(v * 0.10, maxBonus) : 0;
+          var pts = Math.round((v + bEur) / pv);
+          var html = pts.toLocaleString('es-ES') + ' pts';
+          if (bEur > 0) html += ' <span style="color:#888;font-weight:normal;font-size:11px">(+' + bEur.toFixed(2).replace('.', ',') + '€ bonus)</span>';
+          $prev.innerHTML = html;
+        }
+        $amount.addEventListener('input', update);
+        $bonus.addEventListener('change', update);
+        $form.addEventListener('submit', function(e){
+          var v = parseFloat($amount.value) || 0;
+          var bEur = $bonus.checked ? Math.min(v * 0.10, maxBonus) : 0;
+          var pts = Math.round((v + bEur) / pv);
+          if (pts <= 0) { e.preventDefault(); alert('Indica un importe > 0'); return; }
+          if (!confirm('¿Devolver ' + pts.toLocaleString('es-ES') + ' pts al cliente del pedido #<?php echo $oID; ?>?')) { e.preventDefault(); }
+        });
+      })();
+      </script>
+
+      <?php
+      // Listado de devoluciones en puntos previas hechas a este pedido (desde auditoría)
+      $qLog = tep_db_query("
+          SELECT created_at, admin_email, points_delta, comment,
+                 JSON_UNQUOTE(JSON_EXTRACT(data_after, '$.amount_eur')) AS amount_eur,
+                 JSON_UNQUOTE(JSON_EXTRACT(data_after, '$.bonus_eur'))  AS bonus_eur
+          FROM customers_points_audit
+          WHERE action = 'order_refund_points'
+            AND CAST(JSON_UNQUOTE(JSON_EXTRACT(data_after, '$.orders_id')) AS UNSIGNED) = " . $oID . "
+          ORDER BY created_at DESC
+          LIMIT 50
+      ");
+      $nLog = tep_db_num_rows($qLog);
+      if ($nLog > 0):
+          $sumPts = 0; $sumEur = 0.0;
+      ?>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px solid #c0d8e8">
+        <p style="margin:0 0 6px;font-weight:bold;font-size:12px;color:#155a78">
+          Devoluciones en puntos previas (<?php echo $nLog; ?>):
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="background:#d4e8f5;color:#155a78">
+              <th align="left"  style="padding:4px 6px">Fecha</th>
+              <th align="left"  style="padding:4px 6px">Admin</th>
+              <th align="right" style="padding:4px 6px">Δ pts</th>
+              <th align="right" style="padding:4px 6px">Importe €</th>
+              <th align="right" style="padding:4px 6px">Bonus €</th>
+            </tr>
+          </thead>
+          <tbody>
+          <?php while ($rLog = tep_db_fetch_array($qLog)):
+              $sumPts += (int) $rLog['points_delta'];
+              $sumEur += (float) $rLog['amount_eur'];
+          ?>
+            <tr style="border-bottom:1px solid #e0e8ee">
+              <td style="padding:4px 6px;color:#555;white-space:nowrap"><?php echo htmlspecialchars($rLog['created_at']); ?></td>
+              <td style="padding:4px 6px;color:#555"><?php echo htmlspecialchars((string) $rLog['admin_email']); ?></td>
+              <td align="right" style="padding:4px 6px;color:#2a7a2a;font-weight:bold;white-space:nowrap">+<?php echo number_format((int) $rLog['points_delta'], 0, ',', '.'); ?></td>
+              <td align="right" style="padding:4px 6px;color:#555;white-space:nowrap"><?php echo $rLog['amount_eur'] !== null ? number_format((float) $rLog['amount_eur'], 2, ',', '.') . '€' : '—'; ?></td>
+              <td align="right" style="padding:4px 6px;color:<?php echo ((float) $rLog['bonus_eur'] > 0) ? '#155a78' : '#aaa'; ?>;white-space:nowrap"><?php echo ((float) $rLog['bonus_eur'] > 0) ? '+' . number_format((float) $rLog['bonus_eur'], 2, ',', '.') . '€' : '—'; ?></td>
+            </tr>
+          <?php endwhile; ?>
+          </tbody>
+          <tfoot>
+            <tr style="background:#eaf6fb;font-weight:bold;color:#155a78">
+              <td colspan="2" style="padding:4px 6px">Total devuelto en puntos</td>
+              <td align="right" style="padding:4px 6px">+<?php echo number_format($sumPts, 0, ',', '.'); ?></td>
+              <td align="right" style="padding:4px 6px"><?php echo number_format($sumEur, 2, ',', '.'); ?>€</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <?php endif; ?>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+}

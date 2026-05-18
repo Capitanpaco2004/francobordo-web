@@ -42,6 +42,99 @@ if( tep_not_null($action) )
 	switch( $action )
 	{
 			/**
+			 * Devolución manual en puntos al cliente (2026-05-18)
+			 * El operador introduce el importe en € desde el panel del pedido y
+			 * el sistema crea una entrada en customers_points_pending (status=2)
+			 * con o sin bonus +10% según el checkbox.
+			 */
+			case 'refund-points':
+				$oID    = (int) ($_GET['oID'] ?? 0);
+				$amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? '0'));
+				$bonus  = !empty($_POST['bonus']);
+
+				if ($oID <= 0 || $amount <= 0) {
+					tep_redirect(tep_href_link('orders.php', 'oID=' . $oID . '&action=edit'));
+				}
+
+				$qOrd = tep_db_query("SELECT customers_id FROM " . TABLE_ORDERS . " WHERE orders_id = " . $oID . " LIMIT 1");
+				$rOrd = tep_db_fetch_array($qOrd);
+				if (!$rOrd || !$rOrd['customers_id']) {
+					tep_redirect(tep_href_link('orders.php', 'oID=' . $oID . '&action=edit'));
+				}
+				$cID = (int) $rOrd['customers_id'];
+
+				$rate = (float) (defined('REDEEM_POINT_VALUE') ? REDEEM_POINT_VALUE : 0.05);
+				if ($rate <= 0) $rate = 0.05;
+				$bonusEur = $bonus ? min($amount * 0.10, 50.00) : 0.0;
+				$totalEur = $amount + $bonusEur;
+				$puntos   = (int) round($totalEur / $rate);
+
+				if ($puntos <= 0) {
+					tep_redirect(tep_href_link('orders.php', 'oID=' . $oID . '&action=edit'));
+				}
+
+				$qSaldo = tep_db_query("SELECT customers_shopping_points FROM " . TABLE_CUSTOMERS . " WHERE customers_id = " . $cID);
+				$rSaldo = tep_db_fetch_array($qSaldo);
+				$saldoAntes = (int) round((float) $rSaldo['customers_shopping_points']);
+
+				$sComment = sprintf(
+					'Devolución del pedido #%d desde admin — %s€%s',
+					$oID,
+					number_format($amount, 2, ',', '.'),
+					$bonusEur > 0 ? ' + bonus ' . number_format($bonusEur, 2, ',', '.') . '€' . ($amount * 0.10 > 50.00 ? ' (capado a 50€)' : '') : ''
+				);
+
+				tep_db_query('START TRANSACTION');
+				tep_db_query(sprintf(
+					"INSERT INTO " . TABLE_CUSTOMERS_POINTS_PENDING . "
+					  (customer_id, orders_id, points_pending, date_added, points_status, points_type, points_comment)
+					VALUES (%d, %d, %d, NOW(), 2, 'SP', '%s')",
+					$cID, $oID, $puntos, tep_db_input($sComment)
+				));
+				$insertId = (int) tep_db_insert_id();
+				tep_db_query("UPDATE " . TABLE_CUSTOMERS . "
+					SET customers_shopping_points = GREATEST(0, customers_shopping_points + " . $puntos . ")
+					WHERE customers_id = " . $cID . " LIMIT 1");
+				tep_db_query('COMMIT');
+
+				$saldoDespues = $saldoAntes + $puntos;
+
+				// Auditoría (si existe la tabla)
+				$qChk = tep_db_query("SHOW TABLES LIKE 'customers_points_audit'");
+				if (tep_db_num_rows($qChk) > 0) {
+					$adminEmail = '';
+					if (!empty($login_id)) {
+						$qA = tep_db_query("SELECT admin_email_address FROM admin WHERE admin_id = " . (int) $login_id . " LIMIT 1");
+						$rA = tep_db_fetch_array($qA);
+						$adminEmail = $rA['admin_email_address'] ?? '';
+					}
+					tep_db_perform('customers_points_audit', [
+						'admin_id'          => (int) ($login_id ?? 0),
+						'admin_email'       => $adminEmail,
+						'customer_id'       => $cID,
+						'action'            => 'order_refund_points',
+						'pending_unique_id' => $insertId,
+						'points_delta'      => $puntos,
+						'balance_before'    => $saldoAntes,
+						'balance_after'     => $saldoDespues,
+						'data_after'        => json_encode([
+							'orders_id'  => $oID,
+							'amount_eur' => $amount,
+							'bonus_eur'  => $bonusEur,
+							'total_eur'  => $totalEur,
+							'rate'       => $rate,
+						], JSON_UNESCAPED_UNICODE),
+						'comment'           => $sComment,
+						'notify_sent'       => 0,
+						'ip'                => $_SERVER['REMOTE_ADDR'] ?? null,
+						'created_at'        => 'now()',
+					]);
+				}
+
+				tep_redirect(tep_href_link('orders.php', 'oID=' . $oID . '&action=edit'));
+				break;
+
+			/**
 			 * #AUI-747-91109
 			 * @author Daniel Lucia <daniel.lucia@denox.es>
 			 */
@@ -1234,6 +1327,7 @@ if( tep_not_null($action) )
 							<p><?php echo ENTRY_CREDIT_CARD_EXPIRES; ?> <?php echo $order->info['cc_expires']; ?></p>
 						<?php endif; ?>
 						<?php echo buttonGenerarDevolucion(intval($oID)); ?>
+						<?php echo buttonDevolverPuntos(intval($oID)); ?>
 					</div>
 				</div>
 			</div>

@@ -38,6 +38,14 @@ switch ($nStep) {
 	break;
 	case 2:
 		$aFields = $_POST;
+		// Si el cliente subió adjuntos en el step 1 → 2, los guardamos en _tmp
+		// y propagamos el token por hidden field hasta el step final.
+		if (empty($aFields['rma_upload_token'])) {
+			$uploadToken = $rma->processUploads();
+			if ($uploadToken) {
+				$aFields['rma_upload_token'] = $uploadToken;
+			}
+		}
 	break;
 	case 3:
 		$aFields = $_POST;

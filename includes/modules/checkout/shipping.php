@@ -235,14 +235,35 @@ class Shipping
 
         if (!empty($_POST)) {
             if (isset($_POST['store_id'])) {
-                $_SESSION['store_id'] = intval($_POST['store_id']);
+                $nStoreId = intval($_POST['store_id']);
+
+                // Guardia servidor: la tienda de Denia (CP 03700) requiere que el cliente
+                // tenga al menos una direccion en ese CP. Si no, se descarta su seleccion.
+                if ($nStoreId > 0) {
+                    $rStore = tep_db_query('select store_address from store where id_store = ' . $nStoreId);
+                    $aStore = tep_db_fetch_array($rStore);
+                    if ($aStore && strpos($aStore['store_address'], '03700') !== false) {
+                        $bDeniaAllowed = false;
+                        if (isset($_SESSION['customer_id']) && (int) $_SESSION['customer_id'] > 0) {
+                            $rDenia = tep_db_query("select 1 from " . TABLE_ADDRESS_BOOK . " where customers_id = '" . (int) $_SESSION['customer_id'] . "' and entry_postcode like '03700%' limit 1");
+                            $bDeniaAllowed = (tep_db_num_rows($rDenia) > 0);
+                        }
+                        if (!$bDeniaAllowed) {
+                            $nStoreId = 0;
+                        }
+                    }
+                }
+
+                $_SESSION['store_id'] = $nStoreId;
                 $_SESSION['store_cost'] = 0;
 
-                // Consultamos las tiendas
-                $aDato = tep_db_query('select store_cost from store where id_store = ' . (int) $_SESSION['store_id']);
-                $aDato = tep_db_fetch_array($aDato);
-                $shipping['cost'] = $aDato['store_cost'];
-                $_SESSION['store_cost'] = $aDato['store_cost'];
+                if ($nStoreId > 0) {
+                    // Consultamos las tiendas
+                    $aDato = tep_db_query('select store_cost from store where id_store = ' . (int) $_SESSION['store_id']);
+                    $aDato = tep_db_fetch_array($aDato);
+                    $shipping['cost'] = $aDato['store_cost'];
+                    $_SESSION['store_cost'] = $aDato['store_cost'];
+                }
             }
         }
 

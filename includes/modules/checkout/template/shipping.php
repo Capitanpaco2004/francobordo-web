@@ -51,8 +51,23 @@ if (isset($_SESSION['module_shipping_estimator'])) {
 										echo '<div class="selct">';
 										echo '<label>' . TEXT_SELECT_STORE . '</label>';
 
-										// Consultamos las tiendas
-										$aDatos = tep_db_query('SELECT id_store, store_name, store_address, store_cost FROM store WHERE store_status = 1 ORDER BY store_name DESC');
+										// La tienda de Denia (CP 03700) solo se ofrece si el cliente tiene
+										// alguna direccion en ese CP (gate por libreta de direcciones).
+										$bDeniaAllowed = false;
+										if (isset($_SESSION['customer_id']) && (int)$_SESSION['customer_id'] > 0) {
+											$rDenia = tep_db_query("SELECT 1 FROM " . TABLE_ADDRESS_BOOK . " WHERE customers_id = '" . (int)$_SESSION['customer_id'] . "' AND entry_postcode LIKE '03700%' LIMIT 1");
+											if (tep_db_num_rows($rDenia) > 0) {
+												$bDeniaAllowed = true;
+											}
+										}
+
+										// Consultamos las tiendas (excluyendo Denia si no procede)
+										$sStoreSql = 'SELECT id_store, store_name, store_address, store_cost FROM store WHERE store_status = 1';
+										if (!$bDeniaAllowed) {
+											$sStoreSql .= " AND store_address NOT LIKE '%03700%'";
+										}
+										$sStoreSql .= ' ORDER BY store_name DESC';
+										$aDatos = tep_db_query($sStoreSql);
 
                                         echo '<select name="store_id" class="shipping-change-store">';
 

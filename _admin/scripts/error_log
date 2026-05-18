@@ -25,3 +25,5 @@ Stack trace:
 [16-May-2026 03:50:01 Europe/Madrid] PHP Deprecated:  Using ${var} in strings is deprecated, use {$var} instead in /home/francobordo/public_html/_admin/scripts/sync_products_stock.php on line 156
 [17-May-2026 03:50:01 Europe/Madrid] PHP Deprecated:  Using ${var} in strings is deprecated, use {$var} instead in /home/francobordo/public_html/_admin/scripts/sync_products_stock.php on line 143
 [17-May-2026 03:50:01 Europe/Madrid] PHP Deprecated:  Using ${var} in strings is deprecated, use {$var} instead in /home/francobordo/public_html/_admin/scripts/sync_products_stock.php on line 156
+[18-May-2026 03:50:01 Europe/Madrid] PHP Deprecated:  Using ${var} in strings is deprecated, use {$var} instead in /home/francobordo/public_html/_admin/scripts/sync_products_stock.php on line 143
+[18-May-2026 03:50:01 Europe/Madrid] PHP Deprecated:  Using ${var} in strings is deprecated, use {$var} instead in /home/francobordo/public_html/_admin/scripts/sync_products_stock.php on line 156

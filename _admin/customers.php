@@ -729,6 +729,7 @@ if( in_array( $action, [ 'edit', 'update' ] ) )
 				<li><a href="javascript:void(0);" data-id="4"><img src="images/icons/productos_opciones.png" alt=""><span>Opciones</span></a></li>
 				<li><a href="javascript:void(0);" data-id="5"><img src="images/icons/panel_icon_modules.png" alt=""><span>Modulos</span></a></li>
 				<li><a href="javascript:void(0);" data-id="6"><img src="images/icons/productos_datos_generales.png" alt=""><span>Notas</span></a></li>
+				<li><a href="customers_points_history.php?cID=<?php echo (int) $cInfo->customers_id; ?>" title="Ver historial de puntos del cliente"><img src="images/icons/panel_icon_points.svg" width="44" height="44" alt=""><span>Puntos</span></a></li>
 			</ul>
 		</div>
 
@@ -1611,6 +1612,7 @@ if( in_array( $action, [ 'edit', 'update' ] ) )
 									<li><a href="<?php echo tep_href_link('create_order.php', 'Customer=' . $customers['customers_id']); ?>"><i class="fas fa-cart-plus"></i> <? echo CUSTOMERS_ACTIONS_NEW_ORDER; ?></a></li>
 									<li><a target="_blank" href="<?php echo tep_href_link('change_password.php', 'cID=' . $customers['customers_id']); ?>"><i class="fas fa-key"></i> <? echo CUSTOMERS_ACTIONS_CHANGE_PASS; ?></a></li>
 									<li><a href="<?php echo tep_href_link(FILENAME_MAIL, 'selected_box=tools&amp;customer=' . $customers['customers_email_address']); ?>"><span style="padding-top: 1px;" class="icos-email"></span>Enviar email al cliente</a></li>
+									<li><a href="<?php echo tep_href_link('customers_points_history.php', 'cID=' . $customers['customers_id']); ?>"><i class="fas fa-ticket-alt"></i> Historial de puntos</a></li>
 									<li>
 										<a href="#" onclick="event.preventDefault();event.stopPropagation();connectAsCustomer('<?php echo htmlspecialchars($customers['customers_email_address'], ENT_QUOTES); ?>');return false;"><i class="fas fa-sign-in-alt"></i> <?php echo CUSTOMERS_ACTIONS_CONNECT_AS; ?></a>
 									</li>

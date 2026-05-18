@@ -628,17 +628,97 @@ var appClass = function()
 			return false;
 		})
 
+		// Buffer de archivos seleccionados por el cliente (uno a uno, con thumbnails)
+		// Se llena vía change del input file y se vacía al hacer submit.
+		var rmaSelectedFiles = []
+		var RMA_MAX_FILES = 5
+		var RMA_MAX_BYTES = 5 * 1024 * 1024
+
+		function rmaRenderPreview() {
+			var $list = $('.rmaAttachmentsPreview')
+			$list.empty()
+			rmaSelectedFiles.forEach(function (f, idx) {
+				var kb = (f.size / 1024).toFixed(1)
+				var $item = $(
+					'<li style="display:flex;align-items:center;gap:10px;padding:6px 8px;margin:4px 0;background:#f4f4f4;border:1px solid #ddd;border-radius:4px">' +
+						'<span class="rmaThumb" style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:3px;border:1px solid #ddd;font-size:18px;color:#888">📄</span>' +
+						'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>' +
+						'<button type="button" class="rmaRemoveFile" data-idx="' + idx + '" title="Quitar este archivo" style="background:#a02020;color:#fff;border:none;border-radius:3px;padding:3px 10px;cursor:pointer;font-size:11px">✕</button>' +
+					'</li>'
+				)
+				$item.find('span').eq(1).text(f.name + ' (' + kb + ' KB)')
+				if (f.type && f.type.indexOf('image/') === 0) {
+					var reader = new FileReader()
+					reader.onload = (function ($thumb) {
+						return function (e) {
+							$thumb.html('<img src="' + e.target.result + '" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:3px" />')
+						}
+					})($item.find('.rmaThumb'))
+					reader.readAsDataURL(f)
+				}
+				$list.append($item)
+			})
+			// El input file: se oculta si se llegó al máximo, se reactiva si hay hueco
+			var $input = $('.rmaAttachments')
+			if (rmaSelectedFiles.length >= RMA_MAX_FILES) {
+				$input.prop('disabled', true).next('.rmaAddMoreHint').show()
+			} else {
+				$input.prop('disabled', false)
+				$('.rmaAddMoreHint').hide()
+			}
+			// Contador visible
+			$('.rmaAttachmentsCount').text(rmaSelectedFiles.length > 0 ? rmaSelectedFiles.length + ' archivo(s) seleccionado(s)' : '')
+		}
+
+		$("body").on("change", ".rmaAttachments", function () {
+			var files = this.files
+			for (var i = 0; i < files.length; i++) {
+				if (rmaSelectedFiles.length >= RMA_MAX_FILES) {
+					alert('Máximo ' + RMA_MAX_FILES + ' archivos. Se ignoran los restantes.')
+					break
+				}
+				if (files[i].size > RMA_MAX_BYTES) {
+					alert('"' + files[i].name + '" supera 5 MB y no se subirá.')
+					continue
+				}
+				rmaSelectedFiles.push(files[i])
+			}
+			this.value = ''  // reiniciar input para poder elegir otro archivo después
+			rmaRenderPreview()
+		})
+
+		$("body").on("click", ".rmaRemoveFile", function () {
+			var idx = parseInt($(this).data('idx'), 10)
+			if (!isNaN(idx)) {
+				rmaSelectedFiles.splice(idx, 1)
+				rmaRenderPreview()
+			}
+		})
+
 		$("body").on("submit", ".rmaPage", function () {
 			formRma = $(this)
 			$('.rmaAjax').addClass('Loading')
 			var sAction = formRma.attr('action')
-			var aDatos = formRma.serialize()
-			$.post(sAction, aDatos, function (data) {
+			var bMultipart = (formRma.attr('enctype') || '').toLowerCase() === 'multipart/form-data'
+			var oncomplete = function (data) {
 				$(".rmaContent").replaceWith(data)
 				formRma.removeClass('Loading')
 				$('.rmaAjax .rmaContent').addClass('Active')
 				$('<a href="javascript:void(0);" class="rmaClose">&times;</a>').appendTo('.rmaContent')
-			})
+				// Limpiar buffer una vez enviado
+				rmaSelectedFiles = []
+			}
+			if (bMultipart) {
+				// FormData con los archivos del buffer JS (no del input nativo)
+				var fd = new FormData(formRma[0])
+				fd.delete('attachments[]')
+				rmaSelectedFiles.forEach(function (f) {
+					fd.append('attachments[]', f, f.name)
+				})
+				$.ajax({ url: sAction, type: 'POST', data: fd, processData: false, contentType: false, success: oncomplete })
+			} else {
+				$.post(sAction, formRma.serialize(), oncomplete)
+			}
 			return false;
 		});
 

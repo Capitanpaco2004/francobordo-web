@@ -227,10 +227,37 @@ function validate(field) {
                 <td class="dataTableHeadingContent" align="right"><?php echo TABLE_HEADING_ACTION; ?>&nbsp;</td>
               </tr>
 <?php
+    // Buscador 2026-05-17:
+    //  - Split por espacios → cada término busca independientemente (AND entre términos, OR entre campos)
+    //  - Prefijo `_utf8mb3` en los literales: fuerza el charset del literal para no chocar con la
+    //    connection PDO (utf8mb4) vs la collation de la columna (utf8mb3_general_ci / utf8mb3_bin).
+    //  - firstname/lastname utf8mb3_general_ci → accent-insensitive nativo (garcía == garcia).
+    //  - email/telephone/tax_id utf8mb3_bin → LOWER() para case-insensitive.
+    //  - id: comparación numérica directa si el término es entero (más rápido y limpio que CAST).
+    //  - Teléfono normaliza espacios para que "600 123 456" matchee "600123456".
     $search = '';
     if (isset($_GET['search']) && tep_not_null($_GET['search'])) {
-      $keywords = strtolower(tep_db_input(tep_db_prepare_input($_GET['search'])));
-      $search = "where LOWER(customers_id) LIKE '%" . $keywords . "%' or lower(customers_lastname) like '%" . $keywords . "%' or lower(customers_firstname) LIKE '%" . $keywords . "%' or lower(customers_email_address) LIKE '%" . $keywords . "%'";
+      $rawSearch = trim((string) $_GET['search']);
+      $terms     = preg_split('/\s+/', $rawSearch, -1, PREG_SPLIT_NO_EMPTY);
+      $conds     = [];
+      foreach ($terms as $t) {
+        $tEsc      = tep_db_input($t);
+        $tEscLow   = tep_db_input(strtolower($t));
+        $tEscPhone = tep_db_input(preg_replace('/\s+/', '', $t));
+        $orParts   = [];
+        if (ctype_digit($t)) {
+          $orParts[] = "customers_id = " . (int) $t;
+        }
+        $orParts[] = "customers_lastname  LIKE _utf8mb3'%" . $tEsc . "%'";
+        $orParts[] = "customers_firstname LIKE _utf8mb3'%" . $tEsc . "%'";
+        $orParts[] = "LOWER(customers_email_address) LIKE _utf8mb3'%" . $tEscLow . "%'";
+        $orParts[] = "REPLACE(customers_telephone, ' ', '') LIKE _utf8mb3'%" . $tEscPhone . "%'";
+        $orParts[] = "LOWER(entry_company_tax_id) LIKE _utf8mb3'%" . $tEscLow . "%'";
+        $conds[]   = '(' . implode(' OR ', $orParts) . ')';
+      }
+      if (!empty($conds)) {
+        $search = 'WHERE ' . implode(' AND ', $conds);
+      }
     }
 
     $filter = $_GET['filter'] ?? '1';
@@ -366,28 +393,32 @@ function validate(field) {
 
       $contents[] = array('align' => 'center', 'text' => '<br>' . tep_image_submit('button_delete_points.png', BUTTON_TEXT_DELETE_POINTS) . ' <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS, tep_get_all_get_params(array('cID', 'action')) . 'cID=' . $cInfo->customers_id) . '">' . tep_image_button('button_cancel.png', IMAGE_CANCEL) . '</a>');
       break;
-    case 'log': {
-      $cID = (int) ($_GET['cID'] ?? 0);
-      $heading[] = ['text' => '<b>Log de puntos</b>'];
-
-      // Fix histórico: el while no tenía llaves, por lo que $contents[] se ejecutaba UNA sola vez
-      //  fuera del bucle. Con llaves correctas se loguean todas las filas.
-      $aLogs = tep_db_query('SELECT * FROM ' . TABLE_CUSTOMERS_POINTS_PENDING . ' WHERE customer_id = "' . $cID . '" ORDER BY date_added DESC LIMIT 200');
-      while ($aLog = tep_db_fetch_array($aLogs)) {
-          $sComment   = defined($aLog['points_comment']) ? constant($aLog['points_comment']) : $aLog['points_comment'];
-          $contents[] = ['text' => 'Añadidos ' . $aLog['points_pending'] . ' punto/s del pedido <a href="' . tep_href_link(FILENAME_ORDERS, 'oID=' . (int) $aLog['orders_id'] . '&action=edit') . '">' . (int) $aLog['orders_id'] . '</a>. Comentario: ' . htmlspecialchars((string) $sComment)];
-      }
-      break;
-    }
+    // Historial movido a customers_points_history.php (vista a pantalla completa) — 2026-05-17.
     default:
       if (isset($cInfo) && is_object($cInfo)) {
         $heading[] = array('text' => '<b>' . $cInfo->customers_firstname . ' ' . $cInfo->customers_lastname . '</b>');
 
-    if ($cInfo->customers_shopping_points > 0) {
-        $contents[] = array('align' => 'center', 'text' => '<a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS, tep_get_all_get_params(array('cID', 'action')) . 'cID=' . $cInfo->customers_id . '&action=addpoints') . '">' . tep_image_button('button_add_points.png', BUTTON_TEXT_ADD_POINTS) . '</a> <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS, tep_get_all_get_params(array('cID', 'action')) . 'cID=' . $cInfo->customers_id . '&action=deletepoints') . '">' . tep_image_button('button_delete_points.png', BUTTON_TEXT_DELETE_POINTS) . '</a> <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS, tep_get_all_get_params(array('cID', 'action')) . 'cID=' . $cInfo->customers_id . '&action=adjust') . '">' . tep_image_button('button_adjust_points.png', BUTTON_TEXT_ADJUST_POINTS) . '</a> <a href="' . tep_href_link(FILENAME_ORDERS, 'cID=' . $cInfo->customers_id) . '">' . tep_image_button('button_orders.png', IMAGE_ORDERS) . '</a> <a href="' . tep_href_link(FILENAME_MAIL, 'selected_box=tools&customer=' . $cInfo->customers_email_address) . '">' . tep_image_button('button_email.png', IMAGE_EMAIL) . '</a> <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS, tep_get_all_get_params(array('cID', 'action')) . 'cID=' . $cInfo->customers_id . '&action=log') . '">' . tep_image_button('button_log.png', 'Log') . '</a>');
-     } else {
-        $contents[] = array('text' => '<a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS, tep_get_all_get_params(array('cID', 'action')) . 'cID=' . $cInfo->customers_id . '&action=addpoints') . '">' . tep_image_button('button_add_points.png', BUTTON_TEXT_ADD_POINTS) . '</a> <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS, tep_get_all_get_params(array('cID', 'action')) . 'cID=' . $cInfo->customers_id . '&action=adjust') . '">' . tep_image_button('button_adjust_points.png', BUTTON_TEXT_ADJUST_POINTS) . '</a> <a href="' . tep_href_link(FILENAME_CUSTOMERS, tep_get_all_get_params(array('cID', 'action')) . 'cID=' . $cInfo->customers_id . '&action=edit') . '">' . tep_image_button('button_edit.png', IMAGE_EDIT) . '</a> <a href="' . tep_href_link(FILENAME_ORDERS, 'cID=' . $cInfo->customers_id) . '">' . tep_image_button('button_orders.png', IMAGE_ORDERS) . '</a> <a href="' . tep_href_link(FILENAME_MAIL, 'selected_box=tools&customer=' . $cInfo->customers_email_address) . '">' . tep_image_button('button_email.png', IMAGE_EMAIL) . '</a> <a href="' . tep_href_link(FILENAME_CUSTOMERS_POINTS, tep_get_all_get_params(array('cID', 'action')) . 'cID=' . $cInfo->customers_id . '&action=log') . '">' . tep_image_button('button_log.png', 'Log') . '</a>');
-       }
+        // Botones HTML uniformes (sustituye los PNG inconsistentes) — 2026-05-17
+        $sBtnStyle = 'display:inline-block;padding:8px 16px;margin:3px;background:linear-gradient(to bottom,#5a5a5a,#2a2a2a);color:#fff;border:1px solid #1a1a1a;border-radius:4px;font-weight:bold;font-size:12px;font-family:Arial,sans-serif;text-shadow:0 -1px 0 rgba(0,0,0,0.4);vertical-align:middle;text-decoration:none';
+        $mkBtn = static function ($href, $label) use ($sBtnStyle) {
+            return '<a href="' . $href . '" style="' . $sBtnStyle . '">' . htmlspecialchars($label) . '</a>';
+        };
+
+        $sBase    = tep_get_all_get_params(array('cID', 'action')) . 'cID=' . (int) $cInfo->customers_id;
+        $aButtons = [];
+        $aButtons[] = $mkBtn(tep_href_link(FILENAME_CUSTOMERS_POINTS, $sBase . '&action=addpoints'),   'Añadir puntos');
+        if ($cInfo->customers_shopping_points > 0) {
+            $aButtons[] = $mkBtn(tep_href_link(FILENAME_CUSTOMERS_POINTS, $sBase . '&action=deletepoints'), 'Eliminar puntos');
+        }
+        $aButtons[] = $mkBtn(tep_href_link(FILENAME_CUSTOMERS_POINTS, $sBase . '&action=adjust'),      'Ajustar la cantidad');
+        if ($cInfo->customers_shopping_points <= 0) {
+            $aButtons[] = $mkBtn(tep_href_link(FILENAME_CUSTOMERS,        $sBase . '&action=edit'),    'Editar');
+        }
+        $aButtons[] = $mkBtn(tep_href_link(FILENAME_ORDERS, 'cID=' . (int) $cInfo->customers_id),       'Pedidos');
+        $aButtons[] = $mkBtn(tep_href_link(FILENAME_MAIL, 'selected_box=tools&customer=' . $cInfo->customers_email_address), 'Email');
+        $aButtons[] = $mkBtn(tep_href_link('customers_points_history.php', 'cID=' . (int) $cInfo->customers_id), 'Historial');
+
+        $contents[] = array('align' => 'center', 'text' => implode(' ', $aButtons));
         $contents[] = array('text' => '<br>' . TEXT_INFO_NUMBER_OF_ORDERS . ' ' . $currencies->format($cInfo->ordersum));
         $contents[] = array('text' => TEXT_INFO_NUMBER_OF_PENDING . ' ' . number_format($cInfo->pending_total ?? 0, POINTS_DECIMAL_PLACES));
       }
