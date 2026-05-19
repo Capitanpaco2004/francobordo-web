@@ -495,7 +495,7 @@ $logQ = tep_db_query("
 ");
 
 $aTipoLabel = [
-    'SP' => 'Compra', 'RV' => 'Review', 'RF' => 'Referral', 'EX' => 'Caducado',
+    'SP' => 'Compra', 'RV' => 'Review', 'RF' => 'Referral', 'EX' => 'Caducado', 'RC' => 'Rectificativa', 'RD' => 'Canje',
 ];
 $aStatusLabel = [
     1 => 'Pendiente', 2 => 'Confirmado', 3 => 'Cancelado', 4 => 'Canjeado',
@@ -811,7 +811,7 @@ while ($aLog = tep_db_fetch_array($logQ)) {
 if ($nTotal === 0) {
     echo '<i>Sin movimientos registrados.</i>';
 } else {
-    echo 'Mostrando ' . $nTotal . ' movimiento' . ($nTotal === 1 ? '' : 's') . ' (max 500). Tipos: <b>SP</b> Compra/Canje, <b>RV</b> Review, <b>RF</b> Referral, <b>EX</b> Caducado (interno). Las filas canjeadas no se pueden eliminar.';
+    echo 'Mostrando ' . $nTotal . ' movimiento' . ($nTotal === 1 ? '' : 's') . ' (max 500). Tipos: <b>SP</b> Compra/Canje, <b>RV</b> Review, <b>RF</b> Referral, <b>RC</b> Rectificativa, <b>EX</b> Caducado (interno). Las filas canjeadas no se pueden eliminar.';
 }
 ?>
           </td></tr>

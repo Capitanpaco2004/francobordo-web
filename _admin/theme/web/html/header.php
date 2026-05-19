@@ -180,6 +180,15 @@ if( in_array( basename( (string) $_SERVER['SCRIPT_NAME'] ), [ FILENAME_LOGIN, FI
 							</li>
 						<?php endif; ?>
 
+						<?php if( tep_admin_check_boxes( 'marketing.php' ) ): ?>
+							<li>
+								<a class="prnt" href="javascript:void(0);"><i class="icon fa fa-bullhorn"></i> <span><?php echo BOX_HEADING_MARKETING; ?></span> <i class="fa fa-angle-right"></i></a>
+								<div class="sbmn">
+									<?php require(DIR_WS_BOXES . 'marketing.php'); ?>
+								</div>
+							</li>
+						<?php endif; ?>
+
 						<?php if( tep_admin_check_boxes( 'configuration.php' ) ): ?>
 							<li>
 								<a class="prnt" href="javascript:void(0);"><i class="icon fa fa-cog"></i> <span><?php echo BOX_HEADING_SYSTEM; ?></span> <i class="fa fa-angle-right"></i></a>

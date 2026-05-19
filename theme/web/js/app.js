@@ -634,6 +634,20 @@ var appClass = function()
 		var RMA_MAX_FILES = 5
 		var RMA_MAX_BYTES = 5 * 1024 * 1024
 
+		// Helper i18n: usa window.RMA_LANG si existe (inyectado por el template PHP), fallback a ES
+		function rmaT(key, vars) {
+			var dict = (window.RMA_LANG || {})
+			var defaults = {
+				attach_max:    'Máximo {N} archivos. Se ignoran los restantes.',
+				attach_toobig: '"{NAME}" supera 5 MB y no se subirá.',
+				attach_remove: 'Quitar este archivo',
+				attach_count:  '{N} archivo(s) seleccionado(s)'
+			}
+			var s = dict[key] || defaults[key] || key
+			if (vars) for (var k in vars) s = s.split('{' + k + '}').join(vars[k])
+			return s
+		}
+
 		function rmaRenderPreview() {
 			var $list = $('.rmaAttachmentsPreview')
 			$list.empty()
@@ -643,7 +657,7 @@ var appClass = function()
 					'<li style="display:flex;align-items:center;gap:10px;padding:6px 8px;margin:4px 0;background:#f4f4f4;border:1px solid #ddd;border-radius:4px">' +
 						'<span class="rmaThumb" style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:3px;border:1px solid #ddd;font-size:18px;color:#888">📄</span>' +
 						'<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>' +
-						'<button type="button" class="rmaRemoveFile" data-idx="' + idx + '" title="Quitar este archivo" style="background:#a02020;color:#fff;border:none;border-radius:3px;padding:3px 10px;cursor:pointer;font-size:11px">✕</button>' +
+						'<button type="button" class="rmaRemoveFile" data-idx="' + idx + '" title="' + rmaT('attach_remove') + '" style="background:#a02020;color:#fff;border:none;border-radius:3px;padding:3px 10px;cursor:pointer;font-size:11px">✕</button>' +
 					'</li>'
 				)
 				$item.find('span').eq(1).text(f.name + ' (' + kb + ' KB)')
@@ -667,18 +681,18 @@ var appClass = function()
 				$('.rmaAddMoreHint').hide()
 			}
 			// Contador visible
-			$('.rmaAttachmentsCount').text(rmaSelectedFiles.length > 0 ? rmaSelectedFiles.length + ' archivo(s) seleccionado(s)' : '')
+			$('.rmaAttachmentsCount').text(rmaSelectedFiles.length > 0 ? rmaT('attach_count', { N: rmaSelectedFiles.length }) : '')
 		}
 
 		$("body").on("change", ".rmaAttachments", function () {
 			var files = this.files
 			for (var i = 0; i < files.length; i++) {
 				if (rmaSelectedFiles.length >= RMA_MAX_FILES) {
-					alert('Máximo ' + RMA_MAX_FILES + ' archivos. Se ignoran los restantes.')
+					alert(rmaT('attach_max', { N: RMA_MAX_FILES }))
 					break
 				}
 				if (files[i].size > RMA_MAX_BYTES) {
-					alert('"' + files[i].name + '" supera 5 MB y no se subirá.')
+					alert(rmaT('attach_toobig', { NAME: files[i].name }))
 					continue
 				}
 				rmaSelectedFiles.push(files[i])

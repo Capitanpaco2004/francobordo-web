@@ -42,14 +42,22 @@
                     <p><textarea name="comments" required></textarea></p>
 
                     <!-- Adjuntos del cliente (fotos / PDF) — opcional, hasta 5 archivos de 5 MB -->
-                    <p class="rmaTitleText" style="margin-top:12px"><strong>Adjuntar fotos o documentos (opcional)</strong></p>
-                    <p style="font-size:0.85em;color:#666;margin:2px 0 6px">Hasta 5 archivos (JPG, PNG, GIF, WEBP, HEIC, PDF). Máx. 5 MB cada uno. Añádelos de uno en uno o varios a la vez.</p>
+                    <p class="rmaTitleText" style="margin-top:12px"><strong><?php echo RMA_ATTACH_TITLE; ?></strong></p>
+                    <p style="font-size:0.85em;color:#666;margin:2px 0 6px"><?php echo RMA_ATTACH_HELP; ?></p>
                     <p>
                         <input type="file" name="attachments[]" multiple accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,application/pdf,.heic,.heif" class="rmaAttachments" />
-                        <span class="rmaAddMoreHint" style="display:none;color:#a02020;font-size:0.85em;margin-left:8px">Máximo 5 archivos alcanzado</span>
+                        <span class="rmaAddMoreHint" style="display:none;color:#a02020;font-size:0.85em;margin-left:8px"><?php echo RMA_ATTACH_MAX_REACHED; ?></span>
                     </p>
                     <p class="rmaAttachmentsCount" style="margin:4px 0;font-size:0.85em;color:#1fa1d0;font-weight:bold"></p>
                     <ul class="rmaAttachmentsPreview" style="list-style:none;padding:0;margin:6px 0;font-size:0.85em;color:#555"></ul>
+                    <script>
+                    // i18n strings para el preview de adjuntos en JS (consumidas por app.js)
+                    window.RMA_LANG = window.RMA_LANG || {};
+                    window.RMA_LANG.attach_max     = <?php echo json_encode(RMA_ATTACH_JS_MAX); ?>;
+                    window.RMA_LANG.attach_toobig  = <?php echo json_encode(RMA_ATTACH_JS_TOOBIG); ?>;
+                    window.RMA_LANG.attach_remove  = <?php echo json_encode(RMA_ATTACH_JS_REMOVE); ?>;
+                    window.RMA_LANG.attach_count   = <?php echo json_encode(RMA_ATTACH_JS_COUNT); ?>;
+                    </script>
 
                     <?php if (!$rma->showReembolso($_POST['option_return'])): ?>
                         <p><label><input type="checkbox" name="conditions" required /> <?php echo RMA_CONDITIONS; ?> <a href="https://www.francobordo.com/condiciones-generales-i-3.html" target="_blank"><?php echo RMA_CONDITIONS_VIEW; ?></a></label></p>

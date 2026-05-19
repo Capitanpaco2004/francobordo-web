@@ -80,12 +80,14 @@ function rowOutEffect(object) {
     $expires_months = (int) POINTS_AUTO_EXPIRES;
     if ($expires_months <= 0) $expires_months = 12;
 
-    // El cliente solo ve sus puntos CONFIRMADOS (status=2) y NO CADUCADOS:
+    // El cliente ve sus puntos CONFIRMADOS (status=2) y NO CADUCADOS:
     //  - status=2 → confirmados (los que cuentan en su saldo activo)
-    //  - excluimos status 1 (pendientes), 3 (cancelados), 4 (canjeados)
+    //  - status=3+type=RC → rectificativas (descuentos por devolución, importante mostrarlos
+    //                       para que el cliente entienda por qué bajó su saldo)
+    //  - excluimos status 1 (pendientes), 4 (canjeados — ya tienen sección propia abajo)
     //  - excluimos points_type='EX' (filas internas de caducidad, no para clientes)
     //  - excluimos filas cuya fecha + POINTS_AUTO_EXPIRES meses ya hayan pasado (vencimiento por antigüedad)
-    $pending_points_query = "select unique_id, orders_id, points_pending, points_comment, date_added, points_status, points_type from " . TABLE_CUSTOMERS_POINTS_PENDING . " where customer_id = '" . (int)$customer_id . "' and points_status = 2 and points_type != 'EX' and ( DATE_ADD( date_added, INTERVAL " . $expires_months . " MONTH ) > curdate() )  order by unique_id desc";
+    $pending_points_query = "select unique_id, orders_id, points_pending, points_comment, date_added, points_status, points_type from " . TABLE_CUSTOMERS_POINTS_PENDING . " where customer_id = '" . (int)$customer_id . "' and ( points_status = 2 OR (points_status = 3 AND points_type = 'RC') ) and points_type != 'EX' and ( DATE_ADD( date_added, INTERVAL " . $expires_months . " MONTH ) > curdate() )  order by unique_id desc";
     $pending_points_split = new splitPageResults($pending_points_query, MAX_DISPLAY_POINTS_RECORD);
     $pending_points_query = tep_db_query($pending_points_split->sql_query);
 
@@ -116,6 +118,8 @@ function rowOutEffect(object) {
 	    if ($pending_points['points_status'] == '2') $points_status_name = TEXT_POINTS_CONFIRMED;
 	    if ($pending_points['points_status'] == '3') $points_status_name = '<span class="pointWarning">' . TEXT_POINTS_CANCELLED . '</span>';
 	    if ($pending_points['points_status'] == '4') $points_status_name = '<span class="pointWarning">' . TEXT_POINTS_REDEEMED . '</span>';
+	    // Override para rectificativas (status=3 + type=RC): etiqueta más clara que "Cancelado"
+	    if ($pending_points['points_type'] == 'RC') $points_status_name = '<span class="pointWarning">' . (defined('TEXT_POINTS_RECTIFICATIVA') ? TEXT_POINTS_RECTIFICATIVA : 'Rectificativa') . '</span>';
 	    
 	    if ($orders_status['orders_status'] == 2 && $pending_points['points_status'] == 1 || $orders_status['orders_status'] == 3 && $pending_points['points_status'] == 1) {
 		    $points_status_name = TEXT_POINTS_PROCESSING;
@@ -141,7 +145,7 @@ function rowOutEffect(object) {
 		$pending_points['points_comment'] = TEXT_DEFAULT_REVIEWS;
 	}
 	
-	if (($pending_points['orders_id'] > '0') && (($pending_points['points_type'] == 'SP')||($pending_points['points_type'] == 'RD'))) {
+	if (($pending_points['orders_id'] > '0') && (($pending_points['points_type'] == 'SP')||($pending_points['points_type'] == 'RD')||($pending_points['points_type'] == 'RC'))) {
 ?>
         <tr class="moduleRow" onmouseover="rowOverEffect(this)" onmouseout="rowOutEffect(this)" onclick="document.location.href='<?php echo tep_href_link(FILENAME_ACCOUNT_HISTORY_INFO, 'order_id=' . $pending_points['orders_id'], 'SSL'); ?>'" title="<?php echo TEXT_ORDER_HISTORY .'&nbsp;' . $pending_points['orders_id']; ?>">
 <?php

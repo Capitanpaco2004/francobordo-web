@@ -1811,6 +1811,43 @@ function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $fro
 	$mail->Subject = $email_subject;
 	$mail->AddAddress($to_email_address, $to_name);
 
+	// === Override: para destinos internos @francobordo.com, enviar via REST API SendGrid ===
+	// con bypass_list_management=true. Razón: el header X-SMTPAPI via SMTP no es respetado
+	// por SendGrid SMTP, y el caché interno de bounces drop emails legítimos a internos.
+	// La REST API SÍ respeta bypass, asegurando entrega.
+	if (stripos($to_email_address, '@francobordo.com') !== false
+		&& defined('SMTP_PASS') && defined('STORE_OWNER_EMAIL_ADDRESS')) {
+		$_sgKey = \util\tools::decrypt(SMTP_PASS);
+		if (strpos($_sgKey, 'SG.') === 0) {
+			$_payload = json_encode([
+				'personalizations' => [['to' => [['email' => $to_email_address, 'name' => $to_name]]]],
+				'from'             => ['email' => STORE_OWNER_EMAIL_ADDRESS, 'name' => $from_email_name ?: STORE_OWNER_EMAIL_ADDRESS],
+				'reply_to'         => ['email' => $from_email_address ?: STORE_OWNER_EMAIL_ADDRESS],
+				'subject'          => $email_subject,
+				'content'          => [['type' => 'text/html', 'value' => $email_text]],
+				'mail_settings'    => ['bypass_list_management' => ['enable' => true]],
+			]);
+			$_ch = curl_init('https://api.sendgrid.com/v3/mail/send');
+			curl_setopt_array($_ch, [
+				CURLOPT_RETURNTRANSFER => true,
+				CURLOPT_POST           => true,
+				CURLOPT_POSTFIELDS     => $_payload,
+				CURLOPT_HTTPHEADER     => [
+					'Authorization: Bearer ' . $_sgKey,
+					'Content-Type: application/json',
+				],
+				CURLOPT_TIMEOUT        => 15,
+			]);
+			$_resp = curl_exec($_ch);
+			$_code = curl_getinfo($_ch, CURLINFO_HTTP_CODE);
+			if ($_code >= 200 && $_code < 300) {
+				return true;  // entregado a SendGrid via REST con bypass, listo
+			}
+			// si falla la REST API, cae al envío SMTP normal abajo (mejor algo que nada)
+		}
+	}
+
+
 	if ($attachFile)
 		$mail->AddAttachment($attachFile['tmp_name'], $attachFile['name']);
 

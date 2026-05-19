@@ -1,0 +1,1 @@
+﻿<p>Za pošiljanje sporočila vnesi spodnje informacije. Vnesti morate najmanj Vsebino. Pred prehodom na naslednji zavihek <b>NUJNO</b> shranite spremembe. Za dokončanje sporočila in dokončno pošiljanje izberite zavihek Kategorije, izberite ciljne kategorije za pošiljanje in nato (Polji sporočilo izbranim kategorijam".</p>

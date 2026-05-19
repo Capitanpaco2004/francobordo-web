@@ -44,3 +44,13 @@ define('RMA_PAYMENT_REMINDER', 'We remind you that in your order you used <stron
 define('RMA_REEMBOLSO', 'How do you want your refund?');
 define('RMA_SELECT_ADDRESS', 'Select address');
 define('RMA_FORMAT_DATE', 'Y-m-d');
+
+// === Customer attachments (uploads in RMA modal) — added 2026-05-18 ===
+define('RMA_ATTACH_TITLE',       'Attach photos or documents (optional)');
+define('RMA_ATTACH_HELP',        'Up to 5 files (JPG, PNG, GIF, WEBP, HEIC, PDF). Max 5 MB each. Add them one by one or several at a time.');
+define('RMA_ATTACH_MAX_REACHED', 'Maximum of 5 files reached');
+define('RMA_ATTACH_JS_MAX',      'Maximum {N} files. Extras will be ignored.');
+define('RMA_ATTACH_JS_TOOBIG',   '"{NAME}" exceeds 5 MB and will not be uploaded.');
+define('RMA_ATTACH_JS_REMOVE',   'Remove this file');
+define('RMA_ATTACH_JS_COUNT',    '{N} file(s) selected');
+define('RMA_PAGE_TITLE_STATUS', 'Return status');

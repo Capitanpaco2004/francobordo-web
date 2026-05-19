@@ -256,7 +256,8 @@ class rma {
 
     public function showReturnButton() {
         if ($this->textNoReturn) {
-            return '<br /><small style="font-size: 0.8em; opacity: .8;">' . $this->textNoReturn . '</small>' .(!empty($this->historyStatus) ? '<br /><a href="'.tep_href_link('rma.php','orders_id=' . $this->ordersID.'&products_id=' . $this->productsID).'" class="Button initRma" style="background-color: #ee7f00;">'.RMA_VIEW_STATUS.'</a>' : '');
+            // "Ver estado" → página dedicada (no modal). El modal queda solo para el wizard de creación.
+            return '<br /><small style="font-size: 0.8em; opacity: .8;">' . $this->textNoReturn . '</small>' .(!empty($this->historyStatus) ? '<br /><a href="'.tep_href_link('account/rma_status.php','orders_id=' . $this->ordersID.'&products_id=' . $this->productsID, 'SSL').'" class="Button" style="background-color: #ee7f00;">'.RMA_VIEW_STATUS.'</a>' : '');
         }
         if ($this->Valid && $this->productsID > 0) {
             return '<br /><a href="'.tep_href_link('rma.php','orders_id=' . $this->ordersID.'&products_id=' . $this->productsID).'" class="Button initRma" style="background-color: #ee7f00;">'.RMA_RETURN.'</a>';
@@ -415,6 +416,10 @@ class rma {
 
         $aDatos = $this->addAddressInfo($aDatos);
 
+        // Guardar email/nombre antes de reset (los necesita sendConfirmationEmail)
+        $customerEmail = trim((string) ($aDatos['customers_email_address'] ?? ''));
+        $customerName  = trim((string) ($aDatos['customers_name'] ?? ''));
+
         tep_db_perform(TABLE_RMA, $aDatos);
 
         $this->idRmaInt = (int) tep_db_insert_id();
@@ -431,6 +436,75 @@ class rma {
         if (!empty($aFields['rma_upload_token'])) {
             $this->finalizeUploads($aFields['rma_upload_token'], $this->idRmaInt);
         }
+
+        // Confirmación al cliente (bilingüe ES/EN según languages_id)
+        $this->sendConfirmationEmail($customerEmail, $customerName);
+    }
+
+    /**
+     * Envía email de confirmación al cliente tras grabar la solicitud de RMA.
+     * Usa el layout UHtmlEmails/{LAYOUT}/rma.php (mismo que rmaChangeStatus).
+     * Bilingüe ES/EN según languages.code del languages_id del cliente.
+     */
+    private function sendConfirmationEmail($customerEmail, $customerName) {
+        if ($customerEmail === '' || $customerName === '' || !$this->idRmaInt) {
+            return;
+        }
+
+        // Detectar idioma del cliente
+        $r = tep_db_query("SELECT code, directory FROM languages WHERE languages_id = " . (int) $this->languagesID . " LIMIT 1");
+        $row = tep_db_fetch_array($r);
+        $langCode = (isset($row['code']) && $row['code'] !== '') ? strtolower($row['code']) : 'es';
+        $langDir  = (isset($row['directory']) && $row['directory'] !== '') ? $row['directory'] : 'espanol';
+
+        // Primer nombre (lo pidió el usuario: "Hola Jaime" en lugar de nombre completo)
+        $firstName = trim(strtok($customerName, ' '));
+        if ($firstName === '' || $firstName === false) $firstName = $customerName;
+
+        // Link directo a la página de estado del RMA (no al historial del pedido)
+        $url   = 'https://www.francobordo.com/account/rma_status.php?orders_id=' . (int) $this->ordersID . '&products_id=' . (int) $this->productsID;
+        $rmaId = (int) $this->idRmaInt;
+        $hName = htmlspecialchars($firstName, ENT_QUOTES, 'UTF-8');
+
+        if ($langCode === 'en') {
+            $subject = 'RMA request ' . $rmaId . ' registered - Francobordo';
+            $customersName = 'Hello ' . $hName;
+            $message  = 'We confirm your request has been registered correctly. '
+                      . 'The case number is <strong>' . $rmaId . '</strong>.<br/><br/>'
+                      . 'From now on we will start our review process and, within the next 2 or 3 days, '
+                      . 'we will inform you by email about the progress.<br/><br/>'
+                      . 'You can also check all this information in your customer area:<br/>'
+                      . '<a href="' . $url . '">' . $url . '</a><br/><br/>'
+                      . 'Thank you very much for your trust in Francobordo!';
+        } else {
+            $subject = 'Solicitud RMA ' . $rmaId . ' registrada - Francobordo';
+            $customersName = 'Hola ' . $hName;
+            $message  = 'Te confirmamos que tu solicitud está registrada correctamente. '
+                      . 'El número de esta incidencia es <strong>' . $rmaId . '</strong>.<br/><br/>'
+                      . 'A partir de ahora, iniciaremos nuestro proceso de revisión de la misma y, '
+                      . 'en los próximos 2 o 3 días, te informaremos por email sobre los avances.<br/><br/>'
+                      . 'También puedes consultar toda esta información en tu área de cliente:<br/>'
+                      . '<a href="' . $url . '">' . $url . '</a><br/><br/>'
+                      . '¡Muchas gracias por tu confianza en Francobordo!';
+        }
+
+        // Asegurar EMAIL_POLITICA y constantes generales del idioma del cliente
+        // (el frontend ya carga la del cliente; rmaChangeStatus hardcodeaba 'espanol').
+        $langGeneral = DIR_WS_LANGUAGES . $langDir . '.php';
+        if (is_file($langGeneral)) {
+            require_once($langGeneral);
+        }
+
+        // El template UHtmlEmails/{LAYOUT}/rma.php renderiza $message a 14px (heredado
+        // del contenedor). Lo envolvemos para subirlo a 16px sólo en este correo —
+        // no tocamos el template para no afectar a rmaChangeStatus.
+        $message = '<span style="font-size:16px; line-height:1.55;">' . $message . '</span>';
+
+        // Renderiza $sHtmlEmail usando el layout existente (mismo que cambio de estado).
+        // En frontend usamos DIR_FS_CATALOG + DIR_WS_MODULES (estándar osCommerce).
+        require(DIR_FS_CATALOG . DIR_WS_MODULES . 'UHtmlEmails/' . ULTIMATE_HTML_EMAIL_LAYOUT . '/rma.php');
+
+        @tep_mail($customerName, $customerEmail, $subject, $sHtmlEmail, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS);
     }
 
     public function checkOptionReturn() {

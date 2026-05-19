@@ -22,6 +22,17 @@ if ($nStep == 2 && !$rma->showReembolso($_POST['option_return'])) {
 	$nStep = 3;
 }
 
+// Procesar adjuntos del cliente ANTES del switch: si la razón no muestra step 2
+// (ej. garantía, "no coincide", incompleto…), el router salta directo al case 3
+// y los $_FILES se perderían sin esto. Guardamos en _tmp/{token}/ y propagamos el
+// token via $_POST para que el case correspondiente lo lleve a $aFields.
+if (!empty($_FILES['attachments']['name'][0]) && empty($_POST['rma_upload_token'])) {
+	$uploadToken = $rma->processUploads();
+	if ($uploadToken) {
+		$_POST['rma_upload_token'] = $uploadToken;
+	}
+}
+
 $aFields = array();
 switch ($nStep) {
 	case 1:
@@ -38,14 +49,6 @@ switch ($nStep) {
 	break;
 	case 2:
 		$aFields = $_POST;
-		// Si el cliente subió adjuntos en el step 1 → 2, los guardamos en _tmp
-		// y propagamos el token por hidden field hasta el step final.
-		if (empty($aFields['rma_upload_token'])) {
-			$uploadToken = $rma->processUploads();
-			if ($uploadToken) {
-				$aFields['rma_upload_token'] = $uploadToken;
-			}
-		}
 	break;
 	case 3:
 		$aFields = $_POST;

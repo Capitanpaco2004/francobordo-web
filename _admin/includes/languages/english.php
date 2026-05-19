@@ -99,6 +99,8 @@ define('BOX_REPORTS_PRODUCTS_VIEWED', 'Products Viewed');
 define('BOX_REPORTS_PRODUCTS_PURCHASED', 'Products Purchased');
 define('BOX_REPORTS_ORDERS_TOTAL', 'Customer Orders-Total');
 
+// marketing/CRM text in includes/boxes/marketing.php
+define('BOX_HEADING_MARKETING', 'Marketing');
 // tools text in includes/boxes/tools.php
 define('BOX_HEADING_TOOLS', 'Tools');
 define('BOX_TOOLS_BACKUP', 'Database Backup');

@@ -52,3 +52,5 @@ define('TEXT_NO_POINTS', 'usted actualmente no tiene puntos para utilizar, al ha
 
 define('TEXT_DISPLAY_NUMBER_OF_RECORDS', 'Resultados <b>%d</b> para <b>%d</b> (de <b>%d</b> registros de puntos)');
 ?>
+
+define('TEXT_POINTS_RECTIFICATIVA', 'Rectificativa');

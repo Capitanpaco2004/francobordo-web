@@ -1,0 +1,2 @@
+﻿<p>Tukaj lahko ustvarite nove naročniške strani.</p>
+<p>Izbirate lahko med vsemi atributi in kategorijami novic, ki že obsajajo v sistemu. Če želeni atribut ali kategorija še ne obstaja, ga morate najprej dodati v sistem. Vrednosti atributov so privzete, glede na globalne nastavitve, vendar lahko spreminjate njihov vrstni red, privzeto vrednost in ali je atribut potreben ali ne. To bo vplivalo le na zahtevanost atributa, ko se uporabniki vpišejo na naročniških straneh.</p>

@@ -52,3 +52,4 @@ define('TEXT_NO_POINTS', 'You don\'t have Qualified Points yet.');
 
 define('TEXT_DISPLAY_NUMBER_OF_RECORDS', 'Displaying <b>%d</b> to <b>%d</b> (of <b>%d</b> points records)');
 ?>
+define('TEXT_POINTS_RECTIFICATIVA', 'Refund');

@@ -34,6 +34,7 @@
 <?php echo tep_admin_files_boxes(FILENAME_PRODUCTS_EXPECTED, '<i class="bullet"></i> ' . BOX_CATALOG_PRODUCTS_EXPECTED); ?>
 <?php echo tep_admin_files_boxes(FILENAME_QUICK_UPDATES, '<i class="bullet"></i> ' . BOX_CATALOG_QUICK_UPDATES); ?>
 <?php echo tep_admin_files_boxes('import_log.php', '<i class="bullet"></i> Log Minderest'); ?>
+<?php echo tep_admin_files_boxes('actuprice_minderest_run.php', '<i class="bullet"></i> Minderest (repricer)'); ?>
 <?php echo tep_admin_files_boxes('ebay.php', '<i class="bullet"></i> Ebay'); ?>
 <?php echo tep_admin_files_boxes(FILENAME_PRODUCTS_MULTI, '<i class="bullet"></i> Admin. Multiples Productos'); ?>
 <?php //echo tep_admin_files_boxes('csv-products.php', '<i class="bullet"></i> Exportar/Importar DENOX'); ?>

@@ -315,7 +315,6 @@ $cycle_length = floor(1000 / sizeof($languages_used)) * sizeof($languages_used);
 
 $count = 0;
 $counter = 0;
-$supressed_count = 0; // set supressed products counter to zero
 
 while (true) {
     ++$counter;
@@ -604,14 +603,7 @@ END) as final_price
                         $output_line .= $cur_feed['seperator'] . $cur_feed['text_qualifier'] . trim($output_field_value) . $cur_feed['text_qualifier'];
 
                     }
-                    // BOF supress products containing "fusil"
-                    if (!stripos($output_line, 'fusil')) {
-                        $output_line = substr($output_line, strlen($cur_feed['seperator'])) . $cur_feed['newline'];
-                    } else {
-                        $output_line = '';
-                        ++$supressed_count;
-                    }
-                    // EOF supress products containing "fusil"
+                    $output_line = substr($output_line, strlen($cur_feed['seperator'])) . $cur_feed['newline'];
                     if (!empty($feeds[$cur_feed_id]['encoding']) && $feeds[$cur_feed_id]['encoding'] !== false) {
                         switch ($feeds[$cur_feed_id]['encoding']) {
                             case 'utf8':
@@ -684,9 +676,6 @@ foreach ($fps as $cur_feed_id => $fp) {
 
 }
 
-// BOF show number of supressed products containing "fusil"
-echo "\n" . 'Se han suprimido ' . $supressed_count . ' productos que contienen "fusil"' . "\n\n";
-// EOF show number of supressed products containing "fusil"
 echo "\n" . 'done.' . "\n\n";
 
 if (isset($_SERVER['HTTP_HOST'])) {

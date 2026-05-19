@@ -163,6 +163,8 @@ define('BOX_REPORTS_NEWSLETTERS', 'Suscritos al Boletín');
 define('BOX_REPORTS_STRUCTURED_DATA', 'Datos estructurados');
 
 define('BOX_REPORTS_STATS_LOW_STOCK_ATTRIB', 'Informe Stock por atributos');
+// marketing/CRM text in includes/boxes/marketing.php
+define('BOX_HEADING_MARKETING', 'Marketing');
 // tools text in includes/boxes/tools.php
 define('BOX_HEADING_TOOLS', 'Herramientas');
 define('BOX_TOOLS_BANNER_MANAGER', 'Banners');

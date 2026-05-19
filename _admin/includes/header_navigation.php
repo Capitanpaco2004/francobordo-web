@@ -59,11 +59,14 @@
   if (CanShowBox('reports.php')) {  
 		$box_files_list[] = array("reports", "reports.php" , BOX_HEADING_REPORTS);
   }
-  if (CanShowBox('tools.php')) {  
+  if (CanShowBox('tools.php')) {
 		$box_files_list[] = array("tools", "tools.php" , BOX_HEADING_TOOLS);
   }
-  if (CanShowBox('administrators.php')) {  
-        $box_files_list[] = array("administrators", "administrators.php" , BOX_HEADING_ADMINISTRATORS);   //rmh M-S_multi-stores end          
+  if (CanShowBox('marketing.php')) {
+		$box_files_list[] = array("marketing", "marketing.php" , BOX_HEADING_MARKETING);
+  }
+  if (CanShowBox('administrators.php')) {
+        $box_files_list[] = array("administrators", "administrators.php" , BOX_HEADING_ADMINISTRATORS);   //rmh M-S_multi-stores end
   }
   
   

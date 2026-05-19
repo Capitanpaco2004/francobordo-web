@@ -44,3 +44,13 @@ define('RMA_PAYMENT_REMINDER', 'Le recordamos que en su pedido usó <strong>%s</
 define('RMA_REEMBOLSO', '¿Cómo quieres tu reembolso?');
 define('RMA_SELECT_ADDRESS', 'Seleccione dirección');
 define('RMA_FORMAT_DATE', 'd/m/Y');
+
+// === Adjuntos del cliente (uploads en el modal RMA) — añadido 2026-05-18 ===
+define('RMA_ATTACH_TITLE',       'Adjuntar fotos o documentos (opcional)');
+define('RMA_ATTACH_HELP',        'Hasta 5 archivos (JPG, PNG, GIF, WEBP, HEIC, PDF). Máx. 5 MB cada uno. Añádelos de uno en uno o varios a la vez.');
+define('RMA_ATTACH_MAX_REACHED', 'Máximo 5 archivos alcanzado');
+define('RMA_ATTACH_JS_MAX',      'Máximo {N} archivos. Se ignoran los restantes.');
+define('RMA_ATTACH_JS_TOOBIG',   '"{NAME}" supera 5 MB y no se subirá.');
+define('RMA_ATTACH_JS_REMOVE',   'Quitar este archivo');
+define('RMA_ATTACH_JS_COUNT',    '{N} archivo(s) seleccionado(s)');
+define('RMA_PAGE_TITLE_STATUS', 'Estado de la devolución');
