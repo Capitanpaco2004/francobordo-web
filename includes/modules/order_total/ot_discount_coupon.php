@@ -62,7 +62,7 @@ class ot_discount_coupon {
 						$this->output[] = [
 							'title'     => $order->coupon->format_display($tax_group) . ':',
 							'text_tax'  => '<span class="red">' . $display_type . $currencies->format($nTotalConTax, true, $order->info['currency'], $order->info['currency_value']) . '</span>',
-							'text'      => '<span class="red">' . $display_type . $currencies->format($nTotalSinTax, true, $order->info['currency'], $order->info['currency_value']) . '</span>',
+							'text'      => '<span class="red">' . $display_type . $currencies->format($nTotalConTax, true, $order->info['currency'], $order->info['currency_value']) . '</span>',
 							'value'     => $display_type . $nTotalSinTax,
 							'value_tax' => $nTotalConTax,
 						];

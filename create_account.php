@@ -507,6 +507,14 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
 		}
 		tep_session_register('createAccountSuccessEvent');
 
+		// --- SalesManago — emit CONTACT_UPSERT (defensive, async via queue) ---
+		try {
+			if (defined('SALESMANAGO_STATUS') && SALESMANAGO_STATUS === 'true') {
+				require_once DIR_FS_CATALOG . 'includes/classes/SalesManagoQueue.php';
+				SalesManagoQueue::emitContactUpsert((int) $customer_id, /* isNew */ true);
+			}
+		} catch (\Throwable $_smE) { @error_log('SM emit signup: ' . $_smE->getMessage()); }
+
 		tep_redirect(tep_href_link(FILENAME_CREATE_ACCOUNT_SUCCESS, ($bDistribuidor ? 't=prf' : ''), 'SSL'));
 	}
 }

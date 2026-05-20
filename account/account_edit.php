@@ -119,6 +119,14 @@
 			// Reiniciamos variables de session
 			$customer_first_name = $firstname;
 
+			// --- SalesManago — emit CONTACT_UPSERT (defensive, async via queue) ---
+			try {
+				if (defined('SALESMANAGO_STATUS') && SALESMANAGO_STATUS === 'true') {
+					require_once DIR_FS_CATALOG . 'includes/classes/SalesManagoQueue.php';
+					SalesManagoQueue::emitContactUpsert((int) $customer_id, /* isNew */ false);
+				}
+			} catch (\Throwable $_smE) { @error_log('SM emit edit: ' . $_smE->getMessage()); }
+
 			// Redirect
 			$messageStack->addSession( 'account_edit', SUCCESS_ACCOUNT_UPDATED, 'success' );
 			tep_redirect( tep_href_link( FILENAME_ACCOUNT_EDIT, '', 'SSL' ) );

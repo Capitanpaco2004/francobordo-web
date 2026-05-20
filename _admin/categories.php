@@ -184,7 +184,8 @@
 			{
 				// Obtenemos los registros
 				$aDato = tep_db_fetch_array( $aDato );
-				$aImagesActuales = json_decode( $aDato[$sRowImage], true );
+				$aImagesActuales = json_decode( (string)($aDato[$sRowImage] ?? ''), true );
+				if ( ! is_array( $aImagesActuales ) ) $aImagesActuales = [];
 
 				// Eliminamos
 				deleteImagenAndThumb( $sImagenEliminar, $sDirImagen );
@@ -273,7 +274,7 @@
 
     // BOF Ultimate SEO URLs EDITABLE
     // If the action will affect the cache entries
-    if( preg_match( "/(insert|update|setflag|setflagAmazon|setflag_featured|setflag_import_exclude)/i", $action) )
+    if( preg_match( "/(insert|update|setflag|setflagAmazon|setflag_import_exclude)/i", $action) )
         include_once( 'includes/reset_seo_cache.php' );
     // EOF Ultimate SEO URLs EDITABLE
 
@@ -330,23 +331,6 @@
                 tep_redirect( tep_href_link( FILENAME_CATEGORIES, 'cPath=' . $_GET['cPath'] . '&pID=' . $_GET['pID'] ) );
             break;
 
-			case 'setflag_featured':
-				if( $_GET['flag'] == '0' || $_GET['flag'] == '1' )
-				{
-					if( isset($_GET['pID']) )
-						tep_set_product_featured((int)$_GET['pID'], (int)$_GET['flag']);
-
-					if( USE_CACHE == 'true' )
-					{
-						tep_reset_cache_block('categories');
-						tep_reset_cache_block('also_purchased');
-						tep_reset_cache_block('xsell_products');
-					}
-				}
-
-				tep_redirect(tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $_GET['cPath'] . '&pID=' . $_GET['pID']));
-			break;
-
 			case 'setflag_import_exclude':
 				if( $_GET['flag'] == '0' || $_GET['flag'] == '1' )
 				{
@@ -374,16 +358,6 @@
 
 				exit();
 			break;
-
-            // RSS quick set button
-            // catching and setting the rss status
-            case 'setrss':
-                if( $_GET['rss'] == '0' || $_GET['rss'] == '1' )
-                {
-                    if( isset( $_GET['pID'] ) )
-                        tep_set_product_rss_status((int)$_GET['pID'], (int)$_GET['rss']);
-                }
-            break;
 
             case 'setcats':
                 if( $_GET['flag'] == '0' || $_GET['flag'] == '1' || $_GET['flag'] == '2' )
@@ -801,22 +775,6 @@
 
 						$products_date_available = (date('Y-m-d') < $products_date_available) ? $products_date_available : 'null';
 
-						$products_featured_until = tep_db_prepare_input( $_POST['products_featured_until'] );
-
-						if( $products_featured_until != '' )
-						{
-							$aAux = explode( '/', $products_featured_until );
-							$products_featured_until = $aAux[2] . '-' . $aAux[1] . '-' . $aAux[0];
-						}
-
-						// Si hemos activado producto destacado y no tenemos fecha asignamos la de por defecto
-						if( tep_db_prepare_input($_POST['products_featured']) &&  $products_featured_until == '')
-							$products_featured_until = date('Y-m-d', strtotime('+' . DAYS_UNTIL_FEATURED_PRODUCTS . ' days') );
-
-						$products_featured_until = (date('Y-m-d') < $products_featured_until) ? $products_featured_until : 'null';
-
-
-
 						$sql_data_array = array( 'products_quantity' => (int)tep_db_prepare_input($_POST['products_quantity']),
 												 'products_bundle' => ($_POST['products_bundle'] == 'yes' ? 'yes' : 'no'),
 												 'sold_in_bundle_only' => ($_POST['sold_in_bundle_only'] == 'yes' ? 'yes' : 'no'),
@@ -832,11 +790,9 @@
 												 'products_qty_blocks' => (($i = (int)tep_db_prepare_input($_POST['products_qty_blocks'][0])) < 1) ? 1 : $i,
 												 'products_min_order_qty' => (($min_i = (int)tep_db_prepare_input($_POST['products_min_order_qty'][0])) < 1) ? 1 : $min_i,
 												 'products_date_available' => $products_date_available,
-												 'products_featured_until' => $products_featured_until,
 												 'products_weight' => (float)tep_db_prepare_input($_POST['products_weight']),
 												 'ISBN' => tep_db_prepare_input($_POST['ISBN']),
 												 'products_status' => tep_db_prepare_input($_POST['products_status']),
-												 'products_featured' => tep_db_prepare_input($_POST['products_featured']),
 												 'products_tax_class_id' => tep_db_prepare_input($_POST['products_tax_class_id']),
 												 'product_ean' => tep_db_prepare_input($_POST['product_ean']),
 												 'reference_prov' => tep_db_prepare_input($_POST['reference_prov']),
@@ -844,7 +800,6 @@
 												 'payment_methods' => tep_db_prepare_input($payment_methods),
 												 'manufacturers_id' => tep_db_prepare_input($_POST['manufacturers_id']),
 												 'products_ship_free' => tep_db_prepare_input($_POST['products_ship_free']),
-												 'products_to_rss' => tep_db_prepare_input($_POST['products_to_rss']),
 												 'amazon_status' => tep_db_prepare_input($_POST['amazon_status']),
 												 'products_liquidacion' => ($_POST['products_liquidacion'] == 1 && tep_db_prepare_input($_POST['specials_min_price']) > 0 ? 1 : 0));
 
@@ -897,7 +852,7 @@
 															where products_id = ' . $products_id );
 
 								// Datos del producto
-								$aProducto = tep_db_query( 'select p.products_id, pd.language_id, pd.products_name, pd.products_description, pd.products_url, p.products_quantity, p.exclude_feedmachine, p.check_stock, p.products_model, p.products_image, p.products_price, p.products_weight, p.ISBN, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_featured_until, p.products_status, p.products_featured, p.manufacturers_id
+								$aProducto = tep_db_query( 'select p.products_id, pd.language_id, pd.products_name, pd.products_description, pd.products_url, p.products_quantity, p.exclude_feedmachine, p.check_stock, p.products_model, p.products_image, p.products_price, p.products_weight, p.ISBN, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_status, p.manufacturers_id
 															from products  p
 															inner join products_description pd on(p.products_id = pd.products_id)
 															where p.products_id = ' . (int)$_GET['pID'] );
@@ -1659,7 +1614,7 @@
                     }
                     elseif( $_POST['copy_as'] == 'duplicate' )
                     {
-                        $product_query = tep_db_query("select products_quantity, products_quantity_deseada, exclude_feedmachine, check_stock, products_fileupload, products_pdfupload, products_model, products_youtube, products_image, products_subimages, products_price, products_cost, products_date_available, products_featured_until, products_weight, ISBN, products_tax_class_id, manufacturers_id, products_to_rss, amazon_status, products_liquidacion, product_ean, reference_prov, products_qty_blocks, products_min_order_qty, products_ship_free, shipping_methods, payment_methods, products_bundle, sold_in_bundle_only from " . TABLE_PRODUCTS . " where products_id = '" . (int)$products_id . "'");
+                        $product_query = tep_db_query("select products_quantity, products_quantity_deseada, exclude_feedmachine, check_stock, products_fileupload, products_pdfupload, products_model, products_youtube, products_image, products_subimages, products_price, products_cost, products_date_available, products_weight, ISBN, products_tax_class_id, manufacturers_id, amazon_status, products_liquidacion, product_ean, reference_prov, products_qty_blocks, products_min_order_qty, products_ship_free, shipping_methods, payment_methods, products_bundle, sold_in_bundle_only from " . TABLE_PRODUCTS . " where products_id = '" . (int)$products_id . "'");
                         $product = tep_db_fetch_array($product_query);
 
                         tep_db_query( "insert into " . TABLE_PRODUCTS . "
@@ -1676,14 +1631,11 @@
 							products_cost,
 							products_date_added,
 							products_date_available,
-							products_featured_until,
 							products_weight,
 							ISBN,
 							products_status,
-							products_featured,
 							products_tax_class_id,
 							manufacturers_id,
-							products_to_rss,
 							amazon_status,
 							products_liquidacion,
 							product_ean,
@@ -1710,14 +1662,11 @@
 							'" . tep_db_input($product['products_cost']) . "',
 							now(),
 							'" . tep_db_input($product['products_date_available']) . "',
-							'" . tep_db_input($product['products_featured_until']) . "',
 							'" . tep_db_input($product['products_weight']) . "',
 							'" . tep_db_input($product['ISBN']) . "',
 							'1',
-							'0',
 							'" . (int)$product['products_tax_class_id'] . "',
 							'" . (int)$product['manufacturers_id'] . "',
-							'" . (int)$product['products_to_rss'] . "',
 							'" . (int)$product['amazon_status'] . "',
 							'" . (int)$product['products_liquidacion'] . "',
 							'" . $product['product_ean'] . "',
@@ -1991,17 +1940,14 @@
                                     'products_date_added' => '',
                                     'products_last_modified' => '',
                                     'products_date_available' => '',
-									'products_featured_until' => '',
                                     'payment_methods' => '',
                                     'shipping_methods' => '',
                                     'products_status' => '',
-									'products_featured' => '',
                                     'products_tax_class_id' => '',
                                     'product_ean' => '',
 									'reference_prov' => '',
                                     'products_hide_from_groups' => '',
                                     'manufacturers_id' => '',
-                                    'products_to_rss' => '',
 									'amazon_status' => '',
 									'products_liquidacion' => '',
 									'products_ship_free' => '',
@@ -2012,7 +1958,7 @@
 
                 if( isset( $_GET['pID'] ) && empty( $_POST ) )
                 {
-                    $product_query = tep_db_query("select p.categoria_ebay, pd.products_name, pd.products_seo_url, pd.products_description, p.products_fileupload, p.products_pdfupload, pd.products_url, p.products_id, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_model, p.shipping_methods, p.payment_methods, p.products_youtube, p.products_image, p.products_subimages, p.products_price, p.products_cost, p.products_qty_blocks, p.products_min_order_qty, p.products_hide_from_groups, p.products_weight, p.ISBN, p.products_date_added, p.products_last_modified, date_format(p.products_date_available, '%Y-%m-%d') as products_date_available, date_format(p.products_featured_until, '%Y/%m/%d') as products_featured_until, p.products_status, p.products_featured, p.products_tax_class_id, p.product_ean, p.reference_prov, p.manufacturers_id, p.products_to_rss, p.amazon_status, p.products_liquidacion, p.products_ship_free, p.products_bundle, p.sold_in_bundle_only  from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd where p.products_id = '" . (int)$_GET['pID'] . "' and p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "'");
+                    $product_query = tep_db_query("select p.categoria_ebay, pd.products_name, pd.products_seo_url, pd.products_description, p.products_fileupload, p.products_pdfupload, pd.products_url, p.products_id, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_model, p.shipping_methods, p.payment_methods, p.products_youtube, p.products_image, p.products_subimages, p.products_price, p.products_cost, p.products_qty_blocks, p.products_min_order_qty, p.products_hide_from_groups, p.products_weight, p.ISBN, p.products_date_added, p.products_last_modified, date_format(p.products_date_available, '%Y-%m-%d') as products_date_available, p.products_status, p.products_tax_class_id, p.product_ean, p.reference_prov, p.manufacturers_id, p.amazon_status, p.products_liquidacion, p.products_ship_free, p.products_bundle, p.sold_in_bundle_only  from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd where p.products_id = '" . (int)$_GET['pID'] . "' and p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "'");
                     $product = tep_db_fetch_array($product_query);
 
                     $pInfo->addProperties($product);
@@ -2121,15 +2067,6 @@
 						$desc_status = false;
                 }
 
-				if( !isset($pInfo->products_featured))
-                    $pInfo->products_featured = '1';
-
-                switch( $pInfo->products_featured)
-                {
-                    case '0': $in_status1 = false; $out_status1 = true; break;
-                    case '1':
-                    default: $in_status1 = true; $out_status1 = false;
-                }
         ?>
 
         <script language="javascript"><!--
@@ -2408,25 +2345,6 @@
 									                        <div class="clear"></div>
 									                </div>
 
-									                <div class="formRow">
-									                        <div class="grid2"><label>Producto destacado:</label></div>
-									                        <div class="grid4"><?php echo tep_draw_radio_field('products_featured', '1', $in_status1);?> <label style="margin-right: 10px;"><?php echo TEXT_PRODUCT_AVAILABLE;?></label><?php echo tep_draw_radio_field('products_featured', '0', $out_status1);?> <label><?php echo TEXT_PRODUCT_NOT_AVAILABLE; ?></label></div>
-									                        <div class="grid2"><label>Destacado hasta la Fecha:</label></div>
-									                        <div class="grid4">
-																<?php
-																	$sDate = '';
-																	if( $pInfo->products_featured_until != '' )
-																	{
-																		$aAux = explode( '/', $pInfo->products_featured_until );
-																		$sDate = $aAux[2] . '/' . $aAux[1] . '/' . $aAux[0];
-																	}
-
-																	echo tep_draw_input_field( 'products_featured_until', $sDate, 'size="2" style="width: 80px !important" maxlength="2" class="dxdatepicker cal-TextBox"' );
-																?>
-																<span class="note">(DD/MM/YYYY)</span>
-															</div>
-									                        <div class="clear"></div>
-									                </div>
 									                <?php
 														if($product_investigation['has_tracked_options'] or $product_investigation['stock_entries_count'] > 0)
 															$qty='<a href="' . tep_href_link("stock.php", 'product_id=' . $pInfo->products_id) . ' " target="_blank">' . tep_image_button('button_stock.png', "Stock") . '</a>';
@@ -2452,8 +2370,6 @@
 										                <div class="grid2 check"><?php echo tep_draw_checkbox_field('exclude_feedmachine', '1', $pInfo->exclude_feedmachine, $pInfo->exclude_feedmachine); ?></div>
 														<div class="grid1"><label>Amazon</div>
 														<div class="grid1 check"><?php echo tep_draw_checkbox_field('amazon_status', '1', $pInfo->amazon_status, $pInfo->amazon_status); ?></div>
-														<div class="grid1"><label><?php echo TEXT_PRODUCTS_RSS; ?></div>
-														<div class="grid1 check"><?php echo tep_draw_checkbox_field('products_to_rss', '1', 'true', $pInfo->products_to_rss); ?></div>
 														<div class="clear"></div>
 									                </div>
 									                <div class="formRow">
@@ -3728,7 +3644,6 @@
                     $products_description = $_POST['products_description'];
                     $products_url = $_POST['products_url'];
                     $products_seo_url = $_POST['products_seo_url'];
-                    $products_to_rss = $_POST['products_to_rss'];
 					$amazon_status = $_POST['amazon_status'];
                     // BOF QPBPP for SPPC
                     $price_breaks_array = array();
@@ -3748,7 +3663,7 @@
                 }
                 else
                 {
-                    $product_query = tep_db_query("select p.products_id, p.products_fileupload, p.products_pdfupload, pd.language_id, pd.products_name, pd.products_seo_url, pd.products_description, pd.products_url, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_model, p.shipping_methods, p.payment_methods, p.products_youtube, p.products_image, p.products_price, p.products_cost, p.products_weight, p.ISBN, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_featured_until, p.products_status, p.products_featured, p.manufacturers_id, p.products_to_rss, p.amazon_status, p.products_qty_blocks, p.products_min_order_qty, p.products_ship_free, p.products_bundle, p.sold_in_bundle_only from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd where p.products_id = pd.products_id and p.products_id = '" . (int)$_GET['pID'] . "'");
+                    $product_query = tep_db_query("select p.products_id, p.products_fileupload, p.products_pdfupload, pd.language_id, pd.products_name, pd.products_seo_url, pd.products_description, pd.products_url, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_model, p.shipping_methods, p.payment_methods, p.products_youtube, p.products_image, p.products_price, p.products_cost, p.products_weight, p.ISBN, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_status, p.manufacturers_id, p.amazon_status, p.products_qty_blocks, p.products_min_order_qty, p.products_ship_free, p.products_bundle, p.sold_in_bundle_only from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd where p.products_id = pd.products_id and p.products_id = '" . (int)$_GET['pID'] . "'");
 
                     $product = tep_db_fetch_array($product_query);
                     $pInfo = new objectInfo($product);
@@ -4052,7 +3967,7 @@
                           					if (isset($_GET['search']))
                                             {
                                                 $search = tep_db_prepare_input($_GET['search']);
-                                                $products_query = tep_db_query("select p.products_fileupload, p.products_pdfupload, p.products_id, pd.products_name, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_image, p.products_price, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_featured_until, p.products_status, p.amazon_status, p.products_featured, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "' and p.products_id = p2c.products_id and (pd.products_name like '%" . tep_db_input($search) . "%' or p.products_model like '%" . tep_db_input($search) . "%') order by FIELD(p.products_status, 1, 2, 0), p.products_model");
+                                                $products_query = tep_db_query("select p.products_fileupload, p.products_pdfupload, p.products_id, pd.products_name, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_image, p.products_price, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_status, p.amazon_status, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "' and p.products_id = p2c.products_id and (pd.products_name like '%" . tep_db_input($search) . "%' or p.products_model like '%" . tep_db_input($search) . "%') order by FIELD(p.products_status, 1, 2, 0), p.products_model");
                                                 // EOF: More Pics 6
                                             }
                                             else
@@ -4156,7 +4071,7 @@
 												$search_query = " and p.products_id = p2c.products_id and p2c.categories_id = '" . (int)$current_category_id . "' ";
 											}
 
-                                                $products_query = tep_db_query("select DISTINCT p.products_fileupload, p.products_sort_order, p.products_import_exclude, p.products_import_origin, p.products_featured, p.products_pdfupload, p.products_id, pd.products_name, p.products_model, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_cost, p.products_image, p.products_subimages, p.products_price, p.products_tax_class_id, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_featured_until, p.products_status, p.amazon_status, p.products_featured, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id " . $search_query . " and pd.language_id = '" . (int)$languages_id . "' order by FIELD(p.products_status, 1, 2, 0), p.products_model");
+                                                $products_query = tep_db_query("select DISTINCT p.products_fileupload, p.products_sort_order, p.products_import_exclude, p.products_import_origin, p.products_pdfupload, p.products_id, pd.products_name, p.products_model, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_cost, p.products_image, p.products_subimages, p.products_price, p.products_tax_class_id, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_status, p.amazon_status, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id " . $search_query . " and pd.language_id = '" . (int)$languages_id . "' order by FIELD(p.products_status, 1, 2, 0), p.products_model");
 
                                             while( $products = tep_db_fetch_array($products_query) )
                                             {

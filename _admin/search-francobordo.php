@@ -273,16 +273,37 @@ $tasks  = fb_meili_call('GET', '/tasks?limit=5');
 
 // ---------------- DATA: SINÓNIMOS ----------------
 $suggestions_by_query = [];
-$q_sug = tep_db_query("
-    SELECT id, q_norm, candidate, confidence, occurrences, sample_pids, created_at
+// Paginamos por QUERY (no por sugerencia): cogemos las N queries pendientes más
+// frecuentes y todas SUS candidatas. Antes el LIMIT 200 era sobre sugerencias,
+// lo que hacía que el nº de queries visible fluctuara al revisar (confuso).
+$SUGG_QUERY_LIMIT = 40;
+$q_top = tep_db_query("
+    SELECT q_norm
     FROM synonym_suggestions
     WHERE status='pending'
-    ORDER BY occurrences DESC, q_norm, confidence DESC
-    LIMIT 200");
-while ($r = tep_db_fetch_array($q_sug)) {
-    $suggestions_by_query[$r['q_norm']][] = $r;
+    GROUP BY q_norm
+    ORDER BY MAX(occurrences) DESC, q_norm
+    LIMIT " . (int)$SUGG_QUERY_LIMIT);
+$top_qnorms = [];
+while ($r = tep_db_fetch_array($q_top)) $top_qnorms[] = $r['q_norm'];
+if ($top_qnorms) {
+    $in = implode(',', array_map(function ($q) { return "'" . tep_db_input($q) . "'"; }, $top_qnorms));
+    $q_sug = tep_db_query("
+        SELECT id, q_norm, candidate, confidence, occurrences, sample_pids, created_at
+        FROM synonym_suggestions
+        WHERE status='pending' AND q_norm IN ($in)
+        ORDER BY occurrences DESC, q_norm, confidence DESC");
+    while ($r = tep_db_fetch_array($q_sug)) {
+        $suggestions_by_query[$r['q_norm']][] = $r;
+    }
 }
-$num_pending = array_sum(array_map('count', $suggestions_by_query));
+// Totales REALES de pendientes (no los mostrados): para el header
+$pending_totals = tep_db_fetch_array(tep_db_query("
+    SELECT COUNT(*) AS n, COUNT(DISTINCT q_norm) AS queries
+    FROM synonym_suggestions WHERE status='pending'"));
+$num_pending          = (int)$pending_totals['n'];
+$num_pending_queries  = (int)$pending_totals['queries'];
+$num_shown_queries    = count($suggestions_by_query);
 
 $learner_log_lines = fb_read_log_tail_path('/home/francobordo/_search/logs/synonym_learner.log', 50);
 $learner_last_run = fb_parse_last_run_marker($learner_log_lines, 'synonym learner');
@@ -322,12 +343,13 @@ $metrics = tep_db_fetch_array(tep_db_query("
       SUM(ts >= DATE_SUB(NOW(), INTERVAL 7  DAY)) AS d7,
       SUM(ts >= DATE_SUB(NOW(), INTERVAL 30 DAY)) AS d30,
       SUM(top_score < 0.3 AND ts >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS low_score_7d
-    FROM search_events"));
+    FROM search_events
+    WHERE CHAR_LENGTH(q_norm) >= 3"));
 
 $top_queries_query = tep_db_query("
     SELECT q_norm, COUNT(*) AS n, ROUND(AVG(top_score), 2) AS avg_score, MAX(q) AS sample
     FROM search_events
-    WHERE ts >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+    WHERE ts >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND CHAR_LENGTH(q_norm) >= 3
     GROUP BY q_norm
     ORDER BY n DESC
     LIMIT 10");
@@ -337,7 +359,7 @@ while ($r = tep_db_fetch_array($top_queries_query)) $top_queries[] = $r;
 $low_score_query = tep_db_query("
     SELECT q_norm, COUNT(*) AS n, ROUND(AVG(top_score), 2) AS avg_score, MAX(q) AS sample
     FROM search_events
-    WHERE ts >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND top_score IS NOT NULL
+    WHERE ts >= DATE_SUB(NOW(), INTERVAL 7 DAY) AND top_score IS NOT NULL AND CHAR_LENGTH(q_norm) >= 3
     GROUP BY q_norm
     HAVING n >= 2 AND avg_score < 0.4
     ORDER BY n DESC
@@ -543,7 +565,7 @@ if ($test_q !== '') {
     <?php if ($num_pending > 0): ?>
       <details>
         <summary style="cursor:pointer;padding:10px 14px;background:#eef6fc;border-radius:6px;font-size:14px;font-weight:600;color:#0084be;user-select:none;">
-          Ver <?= count($suggestions_by_query) ?> queries con <?= $num_pending ?> sugerencias de sinónimo
+          Revisar <?= $num_shown_queries ?> de <?= $num_pending_queries ?> queries pendientes (las más buscadas primero)
         </summary>
         <div style="margin-top:10px;">
           <?php foreach ($suggestions_by_query as $qnorm => $rows): ?>

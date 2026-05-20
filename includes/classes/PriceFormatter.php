@@ -256,8 +256,10 @@ class PriceFormatter {
 		if (!tep_not_null($qtyBlocks)) {
 			$qtyBlocks = $this->getQtyBlocks();
 		}
-		$minimum_order_quantity = $this->getMinOrderQty();
-		if (defined('MAX_QTY_IN_CART') && (MAX_QTY_IN_CART > 0) && ((int)$qty > MAX_QTY_IN_CART)) {
+		$minimum_order_quantity = (int)$this->getMinOrderQty();
+		$qty       = (int)$qty;
+		$qtyBlocks = (int)$qtyBlocks;
+		if (defined('MAX_QTY_IN_CART') && (MAX_QTY_IN_CART > 0) && ($qty > MAX_QTY_IN_CART)) {
 			$qty = MAX_QTY_IN_CART;
 		}
 

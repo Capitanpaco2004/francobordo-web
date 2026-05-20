@@ -183,7 +183,10 @@ if ($endpoint === 'search' && $lang === 'es') {
     try {
         $reqJson = json_decode($body, true);
         $q = is_array($reqJson) ? trim((string)($reqJson['q'] ?? '')) : '';
-        if ($q !== '' && mb_strlen($q) <= 255) {
+        // Filtro de prefijos de tecleo: el widget hace search-as-you-type,
+        // así que escribir cabo genera c,ca,cab,cabo y los prefijos
+        // cortos contaminan las métricas. Mínimo 3 chars para considerar real.
+        if (mb_strlen($q) >= 3 && mb_strlen($q) <= 255) {
             $respJson = json_decode($resp, true);
             $n = is_array($respJson) ? (int)($respJson['estimatedTotalHits'] ?? 0) : 0;
             $took = is_array($respJson) ? (int)($respJson['processingTimeMs'] ?? 0) : 0;

@@ -1,8 +1,8 @@
 <?php
-	if( ! preg_match( '/index|categories|product_info|search|^manufacturers|products_new|products_featured|best_sellers|specials/i', basename( $_SERVER['SCRIPT_NAME'] ) ) )
+	if( ! preg_match( '/index|categories|product_info|search|^manufacturers|products_new|best_sellers|specials/i', basename( $_SERVER['SCRIPT_NAME'] ) ) )
 		echo '</div>';
 
-	if( preg_match( '/index|categories|product_info|search|^manufacturers|products_new|products_featured|best_sellers|specials/i', basename( $_SERVER['SCRIPT_NAME'] ) ) )
+	if( preg_match( '/index|categories|product_info|search|^manufacturers|products_new|best_sellers|specials/i', basename( $_SERVER['SCRIPT_NAME'] ) ) )
 		include( DIR_WS_COMPONENTS . 'slideManufacturersFooter.php' );
 
 	echo '<div class="web-cntd thide mhide" id="toTop"><div></div></div>';

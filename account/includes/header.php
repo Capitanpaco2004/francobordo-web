@@ -56,7 +56,10 @@
 
 			if( USE_POINTS_SYSTEM == 'true' )
 			{
-				$nPoint = tep_get_shopping_points( $customer_id );
+				// tep_get_shopping_points devuelve DECIMAL(x,4) crudo (ej 37.0000);
+				// la convención del sistema (ver customers_points_history.php _leer_saldo)
+				// es mostrar el saldo como entero.
+				$nPoint = (int) round( (float) tep_get_shopping_points( $customer_id ) );
 
 				echo '<a href="' . tep_href_link(FILENAME_MY_POINTS, '', 'SSL') . '" class="ccHead clearfix mhide">';
 					echo '<em class="fleft">' . MY_POINTS_TITLE . '<b>: ' . $nPoint . '</b></em>';

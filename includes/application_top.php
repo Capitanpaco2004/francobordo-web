@@ -24,6 +24,9 @@ require 'includes/vendor/autoload.php';
 require('includes/define.php');
 (file_exists('includes/configure.php') ? require('includes/configure.php') : die('Falta el archivo configure.php'));
 
+// Scraper guard (anadido 2026-05-19): 403 a IPs autobaneadas (honeypot, heuristica)
+require_once(DIR_WS_INCLUDES . "scraper_guard.php");
+
 // Lista de archivos de proyecto
 require(DIR_WS_INCLUDES . 'filenames.php');
 
@@ -65,7 +68,6 @@ include 'includes/functions/password_funcs.php';
 include 'includes/functions/validations.php';
 include 'includes/functions/banner.php';
 include 'includes/functions/specials.php';
-include 'includes/functions/featured.php';
 include 'theme/web/functions/functions.php';
 
 // Incluimos partial de productos

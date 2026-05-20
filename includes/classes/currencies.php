@@ -43,7 +43,8 @@ class currencies
 	{
 		global $currency;
 
-		return (float)tep_round(tep_add_tax($products_price, $products_tax), $this->currencies[$currency]['decimal_places']) * $quantity;
+		$price = (float)tep_round(tep_add_tax((float)$products_price, (float)$products_tax), $this->currencies[$currency]['decimal_places']);
+		return $price * (float)$quantity;
 	}
 
 	function is_set($code)

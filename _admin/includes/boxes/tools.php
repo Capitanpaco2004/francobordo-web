@@ -8,5 +8,7 @@
 <?php echo tep_admin_files_boxes('actualizador_pedidos_amazon.php', '<i class="bullet"></i> Actualizador de pedidos Amazon'); ?>
 <?php echo tep_admin_files_boxes(FILENAME_WHOS_ONLINE, '<i class="bullet"></i> ' . BOX_TOOLS_WHOS_ONLINE); ?>
 
+<?php echo tep_admin_files_boxes("scraper_reports.php", '<i class="bullet"></i> &#x1F6E1; Scraper Reports'); ?>
+
 <?php echo implode('', event::getInstance()->execute('back_office_includes_boxes_tools_after')); ?>
 <!-- tools_eof //-->

@@ -717,6 +717,18 @@ if (SEND_EXTRA_ORDER_EMAILS_TO != '') {
 // load the after_process function from the payment modules
 $payment_modules->after_process();
 
+// --- SalesManago — emit PURCHASE (defensive: NEVER breaks checkout) ---
+try {
+    if (defined('SALESMANAGO_STATUS') && SALESMANAGO_STATUS === 'true' && isset($insert_id)) {
+        require_once DIR_FS_CATALOG . 'includes/classes/SalesManagoQueue.php';
+        SalesManagoQueue::emitPurchase((int) $insert_id);
+        // Also refresh contact (newsletter consent may have been collected at checkout)
+        if (isset($customer_id) && (int) $customer_id > 0) {
+            SalesManagoQueue::emitContactUpsert((int) $customer_id, /* isNew */ false);
+        }
+    }
+} catch (\Throwable $_smE) { @error_log('SM emit purchase: ' . $_smE->getMessage()); }
+
 $cart->reset(true);
 
 // Si es una transferencia bancaria

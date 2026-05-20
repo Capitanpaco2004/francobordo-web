@@ -212,6 +212,8 @@ $excludedFilesFromLogin = [
 	'cron_transportistas.php',
 	'customers_points_expire.php',
 	'cron_maintenance.php',
+	'sm_worker.php',                  // SalesManago queue worker (token-gated internally)
+	'sm_cart_scanner.php',            // SalesManago abandoned-cart scanner (token-gated internally)
 	FILENAME_LOGIN_ADMIN,
 	FILENAME_PASSWORD_FORGOTTEN,
 	FILENAME_FORBIDDEN,

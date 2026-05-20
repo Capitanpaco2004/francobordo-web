@@ -103,3 +103,41 @@
 	// Evento
 	echo join('', event::getInstance()->execute('front_office_footer_after_scripts'));
 
+	// =====================================================================
+	// SalesManago — Monitoring Code + Pop-ups (2026-05-18)
+	// Inert unless SALESMANAGO_STATUS=true AND the per-feature toggle=true.
+	// `_smcsec` defers tracking until cookie consent — keep true for GDPR.
+	// Toggles managed from: _admin → Marketing → Sales Manago
+	// =====================================================================
+	if (defined('SALESMANAGO_STATUS') && SALESMANAGO_STATUS === 'true'
+		&& defined('SALESMANAGO_CLIENT_ID') && SALESMANAGO_CLIENT_ID !== '')
+	{
+		$smEndpoint    = defined('SALESMANAGO_ENDPOINT')          ? rtrim(preg_replace('#^https?://#i','',(string)SALESMANAGO_ENDPOINT), '/') : 'www.salesmanago.pl';
+		$smClientId    = (string) SALESMANAGO_CLIENT_ID;
+		$smInstanceId  = defined('SALESMANAGO_INSTANCE_ID')       ? (int)(string)SALESMANAGO_INSTANCE_ID : 1;
+		$smRequireCons = defined('SALESMANAGO_JS_REQUIRE_CONSENT')&& SALESMANAGO_JS_REQUIRE_CONSENT === 'true';
+		$smTrackingOn  = defined('SALESMANAGO_JS_TRACKING')       && SALESMANAGO_JS_TRACKING === 'true';
+		$smPopupsOn    = defined('SALESMANAGO_JS_POPUPS')         && SALESMANAGO_JS_POPUPS === 'true';
+
+		if ($smTrackingOn) {
+			echo "\n<!-- SalesManago Monitoring Code -->\n";
+			echo '<script type="text/javascript">' . "\n";
+			echo '    var _smid = ' . json_encode($smClientId) . ';' . "\n";
+			echo '    var _smapp = ' . $smInstanceId . ';' . "\n";
+			echo '    var _smcsec = ' . ($smRequireCons ? 'true' : 'false') . ';' . "\n";
+			echo '    (function(w, r, a, sm, s) {' . "\n";
+			echo "        w['SalesmanagoObject'] = r;" . "\n";
+			echo '        w[r] = w[r] || function () {( w[r].q = w[r].q || [] ).push(arguments)};' . "\n";
+			echo "        sm = document.createElement('script'); sm.type = 'text/javascript'; sm.async = true; sm.src = a;" . "\n";
+			echo "        s = document.getElementsByTagName('script')[0];" . "\n";
+			echo '        s.parentNode.insertBefore(sm, s);' . "\n";
+			echo "    })(window, 'sm', ('https:' == document.location.protocol ? 'https://' : 'http://') + " . json_encode($smEndpoint . '/static/sm.js') . ');' . "\n";
+			echo '</script>' . "\n";
+		}
+
+		if ($smPopupsOn) {
+			echo "\n<!-- SalesManago Pop-ups -->\n";
+			echo '<script src="https://' . htmlspecialchars($smEndpoint, ENT_QUOTES) . '/dynamic/' . htmlspecialchars($smClientId, ENT_QUOTES) . '/popups.js"></script>' . "\n";
+		}
+	}
+

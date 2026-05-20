@@ -51,10 +51,6 @@ echo "Insertados atributos en grupo 3 (Ebay)\n";
 tep_db_query("delete from " . TABLE_PRODUCTS_ATTRIBUTES_GROUPS . " where products_attributes_id not in (select products_attributes_id from " . TABLE_PRODUCTS_ATTRIBUTES . ")");
 echo "Borrados atributos de productos eliminados\n";
 
-// --- Productos destacados caducados ------------------------------------------
-tep_db_query("update " . TABLE_PRODUCTS . " set products_featured='0', products_featured_until='0000-00-00' where products_featured=1 and (products_featured_until is null or products_featured_until='0000-00-00')");
-echo "Actualizados productos destacados\n";
-
 // --- Ofertas caducadas / de productos descatalogados -------------------------
 tep_db_query("UPDATE " . TABLE_PRODUCTS . " SET products_last_modified = NOW() WHERE products_id in (SELECT products_id from " . TABLE_SPECIALS . " WHERE expires_date < CURDATE() AND expires_date != '0000-00-00 00:00:00')");
 tep_db_query("DELETE FROM " . TABLE_SPECIALS . " WHERE expires_date < CURDATE() AND expires_date != '0000-00-00 00:00:00'");

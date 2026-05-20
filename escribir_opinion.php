@@ -53,14 +53,11 @@
 		if( in_array( $aCampo['Field'], array( 'id_opinion', 'customers_id', 'orders_id', 'fecha_envio', 'email_primero_enviado', 'email_posterior_enviado', 'status', 'status_aprobado', 'uniqid' ) ) )
 			continue;
 
-		// Obtenemos el label
-		@eval( '$sAux = ESCRIBIR_OPINION_LABEL_' . strtoupper( $aCampo['Field'] ) . ';' );
-
-		// Obtenemos si tiene alguna nota el campo
-		@eval( '$sNota = ESCRIBIR_OPINION_NOTA_' . strtoupper( $aCampo['Field'] ) . ';' );
-		
-		if( $sNota == 'ESCRIBIR_OPINION_NOTA_' . strtoupper( $aCampo['Field'] ) )
-			$sNota = '';
+		// Obtenemos el label / nota (PHP 8: undefined constants = fatal, @ no las silencia)
+		$_lbl  = 'ESCRIBIR_OPINION_LABEL_' . strtoupper( $aCampo['Field'] );
+		$_nota = 'ESCRIBIR_OPINION_NOTA_'  . strtoupper( $aCampo['Field'] );
+		$sAux  = defined( $_lbl )  ? constant( $_lbl )  : '';
+		$sNota = defined( $_nota ) ? constant( $_nota ) : '';
 
 		// Si no es un campo hidden creamos un bloque
 		if( ! preg_match( '/^h_/i', $aCampo['Field'] ) )

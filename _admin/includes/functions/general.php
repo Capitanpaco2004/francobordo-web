@@ -1126,16 +1126,6 @@ function tep_set_banner_status($banners_id, $status) {
 	}
 }
 
-function tep_set_product_featured($products_id, $featured) {
-	if ($featured == '1') {
-		return tep_db_query("update " . TABLE_PRODUCTS . " set products_featured = '1', products_last_modified = now(), products_featured_until = '" . date('Y/m/d', time() + 86400 * DAYS_UNTIL_FEATURED_PRODUCTS) . "' where products_id = '" . (int)$products_id . "'");
-	} else if ($featured == '0') {
-		return tep_db_query("update " . TABLE_PRODUCTS . " set products_featured = '0', products_last_modified = now(), products_featured_until = NULL where products_id = '" . (int)$products_id . "'");
-	} else {
-		return -1;
-	}
-}
-
 function tep_set_product_import_exclude($products_id, $import_exclude) {
 	if ($import_exclude == '1') {
 		return tep_db_query("update " . TABLE_PRODUCTS . " set products_import_exclude = '1', products_last_modified = now() where products_id = '" . (int)$products_id . "'");
@@ -2297,15 +2287,6 @@ function tep_output_generated_category_path_fs($id, $from = 'category') {
 		}
 	}
 	return $calculated_category_string;
-}
-
-// RSS quick set button
-// Sets (1) or unsets (0) a product to be shown in the RSS feed
-function tep_set_product_rss_status($product_id, $status) {
-	if ($status == '1' || $status == '0')
-		return tep_db_query("update " . TABLE_PRODUCTS . " set products_to_rss = " . (int)$status . ", products_last_modified = now() where products_id = " . (int)$product_id);
-	else
-		return -1;
 }
 
 // Remove / from text

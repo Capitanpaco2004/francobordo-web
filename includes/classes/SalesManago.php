@@ -204,6 +204,56 @@ class SalesManago
     // ---------------------------------------------------------------------
 
     /**
+     * Build a CONTACT_UPSERT payload from an osCommerce customer row.
+     *
+     * @param array  $c   Row from `customers` (customers_*, ...)
+     * @param array  $ab  Optional row from `address_book` (entry_*)
+     * @param string $country2  ISO-2 country code (e.g. 'ES')
+     * @param string $zoneCode  Region code (e.g. 'MD')
+     * @param bool   $isNew     true = newly registered, false = profile edit
+     */
+    public static function buildContactPayload(array $c, array $ab = [], string $country2 = '', string $zoneCode = '', bool $isNew = false): array
+    {
+        $email     = (string) ($c['customers_email_address'] ?? '');
+        $firstname = (string) ($c['customers_firstname'] ?? '');
+        $lastname  = (string) ($c['customers_lastname'] ?? '');
+        $newsletter= (string) ($c['customers_newsletter'] ?? '0');
+        $phone     = trim((string) ($ab['entry_telephone'] ?? $c['customers_telephone'] ?? ''));
+        $dob       = (string) ($c['customers_dob'] ?? '');
+
+        $address = [];
+        if (!empty($ab['entry_street_address'])) $address['streetAddress'] = (string) $ab['entry_street_address'];
+        if (!empty($ab['entry_postcode']))       $address['zipCode']       = (string) $ab['entry_postcode'];
+        if (!empty($ab['entry_city']))           $address['city']          = (string) $ab['entry_city'];
+        if ($country2 !== '')                    $address['country']       = $country2;
+        if ($zoneCode !== '')                    $address['province']      = $zoneCode;
+
+        $contact = [
+            'email' => $email,
+            'name'  => trim($firstname . ' ' . $lastname),
+        ];
+        if ($firstname !== '') $contact['firstName'] = $firstname;
+        if ($lastname  !== '') $contact['lastName']  = $lastname;
+        if ($phone     !== '') $contact['phone']     = $phone;
+        if (!empty($address))  $contact['address']   = $address;
+
+        $payload = [
+            'contact'      => $contact,
+            'tags'         => $isNew ? ['oscommerce_signup'] : ['oscommerce_edit'],
+            // Marketing consent flag: newsletter=1 → opt-in, otherwise opt-out
+            // (so SM never emails non-subscribers; on-site widgets still fire).
+            'forceOptIn'   => $newsletter === '1',
+            'forceOptOut'  => $newsletter !== '1',
+            'useApiDoubleOptIn' => false,
+        ];
+        if ($dob && $dob !== '0000-00-00' && $dob !== '0000-00-00 00:00:00') {
+            $ts = strtotime($dob);
+            if ($ts !== false) $payload['birthday'] = date('Y.m.d', $ts);
+        }
+        return $payload;
+    }
+
+    /**
      * Build a PURCHASE event payload from an osCommerce order.
      *
      * @param array  $order      Order header (orders_id, date_purchased, total, payment, shipping)

@@ -19,8 +19,6 @@ if( $nProductosTotal == 0 && $nCategoriasTotal > 0 )
 					echo '</a>';
 				}
 				echo '</div>';
-
-				include( DIR_WS_COMPONENTS . 'featured.php' );
 			echo '</div>';
 		}
 		elseif( $nProductosTotal > 0 )

@@ -27,7 +27,6 @@
 	</div>
 </div>
 <?php echo tep_admin_files_boxes(FILENAME_BANNERS_DESTACADOS, '<i class="bullet"></i> Banners Destacados'); ?>
-<?php echo tep_admin_files_boxes(FILENAME_FEATURED, '<i class="bullet"></i> Productos Destacados'); ?>
 <?php echo tep_admin_files_boxes('products_specifications.php', '<i class="bullet"></i> Especificaciones de productos'); ?>
 <?php echo tep_admin_files_boxes(FILENAME_MANUFACTURERS, '<i class="bullet"></i> ' . BOX_CATALOG_MANUFACTURERS); ?>
 <?php echo tep_admin_files_boxes(FILENAME_REVIEWS, '<i class="bullet"></i> ' . BOX_CATALOG_REVIEWS); ?>

@@ -96,7 +96,6 @@ define('BOX_CATALOG_SPECIALS', 'Ofertas');
 define('BOX_CATALOG_PRODUCTS_EXPECTED', 'Pr&oacute;ximamente');
 define('BOX_CATALOG_CATEGORIES_CONFIGURE_TOP', 'Configurar inicio');
 define('BOX_CATALOG_CATEGORIES_FEATURED_BANNERS', 'Banners destacados');
-define('BOX_CATALOG_CATEGORIES_FEATURED_PRODUCTS', 'Productos destacados');
 define('BOX_CATALOG_CATEGORIES_PRODUCTS_ON_ROOT', 'Productos en inicio');
 define('BOX_CATALOG_CATEGORIES_FILTERS_LIST', 'Listado de filtros');
 define('BOX_CATALOG_CATEGORIES_RELATED_PRODUCTS', 'Productos relacionados');
@@ -413,7 +412,6 @@ define('ENTRY_CUSTOMERS_GROUP_NAME', 'Grupo del Cliente:');
 define('BOX_TOOLS_AMEND_DB', 'Comandos Masivos');
 define('BOX_TOOLS_TESTIMONIALS_MANAGER', 'Opinión Clientes');
 define('BOX_HEADING_PUNTOS', 'Sistema de Puntos');
-define('TEXT_PRODUCTS_RSS', 'RSS');
 
 define('BOX_TOOLS_DATABASE_ADMIN', 'Administrar BD');
 define('BOX_TOOLS_EDITOR', 'Editar Archivos');

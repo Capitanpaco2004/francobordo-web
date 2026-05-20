@@ -101,3 +101,10 @@ User-agent: msnbot
 Crawl-delay: 50
 User-agent: Slurp
 Crawl-delay: 10
+# AhrefsBot rate-limit (anadido 2026-05-19, era 8.8k hits/8h)
+User-agent: AhrefsBot
+Crawl-delay: 30
+
+# Honeypot (anadido 2026-05-19) — cualquier IP que visite esto se autobanea 7d
+User-agent: *
+Disallow: /admin-panel-secret/

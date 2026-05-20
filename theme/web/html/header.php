@@ -179,7 +179,7 @@ echo '<!DOCTYPE html>';
 				echo '</div>';
 			}
 
-			if( ! preg_match( '/index|categories|product_info|search|^manufacturers|products_new|products_featured|best_sellers|specials/i', basename( $_SERVER['SCRIPT_NAME'] ) ) )
+			if( ! preg_match( '/index|categories|product_info|search|^manufacturers|products_new|best_sellers|specials/i', basename( $_SERVER['SCRIPT_NAME'] ) ) )
 				echo '<div class="web-cntd prdt-cntd">';
 
 			if (! preg_match( '/checkout/i', basename( $_SERVER['SCRIPT_NAME'] ) )  && isset($_GET['error_message']) && tep_not_null($_GET['error_message']))

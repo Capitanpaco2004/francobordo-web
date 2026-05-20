@@ -163,6 +163,9 @@ RewriteRule ^(stylesheet|javascript)\.(css|js)$ includes/classes/minify/?g=$2 [L
 #oct8ane
 RewriteRule ^oct8ne/frame/(.*)$ includes/vendor/oscdenox/addon-oct8ne/apps/frontoffice/backend/src/index.php?action=$1&%{QUERY_STRING}
 
+# OpenAI-compatible LLM proxy para Oct8ne (anadido 2026-05-19)
+RewriteRule ^v1/chat/completions$ v1-chat-completions.php [L,QSA]
+
 # Soporte WebP - Comprueba si el explorador acepta webp, si el archivo es jpeg o png y tiene su correspondiente en webp, sirve webp
 <IfModule mod_rewrite.c>
   RewriteEngine On

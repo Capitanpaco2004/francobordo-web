@@ -547,7 +547,12 @@ class discount_coupon {
 					$percent_product = ((($this->apply_tax($product['final_price'], $product['tax'], false, true) * 100) * $product['qty']) / $this->cart_info['valid_products']['total']);
 
 					// Porcentaje del cup�n
-					$applied_discount = (($percent_product * $this->coupon['coupons_discount_amount']) / 100);
+					// Convencion Francobordo: coupons_discount_amount viene con IVA incluido.
+					// Convertimos a base imponible para que apply_tax/finalize_discount sumen el IVA y obtengan el valor original con IVA.
+					$coupon_amount_base = $this->coupon['coupons_discount_amount'] / (1 + ($product['tax'] / 100));
+
+					// Porcentaje del cupon (sobre la base imponible)
+					$applied_discount = (($percent_product * $coupon_amount_base) / 100);
 					//$applied_discount = $applied_discount / ( ( $product['tax'] / 100 ) + 1 );
 
 
@@ -631,7 +636,8 @@ class discount_coupon {
 						$this->message('INFO: Shipping Discount of ' . $this->applied_discount['shipping'] . ' applied.', 'debug');
 					}
 				}
-			} else { //subtract the discount from the order total if it's not displayed in the subtotal
+			} else if (MODULE_ORDER_TOTAL_DISCOUNT_COUPON_DISPLAY_SUBTOTAL != 'true') {
+				//subtract the discount from the order total only if the subtotal does NOT already include it
 				foreach ($this->applied_discount as $sTax => $discount) {
 					// Obtenemos el iva
 					$sTaxAux = preg_replace('/[^0-9]/', '', $sTax);
