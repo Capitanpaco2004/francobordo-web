@@ -507,11 +507,12 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
 		}
 		tep_session_register('createAccountSuccessEvent');
 
-		// --- SalesManago — emit CONTACT_UPSERT (defensive, async via queue) ---
+		// --- SalesManago — async data sync + sync smclient cookie ---
 		try {
 			if (defined('SALESMANAGO_STATUS') && SALESMANAGO_STATUS === 'true') {
 				require_once DIR_FS_CATALOG . 'includes/classes/SalesManagoQueue.php';
-				SalesManagoQueue::emitContactUpsert((int) $customer_id, /* isNew */ true);
+				SalesManagoQueue::setIdentityCookie((int) $customer_id);       // cookie (sync, before redirect)
+				SalesManagoQueue::emitContactUpsert((int) $customer_id, true); // data sync (async)
 			}
 		} catch (\Throwable $_smE) { @error_log('SM emit signup: ' . $_smE->getMessage()); }
 

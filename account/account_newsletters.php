@@ -16,7 +16,7 @@
 	{
 		// Obtenemos los id que tenemos asignados
 		$aSubscribed = array_values( pharaonix_getArrayAssociativeSql( 'select id_term_pivacy_trade from rgpd_account_term where customers_id = "' . (int)$customer_id . '"', 'id_term_pivacy_trade', 'id_term_pivacy_trade', false, 1 ) );
-		$aSubscribedNow = $_POST['id'];
+		$aSubscribedNow = $_POST['id'] ?? [];
 		$aSubscribedAll = array_values( pharaonix_getArrayAssociativeSql( 'SELECT id_term_pivacy_trade, title, info FROM rgpd_term_privacy_trade WHERE language_id = 3', 'id_term_pivacy_trade', 'id_term_pivacy_trade', false, 1 ) );
 
 		// Obtenemos email del cliente

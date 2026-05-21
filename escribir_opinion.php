@@ -88,7 +88,8 @@
 				$sHtml .= '<input type="hidden" value="" name="' . $aCampo['Field'] . '[]"/>';
 				
 				// Recorremos su array
-				@eval( '$aAuxs = ' . preg_replace( '/^a_/i', 'array_', $aCampo['Field'] ) . ';' );
+				$_arrConst = 'array_' . preg_replace( '/^a_/i', '', $aCampo['Field'] );
+				$aAuxs = defined( $_arrConst ) ? constant( $_arrConst ) : '';
 				$aAuxs = explode( '[dxsepare]', $aAuxs );
 				
 				foreach( $aAuxs as $aAux )
@@ -130,9 +131,8 @@
 			$value = tep_db_prepare_input( $value );
 			
 			// Obtenemos si el campo tiene error
-			@eval( '$sAux = ESCRIBIR_OPINION_ERROR_' . strtoupper( $key ) . ';' );
-			if( $sAux == 'ESCRIBIR_OPINION_ERROR_' . strtoupper( $key ) )
-				$sAux = '';
+			$_errConst = 'ESCRIBIR_OPINION_ERROR_' . strtoupper( $key );
+			$sAux = defined( $_errConst ) ? constant( $_errConst ) : '';
 
 			// Si contiene error y esta vacio el campo
 			if( $sAux != '' && $value == '' )

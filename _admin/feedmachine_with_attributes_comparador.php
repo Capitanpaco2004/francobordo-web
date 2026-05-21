@@ -470,8 +470,11 @@ END) as final_price
 
         if (tep_db_num_rows($products_attributes_query) > 0) {
             while ($products_attributes_row = tep_db_fetch_array($products_attributes_query)) {
-                if (isset($products[$products_attributes_row['language_id']][$products_attributes_row['products_id']])) {
-                    $products_attributes[$products_attributes_row['language_id']][$products_attributes_row['products_id']][$products_attributes_row['options_id']][] = $products_attributes_row;
+                $_lang = (int)($products_attributes_row['language_id'] ?? 0);
+                $_pid  = (int)($products_attributes_row['products_id'] ?? 0);
+                $_oid  = (int)($products_attributes_row['options_id'] ?? 0);
+                if (isset($products[$_lang][$_pid])) {
+                    $products_attributes[$_lang][$_pid][$_oid][] = $products_attributes_row;
                 }
             }
 

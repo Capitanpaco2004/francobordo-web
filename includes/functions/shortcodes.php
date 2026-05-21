@@ -144,6 +144,8 @@ function remove_all_shortcodes() {
 function do_shortcode($content) {
 	global $shortcode_tags;
 
+	$content = (string)($content ?? '');
+
 	if (empty($shortcode_tags) || !is_array($shortcode_tags))
 		return $content;
 

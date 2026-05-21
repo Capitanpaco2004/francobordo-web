@@ -222,8 +222,6 @@ if( tep_not_null($action) )
 
 					$result = curl_exec($curl);
 
-					curl_close($curl);
-
 					if (strpos(strtolower($result), 'error') === false) {
 						$values = [
 							'reference' => $order['reference'],
@@ -339,8 +337,6 @@ if( tep_not_null($action) )
 						curl_setopt($curl, CURLOPT_POSTFIELDS, $parameters);
 
 						$result = curl_exec($curl);
-
-						curl_close($curl);
 					} else {
 						exec(escapeshellarg(MODULE_PAYMENT_PAYPAL_EXPRESS_CURL) . ' -d ' . escapeshellarg($parameters) . ' "' . $server['scheme'] . '://' . $server['host'] . $server['path'] . (isset($server['query']) ? '?' . $server['query'] : '') . '" -P ' . $server['port'] . ' -k', $result);
 						$result = implode("\n", $result);

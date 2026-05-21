@@ -152,14 +152,14 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
     }
     //-----   END OF ADDITION: MATC   -----//
 
-    if (strlen($firstname) < ENTRY_FIRST_NAME_MIN_LENGTH) {
+    if (strlen((string)$firstname) < ENTRY_FIRST_NAME_MIN_LENGTH) {
         if (!tep_session_is_registered('customer_id')) {
             $error = true;
             $messageStack->add('create_account', ENTRY_FIRST_NAME_ERROR . "<br/>");
         }
     }
 
-    if (strlen($lastname) < ENTRY_LAST_NAME_MIN_LENGTH) {
+    if (strlen((string)$lastname) < ENTRY_LAST_NAME_MIN_LENGTH) {
         if (!tep_session_is_registered('customer_id')) {
             $error = true;
             $messageStack->add('create_account', ENTRY_LAST_NAME_ERROR . "<br/>");
@@ -168,7 +168,7 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
 
     if (RGPD_ACCOUNT_DELETE_DOB == '2') {
 
-        if (checkdate($_POST['dob_inm'], $_POST['dob_ind'], $_POST['dob_inY']) == false) {
+        if (checkdate((int)($_POST['dob_inm'] ?? 0), (int)($_POST['dob_ind'] ?? 0), (int)($_POST['dob_inY'] ?? 0)) == false) {
             if (!tep_session_is_registered('customer_id')) {
                 $error = true;
                 $messageStack->add('create_account', ENTRY_DATE_OF_BIRTH_ERROR . "<br/>");
@@ -229,7 +229,7 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
     }
     //NIF end
 
-    if (strlen($telephone) < ENTRY_TELEPHONE_MIN_LENGTH) {
+    if (strlen((string)$telephone) < ENTRY_TELEPHONE_MIN_LENGTH) {
         if (!tep_session_is_registered('customer_id')) {
             $error = true;
             $messageStack->add('create_account', ENTRY_TELEPHONE_NUMBER_ERROR . "<br/>");

@@ -1,8 +1,8 @@
 <?php
 	// Variables
-	$sImagen        = $_GET['img'];
-	$nWidth         = $_GET['w'];
-	$nHeight        = $_GET['h'];
+	$sImagen        = $_GET['img'] ?? '';
+	$nWidth         = $_GET['w'] ?? '';
+	$nHeight        = $_GET['h'] ?? '';
 	$gdImage        = null;
 	$gdThumb        = null;
 	$aImageInfo     = null;
@@ -116,7 +116,7 @@
 			}
 
 			// Creamos el thumb centrado
-			imagecopyresampled( $gdThumb, $gdImage, ($nWidth / 2) - ($aScale['WIDTH'] / 2), ($nHeight / 2) - ($aScale['HEIGHT'] / 2), 0, 0, $aScale['WIDTH'], $aScale['HEIGHT'], $aImageInfo[0], $aImageInfo[1] );
+			imagecopyresampled( $gdThumb, $gdImage, (int)(($nWidth / 2) - ($aScale['WIDTH'] / 2)), (int)(($nHeight / 2) - ($aScale['HEIGHT'] / 2)), 0, 0, (int)$aScale['WIDTH'], (int)$aScale['HEIGHT'], (int)$aImageInfo[0], (int)$aImageInfo[1] );
 
 			// Si la imagen esta en oferta o envio
 			if( $bOferta == 'true' || $bEnvio == 'true' )
@@ -171,9 +171,6 @@
 			// Asignamos el thumb a la imagen para usarlo mostrarlo finalmente
 			$gdImage = $gdThumb;
 
-			// Liberamos
-			if(isset($gdThumb))
-			imagedestroy( $gdThumb );
 		}
 
 		# Inicio cabeceras oscommerce

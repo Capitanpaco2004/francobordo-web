@@ -3,8 +3,8 @@
 	require_once( DIR_WS_FUNCTIONS . 'products_specifications.php' );
 	require_once (DIR_WS_LANGUAGES . $language . '/' . FILENAME_COMPARISON);
 
-	$sGetIds = tep_db_prepare_input( $_GET['ids'] );
-	$sGetIds = substr( $sGetIds, 0, -1 );
+	$sGetIds = tep_db_prepare_input( $_GET['ids'] ?? '' );
+	$sGetIds = substr( (string)$sGetIds, 0, -1 );
 
 	if( $sGetIds != '' )
 		$_GET['comp'] = explode( '_', $sGetIds );

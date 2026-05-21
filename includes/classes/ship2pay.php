@@ -43,6 +43,7 @@
     
 		function get_pay_modules($ship_module)
 		{
+			$ship_module = (string)$ship_module;
       			return (isset( $this->modules[$ship_module] ) ? $this->modules[$ship_module] : '');
 		}
 	}

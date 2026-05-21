@@ -8,6 +8,8 @@
 	if( $current_category_id != '' )
 	{
 		$sCatIn = getIdCategoriasHijasRecursivoByIdCategoriaPadre($current_category_id);
+		// La función incluye solo descendientes; añadir la propia categoría y evitar IN() vacío
+		$sCatIn = trim( $sCatIn ) !== '' ? $sCatIn . ', ' . (int)$current_category_id : (int)$current_category_id;
 		$sWhere = ' and ptc.categories_id IN(' . $sCatIn . ')';
 	}
 

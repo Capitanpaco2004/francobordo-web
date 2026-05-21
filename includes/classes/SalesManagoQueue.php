@@ -225,6 +225,72 @@ class SalesManagoQueue
     }
 
     /**
+     * Synchronously create/refresh the SM contact and set the `smclient`
+     * cookie with the returned contactId. This links the browser's behavioural
+     * tracking (sm.js) to the known contact.
+     *
+     * Runs in the user's HTTP request (login / signup / edit). Short timeout +
+     * try/catch so it never blocks the page. Only acts when the cookie is
+     * absent — i.e. at most once per browser. The async emitContactUpsert()
+     * remains the guaranteed data-sync path.
+     *
+     * Must be called BEFORE any output (it sends a Set-Cookie header).
+     */
+    public static function setIdentityCookie(int $customer_id): void
+    {
+        try {
+            if (!self::isEnabled())              return;
+            if (!self::shouldSend('CONTACT_UPSERT')) return;
+            if (!empty($_COOKIE['smclient']))    return; // already linked
+            if ($customer_id <= 0)               return;
+            if (headers_sent())                  return;
+
+            if (!class_exists('SalesManago')) {
+                require_once DIR_FS_CATALOG . 'includes/classes/SalesManago.php';
+            }
+
+            $sql = "SELECT c.*, ab.entry_telephone, ab.entry_street_address,
+                           ab.entry_postcode, ab.entry_city, ab.entry_state,
+                           co.countries_iso_code_2, z.zone_code
+                    FROM customers c
+                    LEFT JOIN address_book ab ON ab.address_book_id = c.customers_default_address_id
+                    LEFT JOIN countries     co ON co.countries_id = ab.entry_country_id
+                    LEFT JOIN zones         z  ON z.zone_id = ab.entry_zone_id
+                    WHERE c.customers_id = " . (int) $customer_id . " LIMIT 1";
+            $row = tep_db_fetch_array(tep_db_query($sql));
+            if (!$row || empty($row['customers_email_address'])) return;
+            if (!empty($row['sm_excluded']))                     return;
+
+            $payload = SalesManago::buildContactPayload(
+                $row, $row,
+                (string) ($row['countries_iso_code_2'] ?? ''),
+                (string) ($row['zone_code'] ?? ''),
+                false
+            );
+
+            // Short timeout: cookie linkage is best-effort, must not block login.
+            $sm = new SalesManago(['timeout' => 3]);
+            $r  = $sm->call('api/contact/upsert', $payload);
+
+            if ($r['ok'] && !empty($r['body']['contactId'])) {
+                $contactId = (string) $r['body']['contactId'];
+                $domain = '.' . preg_replace('/^www\./', '', $_SERVER['HTTP_HOST'] ?? 'francobordo.com');
+                setcookie('smclient', $contactId, [
+                    'expires'  => time() + 60 * 60 * 24 * 3650, // ~10 años
+                    'path'     => '/',
+                    'domain'   => $domain,
+                    'secure'   => true,
+                    'httponly' => false,   // sm.js (JS) necesita leerla
+                    'samesite' => 'Lax',
+                ]);
+                $_COOKIE['smclient'] = $contactId; // disponible ya en este request
+            }
+        } catch (\Throwable $e) {
+            @error_log('[SalesManagoQueue::setIdentityCookie] ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Build & enqueue a CART (abandoned) event for a customer_id.
      * Reads the current customers_basket + linked products. Dedup hashes the
      * cart contents so the same cart doesn't get re-enqueued every 15 min.

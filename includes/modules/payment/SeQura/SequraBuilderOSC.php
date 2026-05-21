@@ -3,6 +3,7 @@
 class SequraBuilderOSC extends SequraBuilderAbstract {
 	protected $_shipped_ids = array();
 	protected $_current_order_id = null;
+	public $payment_modules = null;
 	static $empty_cart = array(
                 'items'=>array(),
                 'order_total_without_tax'=>0,

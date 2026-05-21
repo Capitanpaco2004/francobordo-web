@@ -154,11 +154,13 @@ function fb_apply_synonym($q_norm, $candidate) {
 }
 
 function fb_parse_last_run($log_lines) {
-    // formato: "[2026-05-12 16:10:32] -------- delta start --------"
+    // formato bilingüe: "[2026-05-20 08:50:01] -------- delta [es] end ----------"
+    //                   "[2026-05-20 03:30:01] ======== FULL reindex [en] start ===="
+    // El [es]/[en] (y el "reindex" del full) van entre el modo y start/end.
     $last = null;
     foreach (array_reverse($log_lines) as $line) {
-        if (preg_match('#^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*(delta|FULL)\s+(start|end)#i', $line, $m)) {
-            $last = ['ts' => $m[1], 'mode' => strtolower($m[2]), 'phase' => strtolower($m[3])];
+        if (preg_match('#^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*?\b(delta|full)\b(?:[^\[]*\[(es|en)\])?.*?\b(start|end)\b#i', $line, $m)) {
+            $last = ['ts' => $m[1], 'mode' => strtolower($m[2]), 'lang' => strtolower($m[3] ?? ''), 'phase' => strtolower($m[4])];
             break;
         }
     }
@@ -498,7 +500,7 @@ if ($test_q !== '') {
       <h3>Último cron</h3>
       <div class="fb-stat">
         <?php if ($last_run): ?>
-          <?= htmlspecialchars(strtoupper($last_run['mode'])) ?>
+          <?= htmlspecialchars(strtoupper($last_run['mode'])) ?><?php if (!empty($last_run['lang'])): ?> <?= strtoupper($last_run['lang']) ?><?php endif; ?>
           <small><?= fb_format_ts($last_run['ts']) ?></small>
         <?php else: ?>
           —

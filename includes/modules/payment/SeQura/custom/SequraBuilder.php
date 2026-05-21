@@ -9,7 +9,8 @@ class SequraBuilder extends SequraBuilderOSC
         $method = explode('_', $this->_current_order->info['shipping_method']);
         $module = $method[0];
         if (count($this->_shipped_ids) > 0) {
-            $module = substr($GLOBALS['shipping']['id'], 0, strpos($GLOBALS['shipping']['id'], '_'));
+            $_shipId = (string)($GLOBALS['shipping']['id'] ?? '');
+            $module = substr($_shipId, 0, (int)strpos($_shipId, '_'));
         }
         $shipping_tax = tep_get_tax_rate(1, $this->_current_order->delivery['country']['id'], $this->_current_order->delivery['zone_id']);
         if (strpos(strtolower($module), 'kiala') !== false) {
@@ -89,6 +90,7 @@ class SequraBuilder extends SequraBuilderOSC
             $sql = 'select title,value from ' . TABLE_ORDERS_TOTAL . ' where class = "ot_discount_coupon" and orders_id=' . $this->_current_order_id;
             $query = tep_db_query($sql);
             $discount = tep_db_fetch_array($query);
+            if (!is_array($discount)) $discount = [];
             /* 1 es el IVA 21% Podría no estar bien en algún momento*/
             /* 195 es España*/
             $discount['tax'] = tep_get_tax_rate(1, 195, $this->_current_order->delivery['zone_id']);

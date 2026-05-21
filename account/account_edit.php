@@ -119,11 +119,12 @@
 			// Reiniciamos variables de session
 			$customer_first_name = $firstname;
 
-			// --- SalesManago — emit CONTACT_UPSERT (defensive, async via queue) ---
+			// --- SalesManago — async data sync + sync smclient cookie ---
 			try {
 				if (defined('SALESMANAGO_STATUS') && SALESMANAGO_STATUS === 'true') {
 					require_once DIR_FS_CATALOG . 'includes/classes/SalesManagoQueue.php';
-					SalesManagoQueue::emitContactUpsert((int) $customer_id, /* isNew */ false);
+					SalesManagoQueue::setIdentityCookie((int) $customer_id);        // cookie (sync, before redirect)
+					SalesManagoQueue::emitContactUpsert((int) $customer_id, false); // data sync (async)
 				}
 			} catch (\Throwable $_smE) { @error_log('SM emit edit: ' . $_smE->getMessage()); }
 

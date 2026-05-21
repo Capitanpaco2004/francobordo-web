@@ -18,7 +18,7 @@ declare(strict_types=1);
 
 // El warning de PHP corrompe la respuesta JSON; silenciamos display_errors.
 ini_set('display_errors', '0');
-error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED & ~E_STRICT);
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
 
 ini_set('serialize_precision', '14');
 

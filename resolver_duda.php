@@ -54,7 +54,6 @@
 				));
 
 			$curlData = curl_exec($curl);
-			curl_close($curl);
 			$recaptcha = json_decode($curlData, true);
 
 			// Validamos el captcha

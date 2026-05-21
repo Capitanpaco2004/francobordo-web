@@ -98,7 +98,7 @@
 
 					// Si no contiene description
 					if( $aMetas['description'] == '' )
-						$aMetas['description'] = substr( htmlspecialchars( strip_tags( preg_replace("/[\r\n\t]+|\"/", "", $aProducto['products_description'] ) ) ), 0, 250 );
+						$aMetas['description'] = substr( htmlspecialchars( strip_tags( preg_replace("/[\r\n\t]+|\"/", "", (string)($aProducto['products_description'] ?? '') ) ) ), 0, 250 );
 
 				}
 			}

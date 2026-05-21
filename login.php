@@ -71,6 +71,14 @@ if (isset($_GET['action']) && $_GET['action'] == 'process') {
 		$customer->updateNumberOfLogons();
 		$cookie->password = $customer->getPassword();
 
+		// --- SalesManago — set smclient cookie (sync, before redirect) ---
+		try {
+			if (defined('SALESMANAGO_STATUS') && SALESMANAGO_STATUS === 'true') {
+				require_once DIR_FS_CATALOG . 'includes/classes/SalesManagoQueue.php';
+				SalesManagoQueue::setIdentityCookie((int) $customer->getId());
+			}
+		} catch (\Throwable $_smE) { @error_log('SM login cookie: ' . $_smE->getMessage()); }
+
 		tep_session_register('loginSuccessEvent');
 		$redirectUrl = $cart->count_contents() < 1 ? $navigation->get_last_page() : FILENAME_CHECKOUT_SHIPPING;
 

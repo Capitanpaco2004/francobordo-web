@@ -356,7 +356,7 @@ class Affiliates
      * @param string $user_name
      * @return void
      */
-    public function affiliatesGenerateCoupon(string $user_name): string
+    public static function affiliatesGenerateCoupon(string $user_name): string
     {
         return strtoupper($user_name);
     }

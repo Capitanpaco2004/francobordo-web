@@ -89,7 +89,7 @@ class RedsysTransactionManager {
 	}
 
 	public function mapTransactionData($transaccion): array {
-		$response_code = str_pad($transaccion->getDsResponse(), 4, '0', STR_PAD_LEFT);
+		$response_code = str_pad((string)$transaccion->getDsResponse(), 4, '0', STR_PAD_LEFT);
 		$state         = $transaccion->getDsState();
 
 		return [
