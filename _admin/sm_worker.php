@@ -45,6 +45,10 @@ require_once DIR_FS_CATALOG . 'includes/classes/SalesManagoQueue.php';
 $batchLimit = defined('SALESMANAGO_WORKER_BATCH') ? max(1, (int) SALESMANAGO_WORKER_BATCH) : 50;
 $workerTok  = bin2hex(random_bytes(8)) . '-' . dechex(getmypid());  // 16 hex + pid
 
+// Drain group-change resync (trigger-fed) → enqueues CONTACT_UPSERTs, picked up below
+$resynced = SalesManagoQueue::drainContactResync();
+if ($resynced > 0) echo "resynced (group changes): $resynced\n";
+
 $rows = SalesManagoQueue::claim($workerTok, $batchLimit);
 $claimed = count($rows);
 echo "claimed: $claimed (token=$workerTok, batch=$batchLimit)\n";

@@ -55,6 +55,28 @@ function sm_xml_clean(string $s): string
     return $s ?? '';
 }
 
+/**
+ * Strip tracking params (utm_*, etc.) from a product URL, keeping only the
+ * params SM needs: `language` and (for variants) `attr`. Order: language, attr.
+ * Input must be an already entity-decoded URL.
+ */
+function sm_clean_url(string $url): string
+{
+    $parts = parse_url($url);
+    if ($parts === false || empty($parts['query'])) return $url;
+
+    parse_str($parts['query'], $params);
+    $ordered = [];
+    if (isset($params['language'])) $ordered['language'] = $params['language'];
+    if (isset($params['attr']))     $ordered['attr']     = $params['attr'];
+
+    $base = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . ($parts['path'] ?? '');
+    if (!empty($ordered)) {
+        $base .= '?' . http_build_query($ordered);
+    }
+    return $base;
+}
+
 /** Map Google-feed availability strings → g:availability values. */
 function sm_xml_availability(string $v): string
 {
@@ -106,8 +128,8 @@ foreach ($jobs as $job) {
         $brand = sm_xml_clean(html_entity_decode($col($row, 'brand'), ENT_QUOTES, 'UTF-8'));
         $gcat  = sm_xml_clean(html_entity_decode($col($row, 'google_product_category'), ENT_QUOTES, 'UTF-8'));
         $ptype = sm_xml_clean(html_entity_decode(str_replace('-', ' > ', $col($row, 'product_type')), ENT_QUOTES, 'UTF-8'));
-        // URLs already entity-encoded in TSV → decode then XML-escape cleanly
-        $link  = sm_xml_clean(html_entity_decode($col($row, 'link'), ENT_QUOTES, 'UTF-8'));
+        // URLs already entity-encoded in TSV → decode, strip UTM (keep language/attr), then XML-escape
+        $link  = sm_clean_url(sm_xml_clean(html_entity_decode($col($row, 'link'), ENT_QUOTES, 'UTF-8')));
         $img   = sm_xml_clean(html_entity_decode($col($row, 'image_link'), ENT_QUOTES, 'UTF-8'));
         $price = trim($col($row, 'price'));
         $mpn   = trim($col($row, 'mpn'));

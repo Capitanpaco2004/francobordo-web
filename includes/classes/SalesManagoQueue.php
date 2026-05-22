@@ -38,6 +38,48 @@ class SalesManagoQueue
     }
 
     /**
+     * Build the product id exactly as the SM feed does:
+     *   variant → "{products_id}-{products_attributes_id}"  (e.g. 346788-44325)
+     *   simple  → "{products_id}"
+     * @see feedmachine_with_attributes_comparador.php line ~329
+     */
+    private static function feedProductId(int $productsId, $attributesId): string
+    {
+        return ($attributesId !== null && (int) $attributesId > 0)
+            ? $productsId . '-' . (int) $attributesId
+            : (string) $productsId;
+    }
+
+    /**
+     * Resolve the SM `location` per language so SM can map each language's
+     * product feed to the right events.
+     *   ES → francobordo_es   (mapea sm-feed-es.xml)
+     *   EN → francobordo_en   (mapea sm-feed-en.xml)
+     *
+     * Priority: explicit languages_id (1=en, 3=es) → else infer from country
+     * (ES or unknown → es; any other country → en).
+     *
+     * @param int|null $languageId osCommerce languages_id (1=en, 3=es, 0/null=unknown)
+     * @param string   $countryIso ISO-2 country code for the fallback
+     */
+    public static function resolveLocation(?int $languageId, string $countryIso = ''): string
+    {
+        $base = defined('SALESMANAGO_LOCATION') ? (string) SALESMANAGO_LOCATION : 'francobordo_web';
+        $base = preg_replace('/_web$/', '', $base);
+        if ($base === '' || $base === null) $base = 'francobordo';
+
+        if ($languageId === 1) {
+            $lang = 'en';
+        } elseif ($languageId === 3) {
+            $lang = 'es';
+        } else {
+            $iso  = strtoupper(trim($countryIso));
+            $lang = ($iso === 'ES' || $iso === '') ? 'es' : 'en';
+        }
+        return $base . '_' . $lang;
+    }
+
+    /**
      * Append a new event to the queue.
      * Returns the inserted id, 0 if dedup hit (row already queued), null on error.
      *
@@ -162,6 +204,38 @@ class SalesManagoQueue
         return $rows;
     }
 
+    /**
+     * Drain the sm_contact_resync table (populated by the customers_group_change_sm
+     * trigger on ANY customers_group_id change — manual admin edit, approval, cron,
+     * import, etc.). For each pending customer, enqueue a fresh CONTACT_UPSERT so SM
+     * gets the updated customer_group property.
+     *
+     * Called by sm_worker.php each tick. Returns number of customers processed.
+     */
+    public static function drainContactResync(int $limit = 200): int
+    {
+        try {
+            // If contact sync is off, leave rows so we don't lose the change.
+            if (!self::shouldSend('CONTACT_UPSERT')) return 0;
+
+            $ids = [];
+            $res = tep_db_query("SELECT customers_id FROM sm_contact_resync
+                                 ORDER BY changed_at ASC LIMIT " . max(1, (int) $limit));
+            while ($r = tep_db_fetch_array($res)) $ids[] = (int) $r['customers_id'];
+            if (empty($ids)) return 0;
+
+            foreach ($ids as $cid) {
+                self::emitContactUpsert($cid, false);
+            }
+            tep_db_query("DELETE FROM sm_contact_resync
+                          WHERE customers_id IN (" . implode(',', $ids) . ")");
+            return count($ids);
+        } catch (\Throwable $e) {
+            @error_log('[SalesManagoQueue::drainContactResync] ' . $e->getMessage());
+            return 0;
+        }
+    }
+
     /** Re-queue all dead events for another round. */
     public static function reviveDead(): int
     {
@@ -196,11 +270,13 @@ class SalesManagoQueue
 
             $sql = "SELECT c.*, ab.entry_telephone, ab.entry_street_address,
                            ab.entry_postcode, ab.entry_city, ab.entry_state,
-                           co.countries_iso_code_2, z.zone_code
+                           co.countries_iso_code_2, z.zone_code,
+                           cg.customers_group_name
                     FROM customers c
                     LEFT JOIN address_book ab ON ab.address_book_id = c.customers_default_address_id
                     LEFT JOIN countries     co ON co.countries_id = ab.entry_country_id
                     LEFT JOIN zones         z  ON z.zone_id = ab.entry_zone_id
+                    LEFT JOIN customers_groups cg ON cg.customers_group_id = c.customers_group_id
                     WHERE c.customers_id = " . (int) $customer_id . "
                     LIMIT 1";
             $row = tep_db_fetch_array(tep_db_query($sql));
@@ -251,11 +327,13 @@ class SalesManagoQueue
 
             $sql = "SELECT c.*, ab.entry_telephone, ab.entry_street_address,
                            ab.entry_postcode, ab.entry_city, ab.entry_state,
-                           co.countries_iso_code_2, z.zone_code
+                           co.countries_iso_code_2, z.zone_code,
+                           cg.customers_group_name
                     FROM customers c
                     LEFT JOIN address_book ab ON ab.address_book_id = c.customers_default_address_id
                     LEFT JOIN countries     co ON co.countries_id = ab.entry_country_id
                     LEFT JOIN zones         z  ON z.zone_id = ab.entry_zone_id
+                    LEFT JOIN customers_groups cg ON cg.customers_group_id = c.customers_group_id
                     WHERE c.customers_id = " . (int) $customer_id . " LIMIT 1";
             $row = tep_db_fetch_array(tep_db_query($sql));
             if (!$row || empty($row['customers_email_address'])) return;
@@ -301,10 +379,14 @@ class SalesManagoQueue
             if (!self::shouldSend('CART')) return null;
             if ($customer_id <= 0)         return null;
 
-            // Customer + email guard
+            // Customer + email guard (+ language/country for location)
             $cust = tep_db_fetch_array(tep_db_query(
-                "SELECT customers_email_address, sm_excluded
-                 FROM customers WHERE customers_id = " . (int) $customer_id . " LIMIT 1"));
+                "SELECT c.customers_email_address, c.sm_excluded, c.customers_language_id,
+                        co.countries_iso_code_2 AS country_iso
+                 FROM customers c
+                 LEFT JOIN address_book ab ON ab.address_book_id = c.customers_default_address_id
+                 LEFT JOIN countries     co ON co.countries_id = ab.entry_country_id
+                 WHERE c.customers_id = " . (int) $customer_id . " LIMIT 1"));
             if (!$cust || empty($cust['customers_email_address'])) return null;
             if (!empty($cust['sm_excluded']))                      return null;
 
@@ -345,15 +427,33 @@ class SalesManagoQueue
             $ids = $qtys = $prices = [];
             $value     = 0.0;
             $latestMod = '';
+            $attrCache = [];
             foreach ($rows as $r) {
                 $pid = (int) $r['plain_pid'];
                 $info = $idMap[$pid] ?? null;
                 if (!$info) continue;
 
-                $idValue = ($idField === 'products_model' && $info['model'] !== '')
-                    ? $info['model']
-                    : (string) $pid;
-                $price = ((float) $r['price']) > 0 ? (float) $r['price'] : $info['price'];
+                // Parse basket products_id like "346788{533}14615" → product/option/value
+                // and resolve products_attributes_id so the id matches the feed
+                // ({products_id}-{products_attributes_id} for variants).
+                $attrId = null;
+                if (preg_match('/^\d+\{(\d+)\}(\d+)/', (string) $r['raw_pid'], $m)) {
+                    $optionId = (int) $m[1];
+                    $valueId  = (int) $m[2];
+                    $cacheKey = $pid . ':' . $optionId . ':' . $valueId;
+                    if (!array_key_exists($cacheKey, $attrCache)) {
+                        $aRow = tep_db_fetch_array(tep_db_query(
+                            "SELECT products_attributes_id FROM products_attributes
+                             WHERE products_id = " . $pid . "
+                               AND options_id = " . $optionId . "
+                               AND options_values_id = " . $valueId . " LIMIT 1"));
+                        $attrCache[$cacheKey] = $aRow ? (int) $aRow['products_attributes_id'] : null;
+                    }
+                    $attrId = $attrCache[$cacheKey];
+                }
+
+                $idValue = self::feedProductId($pid, $attrId);
+                $price   = ((float) $r['price']) > 0 ? (float) $r['price'] : $info['price'];
 
                 $ids[]    = $idValue;
                 $qtys[]   = (string) (int) $r['qty'];
@@ -364,7 +464,10 @@ class SalesManagoQueue
             }
             if (empty($ids)) return null;
 
-            $location = defined('SALESMANAGO_LOCATION') ? (string) SALESMANAGO_LOCATION : 'francobordo_web';
+            $location = self::resolveLocation(
+                isset($cust['customers_language_id']) ? (int) $cust['customers_language_id'] : null,
+                (string) ($cust['country_iso'] ?? '')
+            );
             $eventTs  = $latestMod ? (int) (strtotime($latestMod) * 1000) : (int) round(microtime(true) * 1000);
 
             $event = [
@@ -410,10 +513,14 @@ class SalesManagoQueue
                 require_once DIR_FS_CATALOG . 'includes/classes/SalesManago.php';
             }
 
-            // Order header
+            // Order header (+ language/country for location)
             $headerSql = "SELECT o.orders_id, o.customers_id, o.customers_email_address,
-                                 o.date_purchased, o.payment_method
+                                 o.date_purchased, o.payment_method, o.customers_language_id,
+                                 co.countries_iso_code_2 AS country_iso
                           FROM orders o
+                          LEFT JOIN customers   c  ON c.customers_id = o.customers_id
+                          LEFT JOIN address_book ab ON ab.address_book_id = c.customers_default_address_id
+                          LEFT JOIN countries   co ON co.countries_id = ab.entry_country_id
                           WHERE o.orders_id = " . (int) $orders_id . " LIMIT 1";
             $order = tep_db_fetch_array(tep_db_query($headerSql));
             if (!$order || empty($order['customers_email_address'])) return;
@@ -434,25 +541,34 @@ class SalesManagoQueue
             $shipRow = tep_db_fetch_array($shipQ);
             $shipping = $shipRow ? (string) $shipRow['title'] : '';
 
-            // Products
+            // Products — resolve variant id to match the feed
+            //   ({products_id}-{products_attributes_id} for variants).
             $idField = defined('SALESMANAGO_PRODUCT_ID_FIELD')
                 ? (string) SALESMANAGO_PRODUCT_ID_FIELD
                 : 'products_id';
-            $prodCol = ($idField === 'products_model') ? 'op.products_model' : 'op.products_id';
-            $prodSql = "SELECT $prodCol AS pid, op.products_quantity AS qty,
-                               op.products_price AS price, op.products_model AS model,
-                               op.products_name AS name
+            $prodSql = "SELECT op.orders_products_id, op.products_id, op.products_model AS model,
+                               op.products_quantity AS qty, op.products_price AS price,
+                               op.products_name AS name,
+                               pa.products_attributes_id AS attr_id
                         FROM orders_products op
-                        WHERE op.orders_id = " . (int) $orders_id;
+                        LEFT JOIN orders_products_attributes opa
+                               ON opa.orders_products_id = op.orders_products_id
+                        LEFT JOIN products_attributes pa
+                               ON pa.products_id        = op.products_id
+                              AND pa.options_id         = opa.products_options_id
+                              AND pa.options_values_id  = opa.products_options_values_id
+                        WHERE op.orders_id = " . (int) $orders_id . "
+                        GROUP BY op.orders_products_id";
             $products = [];
             $pq = tep_db_query($prodSql);
             while ($p = tep_db_fetch_array($pq)) {
+                $feedId = self::feedProductId((int) $p['products_id'], $p['attr_id']);
                 $products[] = [
-                    'products_id'    => $p['pid'],
+                    'products_id'    => $feedId,   // already feed-formatted (with -attrid if variant)
                     'products_model' => $p['model'],
                     'qty'            => (int) $p['qty'],
                     'price'          => (float) $p['price'],
-                    'category'       => '', // could be looked up if needed
+                    'category'       => '',
                 ];
             }
 
@@ -464,7 +580,10 @@ class SalesManagoQueue
                 'shipping'       => $shipping,
             ];
 
-            $location = defined('SALESMANAGO_LOCATION') ? (string) SALESMANAGO_LOCATION : 'francobordo_web';
+            $location = self::resolveLocation(
+                isset($order['customers_language_id']) ? (int) $order['customers_language_id'] : null,
+                (string) ($order['country_iso'] ?? '')
+            );
 
             $event = SalesManago::buildPurchaseEvent($orderArr, $products, $location, $idField);
 

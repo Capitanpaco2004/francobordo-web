@@ -70,11 +70,31 @@ switch($sPostAction) {
 			// Email
 			$mail = new util\mail();
 
-			$email = '<span style="font-size: 24px;">' . $aCustomer['customers_firstname'] . ' ' . $aCustomer['customers_lastname'] . '</span><br/><br/>' . ($sPostAction == 'accept' ? EMAIL_TEXT_CONFIRM_M : EMAIL_TEXT_CANCEL_M) . "\n" . EMAIL_CONTACT_M . "\n\n" . EMAIL_WARNING_M;
+			$sNombre = '<span style="font-size: 24px;">' . $aCustomer['customers_firstname'] . ' ' . $aCustomer['customers_lastname'] . '</span><br/><br/>';
+
+			if ($sPostAction == 'accept') {
+				// Importe mínimo de compra anual del grupo Profesionales (1); fallback 250 (mismo valor que usa el cron)
+				$minRow = tep_db_fetch_array(tep_db_query("SELECT customers_group_min_annual FROM customers_groups WHERE customers_group_id = 1"));
+				$minAnnual = (float)($minRow['customers_group_min_annual'] ?? 0);
+				if ($minAnnual <= 0) { $minAnnual = 250; }
+				// El cuerpo de aprobación es autocontenido (incluye contacto, nota y despedida)
+				$email = $sNombre . sprintf(EMAIL_TEXT_CONFIRM_M, number_format($minAnnual, 0, ',', '.'));
+			} else {
+				// El cuerpo de rechazo es autocontenido (incluye contacto, nota y despedida)
+				$email = $sNombre . EMAIL_TEXT_CANCEL_M;
+			}
 
 			$mail->includeEmail('various.php', ['content' => nl2br($email)]);
 
 			tep_mail($aCustomer['customers_name'], $aCustomer['customers_email_address'], ($sPostAction == 'accept' ? EMAIL_TEXT_SUBJECT_M : EMAIL_TEXT_SUBJECT_CANCEL_M), $mail->html, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS, '');
+
+			// --- SalesManago — sincronizar el cambio de grupo tras aprobar/denegar ---
+			try {
+				if (defined('SALESMANAGO_STATUS') && SALESMANAGO_STATUS === 'true') {
+					require_once DIR_FS_CATALOG . 'includes/classes/SalesManagoQueue.php';
+					SalesManagoQueue::emitContactUpsert((int) $customers_id, false);
+				}
+			} catch (\Throwable $_smE) { @error_log('SM emit approve: ' . $_smE->getMessage()); }
 		}
 
 		tep_redirect(tep_href_link(FILENAME_MEMBERS, tep_get_all_get_params(['id', 'action'])));

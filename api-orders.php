@@ -11,6 +11,8 @@
  */
 declare(strict_types=1);
 
+ini_set('serialize_precision', '14'); // floats limpios en json_encode
+
 // 1) HTTPS only (rechaza HTTP)
 $_isHttps = !empty($_SERVER['HTTPS']) || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
 if (!$_isHttps) {
@@ -204,6 +206,29 @@ function order_to_json(PDO $pdo, array $o, bool $includeItems): array {
 try {
     $orderColumns = "orders_id, date_purchased, orders_status, currency, shipping_module,
                      delivery_city, delivery_postcode, delivery_country";
+
+    // Lookup verificado: orders_id + email deben coincidir (anti-enumeracion).
+    // 404 identico exista o no el pedido / coincida o no el email: no se filtra nada.
+    if (!empty($_GET['orders_id']) && !empty($_GET['email'])) {
+        $oid = (int)$_GET['orders_id'];
+        $vemail = strtolower(trim((string)$_GET['email']));
+        if ($oid <= 0 || !filter_var($vemail, FILTER_VALIDATE_EMAIL)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'invalid orders_id or email']);
+            exit;
+        }
+        $stmt = $pdo->prepare("SELECT $orderColumns FROM orders
+                               WHERE orders_id = ? AND LOWER(customers_email_address) = ?");
+        $stmt->execute([$oid, $vemail]);
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$order) {
+            http_response_code(404);
+            echo json_encode(['error' => 'not found']);
+            exit;
+        }
+        echo json_encode(order_to_json($pdo, $order, true), JSON_UNESCAPED_SLASHES);
+        exit;
+    }
 
     if (!empty($_GET['email'])) {
         $email = strtolower(trim((string)$_GET['email']));

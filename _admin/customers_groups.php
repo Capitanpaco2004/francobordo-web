@@ -35,6 +35,8 @@
         $error = false;
 	    $customers_group_id = tep_db_prepare_input($_GET['cID']);
 		$customers_group_name = tep_db_prepare_input($_POST['customers_group_name']);
+		$customers_group_min_annual = (float)str_replace(',', '.', (string)($_POST['customers_group_min_annual'] ?? 0));
+		if ($customers_group_min_annual < 0) { $customers_group_min_annual = 0; }
 		$customers_group_show_tax = tep_db_prepare_input($_POST['customers_group_show_tax']);
 		$customers_group_tax_exempt = tep_db_prepare_input($_POST['customers_group_tax_exempt']);
 		$group_payment_allowed = '';
@@ -74,7 +76,7 @@
 		  $group_order_total_allowed = substr($group_order_total_allowed,0,strlen($group_order_total_allowed)-1);
 		} // end if ($_POST['order_total_allowed'])
 
-        tep_db_query("update " . TABLE_CUSTOMERS_GROUPS . " set customers_group_name='" . $customers_group_name . "', customers_group_show_tax = '" . $customers_group_show_tax . "', customers_group_tax_exempt = '" . $customers_group_tax_exempt . "', group_payment_allowed = '". $group_payment_allowed ."', group_shipment_allowed = '". $group_shipment_allowed ."', group_order_total_allowed = '". $group_order_total_allowed ."', group_specific_taxes_exempt = '". $group_tax_rates_exempt ."' where customers_group_id = '" . (int)$customers_group_id ."'");
+        tep_db_query("update " . TABLE_CUSTOMERS_GROUPS . " set customers_group_name='" . $customers_group_name . "', customers_group_min_annual = '" . $customers_group_min_annual . "', customers_group_show_tax = '" . $customers_group_show_tax . "', customers_group_tax_exempt = '" . $customers_group_tax_exempt . "', group_payment_allowed = '". $group_payment_allowed ."', group_shipment_allowed = '". $group_shipment_allowed ."', group_order_total_allowed = '". $group_order_total_allowed ."', group_specific_taxes_exempt = '". $group_tax_rates_exempt ."' where customers_group_id = '" . (int)$customers_group_id ."'");
         tep_redirect(tep_href_link(FILENAME_CUSTOMERS_GROUPS, tep_get_all_get_params(['cID', 'action']) . 'cID=' . $customers_group_id));
 		break;
 
@@ -93,6 +95,8 @@
       print_r($_POST);
       exit; */
     $customers_group_name = tep_db_prepare_input($_POST['customers_group_name']);
+	$customers_group_min_annual = (float)str_replace(',', '.', (string)($_POST['customers_group_min_annual'] ?? 0));
+	if ($customers_group_min_annual < 0) { $customers_group_min_annual = 0; }
 	$customers_group_tax_exempt = tep_db_prepare_input($_POST['customers_group_tax_exempt']);
 	$customers_group_show_tax = tep_db_prepare_input($_POST['customers_group_show_tax']);
 	$group_payment_allowed = '';
@@ -135,7 +139,7 @@
         $last_id_query = tep_db_query("select MAX(customers_group_id) as last_cg_id from " . TABLE_CUSTOMERS_GROUPS . "");
         $last_cg_id_inserted = tep_db_fetch_array($last_id_query);
         $new_cg_id = $last_cg_id_inserted['last_cg_id'] +1;
-        tep_db_query("insert into " . TABLE_CUSTOMERS_GROUPS . " set customers_group_id = '" . (int)$new_cg_id . "', customers_group_name = '" . tep_db_input($customers_group_name) . "', customers_group_show_tax = '" . $customers_group_show_tax . "', customers_group_tax_exempt = '" . $customers_group_tax_exempt . "', group_payment_allowed = '". $group_payment_allowed ."', group_shipment_allowed = '". $group_shipment_allowed ."', group_order_total_allowed = '". $group_order_total_allowed ."', group_specific_taxes_exempt = '". $group_tax_rates_exempt ."'");
+        tep_db_query("insert into " . TABLE_CUSTOMERS_GROUPS . " set customers_group_id = '" . (int)$new_cg_id . "', customers_group_name = '" . tep_db_input($customers_group_name) . "', customers_group_min_annual = '" . $customers_group_min_annual . "', customers_group_show_tax = '" . $customers_group_show_tax . "', customers_group_tax_exempt = '" . $customers_group_tax_exempt . "', group_payment_allowed = '". $group_payment_allowed ."', group_shipment_allowed = '". $group_shipment_allowed ."', group_order_total_allowed = '". $group_order_total_allowed ."', group_specific_taxes_exempt = '". $group_tax_rates_exempt ."'");
         tep_redirect(tep_href_link(FILENAME_CUSTOMERS_GROUPS, tep_get_all_get_params(['action'])));
         break;
     }
@@ -156,7 +160,7 @@
 
 <?php
   if ($_GET['action'] == 'edit') {
-    $customers_groups_query = tep_db_query("select c.customers_group_id, c.customers_group_name, c.customers_group_show_tax, c.customers_group_tax_exempt, c.group_payment_allowed, c.group_shipment_allowed, c.group_order_total_allowed, c.group_specific_taxes_exempt from " . TABLE_CUSTOMERS_GROUPS . " c  where c.customers_group_id = '" . (int)$_GET['cID'] . "'");
+    $customers_groups_query = tep_db_query("select c.customers_group_id, c.customers_group_name, c.customers_group_min_annual, c.customers_group_show_tax, c.customers_group_tax_exempt, c.group_payment_allowed, c.group_shipment_allowed, c.group_order_total_allowed, c.group_specific_taxes_exempt from " . TABLE_CUSTOMERS_GROUPS . " c  where c.customers_group_id = '" . (int)$_GET['cID'] . "'");
     $customers_groups = tep_db_fetch_array($customers_groups_query);
     $cInfo = new objectInfo($customers_groups);
     $payments_allowed = explode (";",$cInfo->group_payment_allowed);
@@ -259,6 +263,12 @@ function check_form() {
     ?></td>
             <td class="main"><?php
     echo tep_draw_input_field('customers_group_name', $cInfo->customers_group_name, 'maxlength="32"', false) . ENTRY_GROUP_NAME_MAX_LENGTH;
+    ?></td>
+          </tr>
+          <tr>
+            <td class="main">Compra mínima anual (&euro;)</td>
+            <td class="main"><?php
+    echo tep_draw_input_field('customers_group_min_annual', (isset($cInfo->customers_group_min_annual) ? $cInfo->customers_group_min_annual : '0'), 'size="10" maxlength="10"', false) . ' &nbsp;<small>El cron de profesionales degrada a Retail al cliente que no alcance este importe anual. 0 = sin mínimo.</small>';
     ?></td>
           </tr>
           <tr>
@@ -554,6 +564,12 @@ function check_form() {
     ?></td>
             <td class="main"><?php
     echo tep_draw_input_field('customers_group_name', '', 'maxlength="32"', false);
+    ?></td>
+          </tr>
+          <tr>
+            <td class="main">Compra mínima anual (&euro;)</td>
+            <td class="main"><?php
+    echo tep_draw_input_field('customers_group_min_annual', '0', 'size="10" maxlength="10"', false) . ' &nbsp;<small>El cron de profesionales degrada a Retail al cliente que no alcance este importe anual. 0 = sin mínimo.</small>';
     ?></td>
           </tr>
           <tr>

@@ -2882,7 +2882,7 @@
 													<div class="clear"></div>
 												</div>
 								                <div class="formRow">
-							                        <div class="grid3"><label>Rebaja gradual:</div>
+							                        <div class="grid3"><label>Producto en Liquidación:</div>
 														<div class="grid1 check"><?php echo tep_draw_checkbox_field('products_liquidacion', '1', $pInfo->products_liquidacion, $pInfo->products_liquidacion); ?></div>
 							                        <div class="clear"></div>
 									            </div>

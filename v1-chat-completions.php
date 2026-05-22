@@ -39,7 +39,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 // 3) IP allowlist (Oct8ne 40.115.11.160 + IP del LAN/RAG por si llega via RAG)
-$ALLOWED_IPS = ['40.115.11.160', '217.127.199.171'];
+$ALLOWED_IPS = ['40.115.11.160', '20.8.249.201', '217.127.199.171']; // 20.8.x = egress Azure real de Oct8ne (la 40.115 declarada no se usa)
 $_remoteIP = $_SERVER['REMOTE_ADDR'] ?? '';
 if (!in_array($_remoteIP, $ALLOWED_IPS, true)) {
     http_response_code(403);

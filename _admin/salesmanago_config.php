@@ -155,6 +155,7 @@ function sm_export_from_where(?int $months = null): string
             LEFT JOIN address_book ab ON ab.address_book_id = c.customers_default_address_id
             LEFT JOIN countries     co ON co.countries_id = ab.entry_country_id
             LEFT JOIN zones         z  ON z.zone_id       = ab.entry_zone_id
+            LEFT JOIN customers_groups cg ON cg.customers_group_id = c.customers_group_id
             LEFT JOIN (
               SELECT customers_id, MAX(date_purchased) AS last_order
               FROM orders GROUP BY customers_id
@@ -212,7 +213,7 @@ function sm_stream_export_csv(): void
     // Explicit args silence PHP 8.4 deprecation about $escape.
     fputcsv($out, [
         'email','firstname','lastname','company','gender','birth_date',
-        'country','region','city','postal_code','newsletter'
+        'country','region','city','postal_code','newsletter','customer_group'
     ], ';', '"', '');
 
     $select = "SELECT
@@ -227,7 +228,8 @@ function sm_stream_export_csv(): void
         COALESCE(z.zone_code, ab.entry_state, '')                       AS region,
         COALESCE(ab.entry_city, '')                                     AS city,
         COALESCE(ab.entry_postcode, '')                                 AS postal_code,
-        IF(c.customers_newsletter='1', 'yes', 'no')                     AS newsletter";
+        IF(c.customers_newsletter='1', 'yes', 'no')                     AS newsletter,
+        COALESCE(cg.customers_group_name, '')                           AS customer_group";
 
     $cap    = sm_export_cap();
     $months = sm_export_months();
@@ -240,7 +242,7 @@ function sm_stream_export_csv(): void
         fputcsv($out, [
             $row['email'], $row['firstname'], $row['lastname'], $row['company'],
             $row['gender'], $row['birth_date'], $row['country'], $row['region'],
-            $row['city'], $row['postal_code'], $row['newsletter'],
+            $row['city'], $row['postal_code'], $row['newsletter'], $row['customer_group'],
         ], ';', '"', '');
         $n++;
         if (($n % 1000) === 0) @flush();

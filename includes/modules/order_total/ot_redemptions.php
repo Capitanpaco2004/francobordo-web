@@ -43,10 +43,15 @@ class ot_redemptions {
 			return;
 		}
 
-		// REDEEM_POINT_VALUE se interpreta como precio FINAL con IVA inc. (Opción A — el cliente ve los puntos como €€ brutos)
-		$nPointValue = tep_calc_shopping_pvalue($customer_shopping_points_spending);
+		// REDEEM_POINT_VALUE se configura CON IVA inc. (lo que el cliente ve en my_points y
+		// en su saldo). Ese valor con IVA es lo que el cliente AHORRA. Internamente la línea
+		// del desglose se grava SIN IVA (base), de forma que:
+		//   - el desglose web cuadra linealmente (subtotal + envío − base + IVA = total)
+		//   - QFacWin, al aplicarle su IVA a la base, muestra el importe con IVA correcto (= ahorro)
+		// (Opción B — 2026-05-19, sustituye a la Opción A que mostraba el valor con IVA en la línea)
+		$nPointValueConIva = tep_calc_shopping_pvalue($customer_shopping_points_spending);
 
-		// Peso bruto del carrito por tipo de IVA — para prorratear el IVA del descuento entre grupos
+		// Peso bruto del carrito por tipo de IVA — para prorratear base/IVA del descuento entre grupos
 		$aGrupos     = [];
 		$nTotalBruto = 0;
 		foreach ($order->products as $aProducto) {
@@ -59,29 +64,40 @@ class ot_redemptions {
 			$nTotalBruto             += $nBruto;
 		}
 
-		// Bajar el IVA de cada grupo en proporción al peso bruto del grupo en el carrito
+		// Repartir el descuento (con IVA) entre grupos: calcular la parte BASE (sin IVA) total
+		// y bajar el IVA de cada grupo en su parte proporcional.
+		$nBaseDescuento = 0;
 		if ($nTotalBruto > 0) {
 			foreach ($aGrupos as $sKey => $aGrupo) {
-				$nShare    = $nPointValue * ($aGrupo['bruto'] / $nTotalBruto);
-				$nIvaShare = ($aGrupo['tax'] > 0) ? $nShare * ($aGrupo['tax'] / (100 + $aGrupo['tax'])) : 0;
+				$nShareConIva = $nPointValueConIva * ($aGrupo['bruto'] / $nTotalBruto);
+				$nBaseShare   = ($aGrupo['tax'] > 0) ? $nShareConIva / (1 + ($aGrupo['tax'] / 100)) : $nShareConIva;
+				$nIvaShare    = $nShareConIva - $nBaseShare;
+				$nBaseDescuento += $nBaseShare;
 				if (isset($order->info['tax_groups'][$sKey])) {
 					$order->info['tax_groups'][$sKey] -= $nIvaShare;
 				}
 			}
+		} else {
+			// Carrito sin productos con peso (caso raro): tratar todo el descuento como base
+			$nBaseDescuento = $nPointValueConIva;
 		}
 
-		$order->info['total']         -= $nPointValue;
+		// El cliente ahorra el valor CON IVA: bajamos el total (que ya incluye IVA) en ese importe.
+		$order->info['total']         -= $nPointValueConIva;
 		$order->info['payment_method'] = ($order->info['total'] > 0)
 			? $order->info['payment_method'] . '+' . str_replace(':', '', TEXT_POINTS)
 			: str_replace(':', '', TEXT_POINTS);
 
-		$sFormatted = $currencies->format($nPointValue, true, $order->info['currency'], $order->info['currency_value']);
+		// TEXTO mostrado (cliente en checkout + admin) = CON IVA, coherente con el resto de
+		// líneas que el cliente ve con IVA (productos, envío, seguro).
+		// VALUE guardado en orders_total = BASE sin IVA → QFacWin le aplica su IVA y cuadra a con-IVA.
+		$sFormattedConIva = $currencies->format($nPointValueConIva, true, $order->info['currency'], $order->info['currency_value']);
 
 		$this->output[] = [
 			'title'    => MODULE_ORDER_TOTAL_REDEMPTIONS_TEXT . ':',
-			'text'     => '<span class="red">-' . $sFormatted . '</span>',
-			'text_tax' => '<span class="red">-' . $sFormatted . '</span>',
-			'value'    => $nPointValue,
+			'text'     => '<span class="red">-' . $sFormattedConIva . '</span>',
+			'text_tax' => '<span class="red">-' . $sFormattedConIva . '</span>',
+			'value'    => $nBaseDescuento,
 		];
 	}
 

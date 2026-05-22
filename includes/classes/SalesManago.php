@@ -237,6 +237,14 @@ class SalesManago
         if ($phone     !== '') $contact['phone']     = $phone;
         if (!empty($address))  $contact['address']   = $address;
 
+        // Custom details (properties): customer group / B2B flag so SM can
+        // segment professionals vs retail from the live integration.
+        $groupName = trim((string) ($c['customers_group_name'] ?? ''));
+        $groupId   = isset($c['customers_group_id']) ? (int) $c['customers_group_id'] : null;
+        $properties = [];
+        if ($groupName !== '') $properties['customer_group'] = $groupName;
+        if ($groupId !== null) $properties['is_professional'] = ($groupId === 1) ? 'yes' : 'no';
+
         $payload = [
             'contact'      => $contact,
             'tags'         => $isNew ? ['oscommerce_signup'] : ['oscommerce_edit'],
@@ -246,6 +254,9 @@ class SalesManago
             'forceOptOut'  => $newsletter !== '1',
             'useApiDoubleOptIn' => false,
         ];
+        if (!empty($properties)) {
+            $payload['properties'] = $properties;
+        }
         if ($dob && $dob !== '0000-00-00' && $dob !== '0000-00-00 00:00:00') {
             $ts = strtotime($dob);
             if ($ts !== false) $payload['birthday'] = date('Y.m.d', $ts);
