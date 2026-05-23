@@ -1,6 +1,7 @@
 <?php
 /**
  * Scraper guard:
+ *   0) Allowlist por UA con token secreto (descargador de docs del RAG) -> return inmediato
  *   1) Allowlist hardcoded (LAN, self, casa, Redsys, Googlebot, Bingbot, Meta, Ahrefs, Petalbot)
  *   2) Allowlist DB (tabla scraper_allowlist) — añadible desde panel admin
  *   3) 403 inmediato si IP en scraper_blacklist (no expirada)
@@ -17,6 +18,12 @@
 
 $_sg_ip = $_SERVER["REMOTE_ADDR"] ?? "";
 if ($_sg_ip === "" || !defined("DB_SERVER")) return;
+
+// (0) Allowlist por UA con token secreto: el descargador de PDFs tecnicos del RAG
+//     nunca se bloquea, sea cual sea su IP (la IP de salida del RAG es dinamica).
+//     El token va embebido en el User-Agent del pipeline ingest_product_docs.
+$_sg_ua_token = "d81f85fd3b3d800275b8a91a5de48ae12e0f538202c1bc87";
+if (strpos($_SERVER["HTTP_USER_AGENT"] ?? "", $_sg_ua_token) !== false) return;
 
 $_sg_allow_exact = ["217.127.199.171", "20.71.1.14", "80.28.193.44", "127.0.0.1", "::1"];
 $_sg_allow_cidr = [

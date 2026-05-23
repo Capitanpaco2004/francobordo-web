@@ -663,6 +663,7 @@ define( 'TEXT_MEJOR_PRECIO', '<b>The best price, guaranteed!</b> Have you seen i
 define( 'TEXT_INFORMANOS', 'Inform us' );
 define( 'TEXT_DESCARGAR', 'Download' );
 define( 'TEXT_FICHA_PDF', 'File in PDF' );
+define( 'TEXT_DOCUMENTACION', 'Documentation' );
 define( 'TEXT_ANADIR', 'add' );
 define( 'TEXT_GRATIS', 'Free!' );
 define( 'TEXT_REPUESTOS', 'Do you need spare parts for this item?' );

@@ -39,7 +39,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 // 3) IP allowlist (Oct8ne 40.115.11.160 + IP del LAN/RAG por si llega via RAG)
-$ALLOWED_IPS = ['40.115.11.160', '20.8.249.201', '217.127.199.171']; // 20.8.x = egress Azure real de Oct8ne (la 40.115 declarada no se usa)
+$ALLOWED_IPS = [
+    // Oct8ne - lista oficial de IPs de egress (facilitada 2026-05-22)
+    '13.69.68.1', '20.229.254.234', '20.229.255.27', '20.8.248.227', '20.8.249.201',
+    '20.8.250.250', '20.8.251.168', '104.47.161.32', '104.47.142.248', '40.115.59.104',
+    '104.47.144.212', '52.233.203.135', '104.47.161.137', '104.47.143.150', '104.47.161.68',
+    '20.160.240.24', '20.160.241.96', '20.160.242.123', '20.160.242.214', '20.160.242.218',
+    '20.160.242.244',
+    // LAN/RAG egress para pruebas internas
+    '217.127.199.171',
+];
 $_remoteIP = $_SERVER['REMOTE_ADDR'] ?? '';
 if (!in_array($_remoteIP, $ALLOWED_IPS, true)) {
     http_response_code(403);

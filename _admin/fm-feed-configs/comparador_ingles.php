@@ -102,6 +102,14 @@ $feed_config = [
 			'output' => 'IS_IN_STOCK',
 			'type'   => 'KEYWORD',
 		],
+		'pdf_url'                 => [
+			'output' => 'FM_RS_pdf_url_comparador_ingles',
+			'type'   => 'FUNCTION',
+		],
+		'file_url'                => [
+			'output' => 'FM_RS_file_url_comparador_ingles',
+			'type'   => 'FUNCTION',
+		],
 	],
 	'currency_decimal_override'   => false,
 	
@@ -312,6 +320,24 @@ function FM_RS_final_price_with_tax_comparador_ingles($product) {
 	$price = round(($price) * (1 + ((tep_get_tax_rate($product['products_tax_class_id']) / 100))), 2);
     return $price . ' EUR';
 
+}
+
+// URL absoluta a la ficha PDF (products_pdfupload -> /manuals/). El nombre en BD puede venir doble-codificado (conexión utf8 sobre bytes UTF-8); probar variante ISO-8859-1 para casar con el fichero en disco.
+function FM_RS_pdf_url_comparador_ingles($product) {
+	$f = $product['products_pdfupload'] ?? '';
+	if ($f === '' || $f === 'null' || $f === 'NULL' || strpos($f, '.') === false) return '';
+	foreach (array($f, @mb_convert_encoding($f, 'ISO-8859-1', 'UTF-8')) as $cand)
+		if ($cand !== '' && @file_exists(DIR_FS_CATALOG_MANUALS . $cand)) return HTTP_SERVER . '/manuals/' . rawurlencode($cand);
+	return '';
+}
+
+// URL absoluta al adjunto adicional (products_fileupload -> /images/upload/).
+function FM_RS_file_url_comparador_ingles($product) {
+	$f = $product['products_fileupload'] ?? '';
+	if ($f === '' || $f === 'null' || $f === 'NULL' || $f === 'products_fileupload' || strpos($f, '.') === false) return '';
+	foreach (array($f, @mb_convert_encoding($f, 'ISO-8859-1', 'UTF-8')) as $cand)
+		if ($cand !== '' && @file_exists(DIR_FS_CATALOG_IMAGES . 'upload/' . $cand)) return HTTP_SERVER . '/' . DIR_WS_IMAGES . 'upload/' . rawurlencode($cand);
+	return '';
 }
 //FEED FUNCTIONS END
 

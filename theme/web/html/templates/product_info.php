@@ -215,8 +215,25 @@ echo tep_draw_form('cart_quantity', tep_href_link('product_info.php', tep_get_al
 
 					echo '<div class="row">' . TEXT_MEJOR_PRECIO . ' <a href="' . tep_href_link( 'mejorar_precio.php', 'id=' . $sGetProductsId ) . '" rel="nofollow" class="mgp-ajax">' . TEXT_INFORMANOS . '</a></div>';
 
+					$aDescargas = array();
+
 					if( $aProductoInfo['products_pdfupload'] != '' && $aProductoInfo['products_pdfupload'] != 'null' && $aProductoInfo['products_pdfupload'] != 'NULL' )
-						echo '<div class="row"><i class="tt tt-22"></i><a target="_blank" rel="nofollow" href="manuals/' . $aProductoInfo['products_pdfupload'] . '" class="pdfs">' . TEXT_DESCARGAR . '</a> <b>' . TEXT_FICHA_PDF . '</b></div>';
+						$aDescargas[] = '<i class="tt tt-22"></i><a target="_blank" rel="nofollow" href="manuals/' . $aProductoInfo['products_pdfupload'] . '" class="pdfs">' . TEXT_DESCARGAR . '</a> <b>' . TEXT_FICHA_PDF . '</b>';
+
+					$sFileUpload = $aProductoInfo['products_fileupload'] ?? '';
+					if( $sFileUpload != '' && $sFileUpload != 'null' && $sFileUpload != 'NULL' && $sFileUpload != 'products_fileupload' && strpos( $sFileUpload, '.' ) !== false )
+					{
+						// El nombre en BD puede venir doble-codificado (conexión utf8 sobre bytes UTF-8); probar también la variante ISO-8859-1 para casar con el fichero en disco
+						$sFileUploadFs = null;
+						foreach( array( $sFileUpload, @mb_convert_encoding( $sFileUpload, 'ISO-8859-1', 'UTF-8' ) ) as $sCand )
+							if( $sCand !== '' && @file_exists( DIR_WS_IMAGES . 'upload/' . $sCand ) ) { $sFileUploadFs = $sCand; break; }
+
+						if( $sFileUploadFs !== null )
+							$aDescargas[] = '<i class="tt tt-22"></i><a target="_blank" rel="nofollow" href="' . DIR_WS_IMAGES . 'upload/' . rawurlencode( $sFileUploadFs ) . '" class="pdfs">' . TEXT_DESCARGAR . '</a> <b>' . TEXT_DOCUMENTACION . '</b>';
+					}
+
+					if( $aDescargas )
+						echo '<div class="row">' . implode( '<span style="display:inline-block;width:48px;"></span>', $aDescargas ) . '</div>';
 				}
 			echo '</div>';
 

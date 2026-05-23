@@ -678,6 +678,7 @@ define( 'TEXT_MEJOR_PRECIO', '<b>¡Mejor precio garantizado!</b> ¿Lo has visto 
 define( 'TEXT_INFORMANOS', 'Infórmanos' );
 define( 'TEXT_DESCARGAR', 'Descargar' );
 define( 'TEXT_FICHA_PDF', 'Ficha en PDF' );
+define( 'TEXT_DOCUMENTACION', 'Documentación' );
 define( 'TEXT_ANADIR', 'añadir' );
 define( 'TEXT_GRATIS', '¡Gratis!' );
 define( 'TEXT_REPUESTOS', '¿Necesitas repuestos para este artículo?' );
