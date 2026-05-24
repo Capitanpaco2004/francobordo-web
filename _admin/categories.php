@@ -164,6 +164,166 @@
 			exit(1);
 		break;
 
+		// Subir modelo 3D (.glb) del producto -> images/productos/3d/<pID>.glb
+		case 'upload_3d':
+			header( 'Content-Type: application/json' );
+			$nPid3d = (int)( $_POST['pID'] ?? $_GET['pID'] ?? 0 );
+			if( $nPid3d <= 0 || empty( $_FILES['model_3d']['tmp_name'] ) || !is_uploaded_file( $_FILES['model_3d']['tmp_name'] ) )
+			{
+				echo json_encode( array( 'ok' => false, 'msg' => 'Falta el producto o el archivo' ) );
+				exit;
+			}
+			$sExt3d = strtolower( pathinfo( (string)$_FILES['model_3d']['name'], PATHINFO_EXTENSION ) );
+			if( $sExt3d !== 'glb' )
+			{
+				echo json_encode( array( 'ok' => false, 'msg' => 'Solo se admite .glb' ) );
+				exit;
+			}
+			// Validar magic bytes glTF (los .glb empiezan por "glTF")
+			$fh3d = @fopen( $_FILES['model_3d']['tmp_name'], 'rb' );
+			$sMagic3d = $fh3d ? fread( $fh3d, 4 ) : '';
+			if( $fh3d ) fclose( $fh3d );
+			if( $sMagic3d !== 'glTF' )
+			{
+				echo json_encode( array( 'ok' => false, 'msg' => 'El archivo no es un .glb valido' ) );
+				exit;
+			}
+			$sDir3d = getcwd() . '/../images/productos/3d/';
+			if( !is_dir( $sDir3d ) ) @mkdir( $sDir3d, 0755, true );
+			$sDest3d = $sDir3d . $nPid3d . '.glb';
+			if( move_uploaded_file( $_FILES['model_3d']['tmp_name'], $sDest3d ) )
+			{
+				@chmod( $sDest3d, 0644 );
+				@unlink( $sDir3d . $nPid3d . '.glb.fromstep' ); // glb subido a mano: deja de considerarse autogenerado
+				echo json_encode( array( 'ok' => true, 'size' => filesize( $sDest3d ) ) );
+			}
+			else
+			{
+				echo json_encode( array( 'ok' => false, 'msg' => 'No se pudo guardar el archivo' ) );
+			}
+			exit;
+		break;
+
+		// Eliminar el modelo 3D (.glb) del producto
+		case 'delete_3d':
+			header( 'Content-Type: application/json' );
+			$nPid3d = (int)( $_POST['pID'] ?? $_GET['pID'] ?? 0 );
+			$sDest3d = getcwd() . '/../images/productos/3d/' . $nPid3d . '.glb';
+			if( $nPid3d > 0 && file_exists( $sDest3d ) ) @unlink( $sDest3d );
+			if( $nPid3d > 0 ) @unlink( getcwd() . '/../images/productos/3d/' . $nPid3d . '.glb.fromstep' );
+			echo json_encode( array( 'ok' => true ) );
+			exit;
+		break;
+
+		// Subir archivo CAD (.step/.stp) del producto -> images/productos/3d/<pID>.step (descargable, no se renderiza)
+		case 'upload_step':
+			header( 'Content-Type: application/json' );
+			$nPidStep = (int)( $_POST['pID'] ?? $_GET['pID'] ?? 0 );
+			if( $nPidStep <= 0 || empty( $_FILES['cad_step']['tmp_name'] ) || !is_uploaded_file( $_FILES['cad_step']['tmp_name'] ) )
+			{
+				echo json_encode( array( 'ok' => false, 'msg' => 'Falta el producto o el archivo' ) );
+				exit;
+			}
+			$sExtStep = strtolower( pathinfo( (string)$_FILES['cad_step']['name'], PATHINFO_EXTENSION ) );
+			if( !in_array( $sExtStep, array( 'step', 'stp', 'zip' ), true ) )
+			{
+				echo json_encode( array( 'ok' => false, 'msg' => 'Solo se admite .step, .stp o .zip' ) );
+				exit;
+			}
+			$sDirStep = getcwd() . '/../images/productos/3d/';
+			if( !is_dir( $sDirStep ) ) @mkdir( $sDirStep, 0755, true );
+			$sTmp = $_FILES['cad_step']['tmp_name'];
+
+			if( $sExtStep === 'zip' )
+			{
+				// Validar firma ZIP (PK\x03\x04)
+				$fhZ = @fopen( $sTmp, 'rb' ); $sSigZ = $fhZ ? fread( $fhZ, 4 ) : ''; if( $fhZ ) fclose( $fhZ );
+				if( $sSigZ !== "PK\x03\x04" )
+				{
+					echo json_encode( array( 'ok' => false, 'msg' => 'El archivo .zip no es valido' ) );
+					exit;
+				}
+				// Si ZipArchive esta disponible, comprobar que contiene un .step/.stp
+				if( class_exists( 'ZipArchive' ) )
+				{
+					$oZip = new ZipArchive();
+					if( $oZip->open( $sTmp ) === true )
+					{
+						$bZipHasStep = false;
+						for( $i = 0; $i < $oZip->numFiles; $i++ )
+						{
+							$sEnt = (string)$oZip->getNameIndex( $i );
+							if( substr( $sEnt, -1 ) !== '/' && preg_match( '/\.(step|stp)$/i', $sEnt ) ) { $bZipHasStep = true; break; }
+						}
+						$oZip->close();
+						if( !$bZipHasStep )
+						{
+							echo json_encode( array( 'ok' => false, 'msg' => 'El zip no contiene ningun .step/.stp' ) );
+							exit;
+						}
+					}
+				}
+				$sDestZip = $sDirStep . $nPidStep . '.step.zip';
+				if( !move_uploaded_file( $sTmp, $sDestZip ) )
+				{
+					echo json_encode( array( 'ok' => false, 'msg' => 'No se pudo guardar el archivo' ) );
+					exit;
+				}
+				@chmod( $sDestZip, 0644 );
+				@unlink( $sDirStep . $nPidStep . '.step' ); // canonical pasa al zip
+				$nCadSize = filesize( $sDestZip );
+			}
+			else
+			{
+				// .step/.stp: validar cabecera ISO-10303-21
+				$fhStep = @fopen( $sTmp, 'rb' ); $sHeadStep = $fhStep ? fread( $fhStep, 200 ) : ''; if( $fhStep ) fclose( $fhStep );
+				if( stripos( $sHeadStep, 'ISO-10303-21' ) === false )
+				{
+					echo json_encode( array( 'ok' => false, 'msg' => 'El archivo no es un STEP valido' ) );
+					exit;
+				}
+				$sDestStep = $sDirStep . $nPidStep . '.step';
+				if( !move_uploaded_file( $sTmp, $sDestStep ) )
+				{
+					echo json_encode( array( 'ok' => false, 'msg' => 'No se pudo guardar el archivo' ) );
+					exit;
+				}
+				@chmod( $sDestStep, 0644 );
+				@unlink( $sDirStep . $nPidStep . '.step.zip' ); // el cron regenerara el zip desde el crudo
+				$nCadSize = filesize( $sDestStep );
+			}
+
+			// La conversion STEP->glb y el empaquetado .zip los hace un cron (la SAPI web tiene exec() deshabilitado). No se pisa un glb manual.
+			$sGlbPath = $sDirStep . $nPidStep . '.glb';
+			$sMarker  = $sDirStep . $nPidStep . '.glb.fromstep';
+			if( file_exists( $sGlbPath ) && !file_exists( $sMarker ) )
+				$sGlbMsg = 'Ya hay un modelo 3D subido a mano; se mantiene (el STEP no lo sobrescribe).';
+			else
+				$sGlbMsg = 'El modelo 3D se generara automaticamente en unos minutos.';
+
+			echo json_encode( array( 'ok' => true, 'size' => $nCadSize, 'glb' => $sGlbMsg ) );
+			exit;
+		break;
+
+		// Eliminar el archivo CAD (.step) del producto
+		case 'delete_step':
+			header( 'Content-Type: application/json' );
+			$nPidStep = (int)( $_POST['pID'] ?? $_GET['pID'] ?? 0 );
+			$sDirStep = getcwd() . '/../images/productos/3d/';
+			$sDestStep = $sDirStep . $nPidStep . '.step';
+			if( $nPidStep > 0 && file_exists( $sDestStep ) ) @unlink( $sDestStep );
+			if( $nPidStep > 0 && file_exists( $sDirStep . $nPidStep . '.step.zip' ) ) @unlink( $sDirStep . $nPidStep . '.step.zip' );
+			// Si el glb era autogenerado desde el step, lo quitamos tambien (no tocamos un glb subido a mano)
+			$sMarker = $sDirStep . $nPidStep . '.glb.fromstep';
+			if( $nPidStep > 0 && file_exists( $sMarker ) )
+			{
+				@unlink( $sDirStep . $nPidStep . '.glb' );
+				@unlink( $sMarker );
+			}
+			echo json_encode( array( 'ok' => true ) );
+			exit;
+		break;
+
 		// Eliminar una imagen de categoria o producto
 		case 'delete_image':
 			// Variables
@@ -3066,6 +3226,119 @@
 													</div>
 												</div>
 											</div>
+											<?php
+												// Bloque modelo 3D (.glb) -> images/productos/3d/<pID>.glb
+												$nPid3dEdit = (int)( $pInfo->products_id ?? 0 );
+												$s3dPathEdit = getcwd() . '/../images/productos/3d/' . $nPid3dEdit . '.glb';
+												$bHas3dEdit = ( $nPid3dEdit > 0 && file_exists( $s3dPathEdit ) );
+											?>
+											<div id="product_3d_upload" class="box-tbl grid12">
+												<div class="box-head">
+													<h6>Modelo 3D (.glb)</h6>
+													<div class="clear"></div>
+												</div>
+												<?php if( $nPid3dEdit <= 0 ): ?>
+													<p style="padding:12px;">Guarda el producto primero para poder subir su modelo 3D.</p>
+												<?php else: ?>
+													<div style="padding:12px;">
+														<p id="p3d-status" style="margin:0 0 10px;">
+															<?php if( $bHas3dEdit ): ?>
+																Modelo actual: <a target="_blank" href="<?php echo DIR_WS_CATALOG_IMAGES; ?>productos/3d/<?php echo $nPid3dEdit; ?>.glb"><?php echo $nPid3dEdit; ?>.glb</a>
+																(<?php echo round( filesize( $s3dPathEdit ) / 1048576, 2 ); ?> MB)<?php if( file_exists( $s3dPathEdit . '.fromstep' ) ) echo ' <em style="color:#888;">(generado desde STEP)</em>'; ?>
+																<a href="javascript:void(0)" id="p3d-delete" class="buttonS bRed" style="margin-left:10px;">Eliminar</a>
+															<?php else: ?>
+																No hay modelo 3D para este producto.
+															<?php endif; ?>
+														</p>
+														<input type="file" id="p3d-file" accept=".glb,model/gltf-binary" style="display:inline-block;">
+														<a href="javascript:void(0)" id="p3d-upload" class="buttonS bGreen"><?php echo $bHas3dEdit ? 'Reemplazar modelo' : 'Subir modelo'; ?></a>
+														<span id="p3d-msg" style="margin-left:10px;color:#888;"></span>
+													</div>
+													<script>
+													(function(){
+														var pid = <?php echo $nPid3dEdit; ?>;
+														var btn=document.getElementById('p3d-upload'), file=document.getElementById('p3d-file'), msg=document.getElementById('p3d-msg');
+														if(btn) btn.addEventListener('click',function(){
+															if(!file.files.length){ msg.style.color='red'; msg.textContent='Elige un archivo .glb'; return; }
+															var f=file.files[0];
+															if(!/\.glb$/i.test(f.name)){ msg.style.color='red'; msg.textContent='Solo se admite .glb'; return; }
+															var fd=new FormData(); fd.append('pID',pid); fd.append('model_3d',f);
+															msg.style.color='#888'; msg.textContent='Subiendo... ('+(f.size/1048576).toFixed(2)+' MB)';
+															fetch('categories.php?action=upload_3d',{method:'POST',body:fd,credentials:'same-origin'})
+															  .then(function(r){return r.json();})
+															  .then(function(d){ if(d.ok){ msg.style.color='green'; msg.textContent='Subido ('+(d.size/1048576).toFixed(2)+' MB). Recarga la pagina para ver el estado.'; } else { msg.style.color='red'; msg.textContent='Error: '+(d.msg||'desconocido'); } })
+															  .catch(function(){ msg.style.color='red'; msg.textContent='Error de red'; });
+														});
+														var del=document.getElementById('p3d-delete');
+														if(del) del.addEventListener('click',function(){
+															if(!confirm('Eliminar el modelo 3D de este producto?')) return;
+															var fd=new FormData(); fd.append('pID',pid);
+															fetch('categories.php?action=delete_3d',{method:'POST',body:fd,credentials:'same-origin'})
+															  .then(function(r){return r.json();})
+															  .then(function(d){ if(d.ok){ msg.style.color='green'; msg.textContent='Eliminado. Recarga la pagina.'; } });
+														});
+													})();
+													</script>
+												<?php endif; ?>
+											</div>
+											<div id="product_step_upload" class="box-tbl grid12">
+												<div class="box-head">
+													<h6>Archivo CAD (STEP) &mdash; descargable por el cliente</h6>
+													<div class="clear"></div>
+												</div>
+												<?php if( $nPid3dEdit <= 0 ): ?>
+													<p style="padding:12px;">Guarda el producto primero para poder subir su archivo CAD.</p>
+												<?php else:
+													$sStepDir3d   = getcwd() . '/../images/productos/3d/';
+													$sStepZipEdit = $sStepDir3d . $nPid3dEdit . '.step.zip';
+													$sStepRawEdit = $sStepDir3d . $nPid3dEdit . '.step';
+													$bStepZip     = file_exists( $sStepZipEdit );
+													$bStepRaw     = file_exists( $sStepRawEdit );
+													$bHasStepEdit = $bStepZip || $bStepRaw;
+													$sStepDlFile  = $bStepZip ? ( $nPid3dEdit . '.step.zip' ) : ( $nPid3dEdit . '.step' );
+													$sStepDlSize  = $bStepZip ? filesize( $sStepZipEdit ) : ( $bStepRaw ? filesize( $sStepRawEdit ) : 0 );
+												?>
+													<div style="padding:12px;">
+														<p id="pstep-status" style="margin:0 0 10px;">
+															<?php if( $bHasStepEdit ): ?>
+																Archivo actual: <a target="_blank" href="<?php echo DIR_WS_CATALOG_IMAGES; ?>productos/3d/<?php echo $sStepDlFile; ?>" download><?php echo $sStepDlFile; ?></a>
+																(<?php echo round( $sStepDlSize / 1048576, 2 ); ?> MB)
+																<a href="javascript:void(0)" id="pstep-delete" class="buttonS bRed" style="margin-left:10px;">Eliminar</a>
+															<?php else: ?>
+																No hay archivo CAD para este producto.
+															<?php endif; ?>
+														</p>
+														<input type="file" id="pstep-file" accept=".step,.stp,.zip" style="display:inline-block;">
+														<a href="javascript:void(0)" id="pstep-upload" class="buttonS bGreen"><?php echo $bHasStepEdit ? 'Reemplazar CAD' : 'Subir CAD'; ?></a>
+														<span id="pstep-msg" style="margin-left:10px;color:#888;"></span>
+													</div>
+													<script>
+													(function(){
+														var pid = <?php echo $nPid3dEdit; ?>;
+														var btn=document.getElementById('pstep-upload'), file=document.getElementById('pstep-file'), msg=document.getElementById('pstep-msg');
+														if(btn) btn.addEventListener('click',function(){
+															if(!file.files.length){ msg.style.color='red'; msg.textContent='Elige un archivo .step, .stp o .zip'; return; }
+															var f=file.files[0];
+															if(!/\.(step|stp|zip)$/i.test(f.name)){ msg.style.color='red'; msg.textContent='Solo se admite .step, .stp o .zip'; return; }
+															var fd=new FormData(); fd.append('pID',pid); fd.append('cad_step',f);
+															msg.style.color='#888'; msg.textContent='Subiendo... ('+(f.size/1048576).toFixed(2)+' MB)';
+															fetch('categories.php?action=upload_step',{method:'POST',body:fd,credentials:'same-origin'})
+															  .then(function(r){return r.json();})
+															  .then(function(d){ if(d.ok){ msg.style.color='green'; msg.textContent='Subido ('+(d.size/1048576).toFixed(2)+' MB). '+(d.glb||'')+' Recarga la pagina.'; } else { msg.style.color='red'; msg.textContent='Error: '+(d.msg||'desconocido'); } })
+															  .catch(function(){ msg.style.color='red'; msg.textContent='Error de red'; });
+														});
+														var del=document.getElementById('pstep-delete');
+														if(del) del.addEventListener('click',function(){
+															if(!confirm('Eliminar el archivo CAD de este producto?')) return;
+															var fd=new FormData(); fd.append('pID',pid);
+															fetch('categories.php?action=delete_step',{method:'POST',body:fd,credentials:'same-origin'})
+															  .then(function(r){return r.json();})
+															  .then(function(d){ if(d.ok){ msg.style.color='green'; msg.textContent='Eliminado. Recarga la pagina.'; } });
+														});
+													})();
+													</script>
+												<?php endif; ?>
+											</div>
 										</div>
 									</td>
 								</tr>
@@ -3992,7 +4265,7 @@
                                                 if( (!isset($_GET['cID']) && !isset($_GET['pID']) || (isset($_GET['cID']) && ($_GET['cID'] == $categories['categories_id']))) && !isset($cInfo) && (substr($action, 0, 3) != 'new') )
                                                 {
                                                     $category_childs = array('childs_count' => tep_childs_in_category_count($categories['categories_id']));
-                                                    $category_products = array('products_count' => tep_products_in_category_count($categories['categories_id']));
+                                                    $category_products = array('products_count' => tep_products_in_category_count($categories['categories_id'], true));
 
                                                     $cInfo_array = array_merge($categories, $category_childs, $category_products);
                                                     $cInfo = new objectInfo($cInfo_array);

@@ -96,7 +96,7 @@ class redsys {
 		$idioma = MODULE_PAYMENT_REDSYS_IDIOMA;
 
 		if( $idioma == "Si") {
-			$idioma_web =substr($_SERVER["HTTP_ACCEPT_LANGUAGE"],0,2);
+			$idioma_web =substr((string)($_SERVER["HTTP_ACCEPT_LANGUAGE"] ?? ''),0,2);
 
 			switch ($idioma_web) {
 				case 'es':

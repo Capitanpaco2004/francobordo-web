@@ -4,6 +4,58 @@ var dmNav = $("#head");
 var dmHead = $("#banrs-home").length > 0 ? $("#banrs-home") : $("#titu1");
 var nHeightNav;
 
+// Galeria de ficha (feature "imagen por valor de atributo"):
+// reconstruye #slick-fich CONSERVANDO la galeria original y, si el valor seleccionado
+// tiene imagen de atributo, la antepone como primer slide. window.amFichGalleryOrig se
+// captura en createSlick() antes de inicializar Slick (HTML limpio, sin clones).
+window.amAttrImgPending = null;
+function amRebuildFichGallery(aImages) {
+	var $gal = $("#slick-fich");
+	if (!$gal.length || typeof window.amFichGalleryOrig === 'undefined') return;
+
+	var sPrepend = "";
+	if (aImages && aImages.length && aImages[0] !== "") {
+		// Caja de referencia = altura de la imagen principal original del producto, para encajar
+		// la imagen del atributo (object-fit:contain) y que no salga mas grande/alta que las demas.
+		var refH = 0;
+		try {
+			var tmpDiv = document.createElement('div');
+			tmpDiv.innerHTML = window.amFichGalleryOrig;
+			var refImg = tmpDiv.querySelector('img[height]');
+			if (refImg) refH = parseInt(refImg.getAttribute('height'), 10) || 0;
+		} catch (e) {}
+		var sImgStyle = refH
+			? 'max-width:100%;width:auto;height:auto;max-height:' + refH + 'px;object-fit:contain;display:block;margin:0 auto;'
+			: 'max-width:100%;height:auto;display:block;margin:0 auto;';
+
+		$.each(aImages, function(i, sFile) {
+			if (sFile === "") return;
+			var sSrc = "images/atributos/" + sFile;
+			sPrepend += '<div class="item img attr-img" data-thumb="' + sSrc + '" data-src="' + sSrc + '"><picture><img src="' + sSrc + '" style="' + sImgStyle + '" border="0" alt="" /></picture></div>';
+		});
+	}
+
+	// Evitamos reconstruir si el estado (prepend) no cambia, para no parpadear ni resetear posicion.
+	if ($gal.data("amAttrState") === sPrepend) return;
+	$gal.data("amAttrState", sPrepend);
+
+	if ($gal.hasClass("slick-initialized")) $gal.slick("unslick");
+	try { if ($gal.data("lightGallery")) $gal.data("lightGallery").destroy(true); } catch (e) {}
+
+	$gal.html(sPrepend + window.amFichGalleryOrig);
+	$gal.children().removeClass("actv").first().addClass("actv");
+
+	$gal.not(".slick-initialized").slick({
+		slidesToShow: 1, slidesToScroll: 1, dots: true, infinite: true, cssEase: 'linear',
+		prevArrow: false, nextArrow: false,
+		customPaging: function(slider, i) {
+			var thumb = $(slider.$slides[i]).data('thumb');
+			return '<a><img src="' + thumb + '"></a>';
+		}
+	});
+	$gal.lightGallery({selector: '.item:not(.slick-cloned):not(.item-3d)'});
+}
+
 var appClass = function()
 {
 	// Variables
@@ -122,46 +174,9 @@ var appClass = function()
                 switch (sAction)
 				{
                     case "change_image":
-						// Variables
-						var aImages = sValue.split("[dxsepare]");
-						var sHtml = "";
-						var sHtmlThumb = "";
-
-						// Obtenemos por ajax imagen redimensionada
-						$.ajax( {
-							type: "POST",
-							url: "product_info.php?a=chng_image",
-							dataType: 'json',
-							data: { 'images': aImages },
-							success: function(aImage)
-							{
-								sHtml = aImage['html'];
-								sHtmlThumb = aImage['htmlthumb'];
-
-								// Si contenemos imagenes cambiamos
-								if( sHtml != "" )
-								{
-									// Eliminamos
-									$(".dgal .gall").remove();
-
-									// Recreamos
-									$(".dgal .list").after('<div class="gall">' + sHtml + '</div>');
-
-									// Ficha de productos galeria
-									$(".dgal .gall").lightGallery({selector: '.item'});
-
-									$(".dgal .list").remove();
-
-									// Recreamos
-									$(".dgal .gall").before('<div class="list clearfix">' + sHtmlThumb + '</div>');
-
-									$("#fich .dgal .list").on( "click", "div", function() {
-										$(".dgal .gall .item").removeClass("actv");
-										$(".dgal .gall .item").eq($(this).index()).addClass("actv");
-									});
-								}
-							}
-						});
+						// Solo marcamos la imagen pendiente; la galeria la reconstruye callSelectOption
+						// (que se dispara despues, en cada seleccion) conservando la galeria original.
+						window.amAttrImgPending = sValue.split("[dxsepare]");
 					break;
 					case "wishlist":
 						var sCombinacion = self.get("wishlist").attributeSelect(sCombinacion);
@@ -297,6 +312,11 @@ var appClass = function()
 				var dmParent = $(dmThis).closest(".cntd");
 				dmParent.find(".val.actv").removeClass("actv");
 				dmParent.find(".val").eq( $(dmThis).parent().prop("selectedIndex") ).addClass("actv");
+
+					// Galeria: conservar la original y anteponer la imagen del atributo si el valor la tiene
+					// (change_image, que corre antes, ha dejado la imagen en window.amAttrImgPending).
+					amRebuildFichGallery(window.amAttrImgPending);
+					window.amAttrImgPending = null;
 			}
         });
 	}
@@ -1040,8 +1060,8 @@ var appClass = function()
 		// Crear slider
 		self.createSlick();
 
-		// Ampliar imagenes de productos
-		$("#slick-fich").lightGallery({selector: '.item:not(.slick-cloned)'});
+		// Ampliar imagenes de productos (excluimos el slide 3D: no es una foto que ampliar)
+		$("#slick-fich").lightGallery({selector: '.item:not(.slick-cloned):not(.item-3d)'});
 	}
 
 	// Crear slider
@@ -1158,6 +1178,11 @@ var appClass = function()
 		});
 
 		// Ficha de producto
+		// Capturamos el HTML original de la galeria (slides limpios, sin clones) antes de inicializar
+		// Slick, para poder restaurarla al anteponer/quitar la imagen del atributo (feature imagen por atributo).
+		if (typeof window.amFichGalleryOrig === 'undefined' && $('#slick-fich').length && !$('#slick-fich').hasClass('slick-initialized'))
+			window.amFichGalleryOrig = $('#slick-fich').html();
+
 		$('#slick-fich').not(".slick-initialized").slick({
 		    slidesToShow: 1,
 		    slidesToScroll: 1,
@@ -1172,6 +1197,13 @@ var appClass = function()
 		    }
 		});
 
+		// En el slide del visor 3D desactivamos el arrastre de Slick para que el gesto
+		// rote el modelo en vez de cambiar de slide; se navega fuera del 3D por los thumbnails (dots).
+		$('#slick-fich').off('afterChange.mv3d').on('afterChange.mv3d', function(e, slick, current) {
+			var on3d = $(slick.$slides.get(current)).hasClass('item-3d');
+			slick.slickSetOption('swipe', !on3d, false);
+			slick.slickSetOption('draggable', !on3d, false);
+		});
 
 	}
 

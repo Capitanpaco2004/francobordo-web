@@ -124,7 +124,35 @@ echo tep_draw_form('cart_quantity', tep_href_link('product_info.php', tep_get_al
 					</div>';
 				}
 			}
+
+			// Slide del visor 3D: solo si existe el modelo .glb del producto (detección por id, igual que el resto del pipeline).
+			$bHas3d = false;
+			$s3dWeb = DIR_WS_IMAGES . 'productos/3d/' . (int)$aProductoInfo['products_id'] . '.glb';
+			if( file_exists( $s3dWeb ) )
+			{
+				$bHas3d = true;
+				// Poster = primera imagen del producto (o no_image); el .glb no se descarga hasta interactuar (reveal="interaction").
+				$sImg0 = $aProductoInfo['imagenes'][0] ?? '';
+				$sPoster3d = ($sImg0 && file_exists( DIR_WS_IMAGES . 'productos/' . $sImg0 ))
+					? tep_image_thumb( DIR_WS_IMAGES . 'productos/' . $sImg0, 588, 506 )
+					: 'theme/web/images/general/no_image.jpg';
+
+				echo '<div class="item item-3d" data-thumb="theme/web/images/general/badge_3d.svg" data-glb="' . $s3dWeb . '">
+					<model-viewer src="' . $s3dWeb . '" poster="' . $sPoster3d . '" alt="' . htmlspecialchars( $aProductoInfo['products_name'], ENT_QUOTES ) . ' 3D"
+						reveal="interaction" camera-controls touch-action="pan-y" auto-rotate auto-rotate-delay="3000"
+						ar ar-modes="webxr scene-viewer quick-look" environment-image="neutral" tone-mapping="neutral" shadow-intensity="1.2" shadow-softness="0.8" exposure="1"
+						style="width:100%;height:506px;background:linear-gradient(180deg,#fbfcfd 0%,#dfe6ec 100%);--poster-color:#f5f5f5;">
+					</model-viewer>
+				</div>';
+			}
 		echo '</div>';
+		// model-viewer auto-hospedado, FUERA del #slick-fich (un <script> hijo del slider se vuelve un slide fantasma y NO se ejecuta) y FUERA del bundle minify (es un ES module).
+		if( $bHas3d )
+		{
+			echo '<script type="module" src="theme/web/js/model-viewer.min.js"></script>';
+			// Al entrar en el slide 3D, disparamos la carga del modelo (reveal="interaction" no carga hasta interactuar; aquí lo hacemos al elegir el dot 3D).
+			echo '<script>document.addEventListener("DOMContentLoaded",function(){if(!window.jQuery)return;jQuery("#slick-fich").on("afterChange.mv3dload",function(e,s,c){if(jQuery(s.$slides.get(c)).hasClass("item-3d")){document.querySelectorAll("#slick-fich .slick-current model-viewer,#slick-fich .slick-active model-viewer").forEach(function(m){try{m.dismissPoster();}catch(_){}});}});});</script>';
+		}
 	echo '</div>';
 
 	echo '<div class="col a06 t12 m12 right">';
@@ -234,6 +262,15 @@ echo tep_draw_form('cart_quantity', tep_href_link('product_info.php', tep_get_al
 
 					if( $aDescargas )
 						echo '<div class="row">' . implode( '<span style="display:inline-block;width:48px;"></span>', $aDescargas ) . '</div>';
+
+					// Archivo CAD descargable EN SU PROPIA FILA (debajo del PDF): preferimos el .zip (mucho mas pequeno)
+					$nPidCad = (int)$aProductoInfo['products_id'];
+					$sStepZipWeb = DIR_WS_IMAGES . 'productos/3d/' . $nPidCad . '.step.zip';
+					$sStepWeb    = DIR_WS_IMAGES . 'productos/3d/' . $nPidCad . '.step';
+					if( file_exists( $sStepZipWeb ) )
+						echo '<div class="row"><i class="tt tt-22"></i><a href="' . $sStepZipWeb . '" download rel="nofollow" class="pdfs">' . TEXT_DESCARGAR . '</a> <b>Modelo CAD (STEP, .zip)</b></div>';
+					elseif( file_exists( $sStepWeb ) )
+						echo '<div class="row"><i class="tt tt-22"></i><a href="' . $sStepWeb . '" download rel="nofollow" class="pdfs">' . TEXT_DESCARGAR . '</a> <b>Modelo CAD (STEP)</b></div>';
 				}
 			echo '</div>';
 

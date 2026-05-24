@@ -111,7 +111,7 @@
           $zone_name = $response_array['SHIPTOSTATE'];
           $zone_id = 0;
 
-          $zone_query = tep_db_query("select zone_id, zone_name from " . TABLE_ZONES . " where zone_country_id = '" . (int)$country['countries_id'] . "' and zone_code = '" . tep_db_input($zone_code) . "'");
+          $zone_query = tep_db_query("select zone_id, zone_name from " . TABLE_ZONES . " where zone_country_id = '" . (int)$country['countries_id'] . "' and CONVERT(zone_code USING utf8mb4) = '" . tep_db_input($zone_code) . "'");
           if (tep_db_num_rows($zone_query)) {
             $zone = tep_db_fetch_array($zone_query);
 

@@ -79,7 +79,7 @@ class order {
 						   'telephone'      => $order['customers_telephone'],
 						   'email_address'  => $order['customers_email_address']];
 
-		$this->delivery = ['name'           => trim($order['delivery_name']),
+		$this->delivery = ['name'           => trim((string)($order['delivery_name'] ?? '')),
 						   'company'        => $order['delivery_company'],
 						   'street_address' => $order['delivery_street_address'],
 						   'telephone'      => $order['delivery_telephone'],

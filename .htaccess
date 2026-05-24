@@ -30,6 +30,8 @@ AddType application/x-font-ttf .ttf
 AddType application/x-font-opentype .otf
 AddType application/x-font-woff .woff
 AddType image/svg+xml .svg
+AddType model/gltf-binary .glb
+AddType model/step .step .stp
 
 <IfModule mod_mime.c>
   AddType image/webp .webp

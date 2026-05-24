@@ -12,6 +12,7 @@
  */
 
   require('includes/application_top.php');
+  require_once($_SERVER['DOCUMENT_ROOT'] . '/' . DIR_WS_FUNCTIONS . 'redemptions.php');
   include(DIR_WS_LANGUAGES . $language . '/customers_points_pending.php');
 
   require(DIR_WS_CLASSES . 'currencies.php');

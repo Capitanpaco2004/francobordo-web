@@ -23,7 +23,7 @@ define('TEXT_MAIN_SUPPORT', '<BR><p><span class="greetUser">Ayuda Instantanea</s
 
 <p><strong>Clientes registrados. </strong></p><p>Por favor <a href="' . tep_href_link(FILENAME_SUPPORT, 'action=new', 'NONSSL') . '" style="color:#0000ff; font-size: 12px; font-weight : bold;">Envíe su consulta</a> a través de los tickets de soporte <a href="' . tep_href_link(FILENAME_SUPPORT_TRACK, 'view=all', 'NONSSL') . '"  style="color:#0000ff; font-size: 12px; font-weight : bold;"> o actualice un ticket existente </a>y le responderemos a la mayor brevedad. Si lo desea puede sugerir la inclusión de su pregunta en las FAQ.</p>
   <noscript>
-  <a href="'. tep_href_link(CONTACT_US) . '" target="_blank"  style="color:#0000FF">Servicio de respuesta</a>
+  <a href="'. tep_href_link(FILENAME_CONTACT_US) . '" target="_blank"  style="color:#0000FF">Servicio de respuesta</a>
   </noscript>
 
 de llamadas.</p> <p>Recomendamos la comunicación mediante tickets de soporte ya que esta información será registrada en nuestros sistemas, mientras que un mensaje enviado por mail podría perderse o ser rechazado por los filtros antispam. El formulario de <em>contacto</em> (abajo) podría perderse o ser rechazado igualmente por los filtros de spam</P>
@@ -39,10 +39,10 @@ function ppW2(url) {
   window.open(url,\'popupWindow\',\'toolbar=no,location=no,directories=no,status=no,menubar=no,scrollbars=no,resizable=yes,copyhistory=no,width=500,height=500,screenX=150,screenY=150,top=150,left=150\')
 }
 
-	document.write(\'<a href="javascript:ppW2(\\\''. tep_href_link(CONTACT_US, 'fn=' . tep_output_string_protected($customer_name) . '&email=' . tep_output_string_protected($customer_email) . '&id=' . tep_output_string_protected($customer_id))   . '\\\')"  style="color:#0000ff">Haga Click aquí para contactar con nosotros</a>\')
+	document.write(\'<a href="javascript:ppW2(\\\''. tep_href_link(FILENAME_CONTACT_US, 'fn=' . tep_output_string_protected($customer_name) . '&email=' . tep_output_string_protected($customer_email) . '&id=' . tep_output_string_protected($customer_id))   . '\\\')"  style="color:#0000ff">Haga Click aquí para contactar con nosotros</a>\')
 
   </script>
-  <noscript><a href="'. tep_href_link(CONTACT_US) . '" target="_blank" style="color:#0000ff">Haga Click aquí para contactar con nosotros<br></a></noscript>
+  <noscript><a href="'. tep_href_link(FILENAME_CONTACT_US) . '" target="_blank" style="color:#0000ff">Haga Click aquí para contactar con nosotros<br></a></noscript>
 
 
 .</p>

@@ -594,13 +594,6 @@ tep_db_query('UPDATE specials SET expires_repeat = 1 WHERE (expires_date IS NULL
 tep_db_query('UPDATE specials SET expires_date = NOW() + INTERVAL 14 DAY WHERE (expires_date IS NULL OR expires_date = "0000-00-00 00:00:00") AND expires_repeat = 1 AND status = 1;');
 tep_db_query('UPDATE specials SET expires_date = NOW() + INTERVAL 14 DAY WHERE expires_date < NOW() AND expires_repeat = 1 AND status = 1;');
 
-// Supertracker
-if (strpos(basename($PHP_SELF), 'account') !== false) {
-	require(DIR_WS_CLASSES . 'supertracker.php');
-	$tracker = new supertracker;
-	$tracker->update();
-}
-
 // Mantenimiento
 if (MANTENIMIENTO != 'Abrir' && !in_array($_SERVER['REMOTE_ADDR'], explode(',', MANTENIMIENTO_IP)) && basename($_SERVER['SCRIPT_NAME']) != 'mantenimiento.php') {
 	tep_redirect(tep_href_link('mantenimiento.php'));

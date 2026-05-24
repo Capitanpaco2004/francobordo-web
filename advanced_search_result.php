@@ -4,7 +4,7 @@
 	include( DIR_WS_LANGUAGES . $language . '/' . FILENAME_ADVANCED_SEARCH );
 
 	// Variables
-	$sSearch = tep_db_input( strtolower( ( tep_db_prepare_input( $_GET['buscar'] ) ) ) );
+	$sSearch = tep_db_input( strtolower( ( tep_db_prepare_input( $_GET['buscar'] ?? '' ) ) ) );
 	$sSearch2 = '';
 	$aSearchPlural = array();
 	$aSearchSingular = array();
@@ -156,7 +156,7 @@
 	$sJoins .= 'left outer join ' . TABLE_MANUFACTURERS . ' m on (p.manufacturers_id = m.manufacturers_id) ';
 
 	// Empezamos con el primer where de la palabra a buscar
-	$sWhere .= 'pd.products_name LIKE "%' . $sSearch . '%" COLLATE utf8_general_ci ';
+	$sWhere .= 'pd.products_name LIKE "%' . $sSearch . '%" COLLATE utf8mb4_general_ci ';
 
 	// Separamos las palabras
 	$aWords = preg_split( "/[\s]|[,]|[.]|[-]|[)]|[(]/", $sSearch, -1, PREG_SPLIT_NO_EMPTY );
@@ -320,9 +320,9 @@
 
 	// Contruimos los likes
 	foreach( $aSearchSingular as $aSearch )
-		$sWhere .= 'LCASE( products_name ) LIKE "%' . implode( '%', $aSearch ) . '%" COLLATE utf8_general_ci OR ';
+		$sWhere .= 'LCASE( products_name ) LIKE "%' . implode( '%', $aSearch ) . '%" COLLATE utf8mb4_general_ci OR ';
 	foreach( $aSearchPlural as $aSearch )
-		$sWhere .= 'LCASE( products_name ) LIKE "%' . implode( '%', $aSearch ) . '%" COLLATE utf8_general_ci OR ';
+		$sWhere .= 'LCASE( products_name ) LIKE "%' . implode( '%', $aSearch ) . '%" COLLATE utf8mb4_general_ci OR ';
 
 	// Construimos ahora para la descripcion del producto
 	if( $bDescription == 1 )
@@ -332,9 +332,9 @@
 
 		// Contruimos los likes
 		foreach( $aSearchSingular as $aSearch )
-			$sWhere .= 'LCASE( products_description ) LIKE "%' . implode( '%', $aSearch ) . '%" COLLATE utf8_general_ci OR ';
+			$sWhere .= 'LCASE( products_description ) LIKE "%' . implode( '%', $aSearch ) . '%" COLLATE utf8mb4_general_ci OR ';
 		foreach( $aSearchPlural as $aSearch )
-			$sWhere .= 'LCASE( products_description ) LIKE "%' . implode( '%', $aSearch ) . '%" COLLATE utf8_general_ci OR ';
+			$sWhere .= 'LCASE( products_description ) LIKE "%' . implode( '%', $aSearch ) . '%" COLLATE utf8mb4_general_ci OR ';
 	}
 
 	// Where
@@ -389,8 +389,12 @@
 	$aPaginador = $aAux['PAGE_PRODUCTOS'];
 	$nProductosTotal = $aAux['TOTAL'];
 
-	// Eliminamos la vista
-	tep_db_query( 'DROP VIEW ' . $sView . ';' );
+	// Eliminamos la vista al final del request: el template (advanced_search_ajax.php)
+	// reutiliza $aProductos vía tep_db_data_seek(), que con PDO re-ejecuta el SELECT
+	// sobre la vista, así que no podemos dropearla antes de renderizar.
+	register_shutdown_function( function() use ( $sView ) {
+		tep_db_query( 'DROP VIEW IF EXISTS ' . $sView . ';' );
+	} );
 
 	// Si solo hemos encontrado un resultado redireccionamos al product info
 	if( $nProductosTotal == 1 && ! isset( $_GET['page'] ) && ! isAjax() )

@@ -195,6 +195,29 @@ function tep_db_num_rows($db_query)
 }
 
 /**
+* Reposiciona el puntero del resultset. PDO no permite rebobinar un cursor
+* forward-only, así que para volver al inicio (row_number 0) re-ejecutamos el
+* statement; para offsets > 0 descartamos esas filas.
+* @param PDOStatement $db_query
+* @param int $row_number
+* @return bool
+*/
+function tep_db_data_seek($db_query, $row_number)
+{
+	if (!($db_query instanceof PDOStatement)) {
+		return false;
+	}
+	if ((int)$row_number === 0) {
+		$db_query->execute();
+		return true;
+	}
+	for ($i = 0; $i < (int)$row_number; $i++) {
+		$db_query->fetch();
+	}
+	return true;
+}
+
+/**
 * Ultimo ID insertado
 * @return int
 */

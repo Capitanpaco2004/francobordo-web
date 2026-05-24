@@ -156,6 +156,16 @@ if(!isset($_GET['target']) || 'currentAttributes' == $_GET['target']) {
 		</tr>
 		
 	<?php
+	// Opcion 3: precargamos las imagenes "change_image" del producto (clave oid-vid => fichero)
+	$amAttrImg = array();
+	$amAttrPid = (int)($_GET['products_id'] ?? 0);
+	if($amAttrPid > 0) {
+		$amAttrRes = tep_db_query('SELECT products_attributes, value FROM products_attributes_actions WHERE products_id = "' . $amAttrPid . '" AND action = "change_image"');
+		while($amAttrRow = tep_db_fetch_array($amAttrRes))
+			$amAttrImg[$amAttrRow['products_attributes']] = $amAttrRow['value'];
+	}
+	?>
+	<?php
 	if(0 < $numOptions) {
 		foreach($allProductOptionsAndValues as $optionId => $optionInfo){
 			$numValues = count($optionInfo['values']);
@@ -297,6 +307,19 @@ if(false){
 <?php
 }
 ?>
+<?php
+					// Opcion 3: imagen del valor (cambia la galeria en la ficha al seleccionarlo)
+					$amImgKey  = $optionId . '-' . $optionValueId;
+					$amImgFile = isset($amAttrImg[$amImgKey]) ? basename($amAttrImg[$amImgKey]) : '';
+					$amImgUid  = $optionId . '_' . $optionValueId;
+?>
+					<span class="amAttrImg" style="display:inline-block;vertical-align:middle;margin:0 4px;white-space:nowrap;">
+						<img id="amAttrImgThumb_<?php echo $amImgUid; ?>" src="<?php echo $amImgFile === '' ? '' : '../images/atributos/' . rawurlencode($amImgFile) . '?v=' . time(); ?>" style="width:30px;height:30px;object-fit:cover;border:1px solid #ccc;vertical-align:middle;<?php echo $amImgFile === '' ? 'display:none;' : ''; ?>" >
+						<label title="Imagen del valor" style="cursor:pointer;border:1px solid #bbb;border-radius:3px;padding:1px 5px;background:#f5f5f5;font-size:11px;vertical-align:middle;">Img
+							<input type="file" id="amAttrImgFile_<?php echo $amImgUid; ?>" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;" onchange="amAttrImageUpload('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>',this);">
+						</label>
+						<input type="image" id="amAttrImgClear_<?php echo $amImgUid; ?>" src="attributeManager/images/icon_delete.png" title="Quitar imagen del valor" onclick="return amAttrImageClear('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>');" style="vertical-align:middle;<?php echo $amImgFile === '' ? 'display:none;' : ''; ?>" >
+					</span>
 					<input type="image" border="0" onClick="return customPrompt('amRemoveOptionValueFromProduct','<?php echo addslashes("option_id:$optionId|option_value_id:$optionValueId|option_value_name:".str_replace('"','&quot;',$optionValueInfo['name']))?>');" src="attributeManager/images/icon_delete.png" title="<? echo htmlspecialchars(sprintf(AM_AJAX_PRODUCT_REMOVES_VALUE_FROM_OPTION,$optionValueInfo['name'],$optionInfo['name'])) ?>" >
 					<?php
 					if(AM_USE_SORT_ORDER) {

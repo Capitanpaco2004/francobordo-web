@@ -1,4 +1,6 @@
 <?php
+	use util\tools as tools;
+
 	// No indexar
 	header( 'X-Robots-Tag: noindex,nofollow' );
 

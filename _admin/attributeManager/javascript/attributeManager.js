@@ -665,3 +665,80 @@ function amMoveOption(getVars, Direction){
 //----------------------------
 // EOF Change: download attributes for AM
 //-----------------------------
+
+//----------------------------
+// Opcion 3: imagen principal por valor de atributo
+// Sube/borra la imagen via attributeManager/amAttrImage.php y la guarda como
+// accion change_image en products_attributes_actions (clave oid-vid).
+//----------------------------
+// URL del endpoint:
+//  - anclada al ORIGEN ACTUAL (location.origin) para ignorar el <base href>, que es http
+//    y romperia el fetch por mixed-content en una pagina https.
+//  - con el SID (sessionId) en la query: el admin de osCommerce propaga la sesion por URL,
+//    no solo por cookie; sin el, application_top redirige a login (302).
+function amAttrImageEndpoint() {
+	var base = location.origin + location.pathname.replace(/[^/]*$/, '') + 'attributeManager/amAttrImage.php';
+	if(typeof sessionId !== 'undefined' && sessionId !== '')
+		base += '?' + sessionId;
+	return base;
+}
+
+function amAttrImageUpload(oid, vid, input) {
+	if(!input || !input.files || !input.files[0]) return false;
+	var file = input.files[0];
+	if(file.size > 3 * 1024 * 1024) {
+		alert('La imagen es demasiado grande (maximo 3 MB).');
+		input.value = '';
+		return false;
+	}
+	var reader = new FileReader();
+	reader.onload = function(e) {
+		var data = new FormData();
+		data.append('products_id', productsId);
+		data.append('oid', oid);
+		data.append('vid', vid);
+		data.append('op', 'save');
+		data.append('image', e.target.result);
+		fetch(amAttrImageEndpoint(), { method: 'POST', body: data, credentials: 'same-origin' })
+			.then(function(r){ return r.json(); })
+			.then(function(j){
+				if(j && j.ok) {
+					var thumb = getElement('amAttrImgThumb_' + oid + '_' + vid);
+					if(thumb) { thumb.src = j.thumb; thumb.style.display = 'inline'; }
+					var clear = getElement('amAttrImgClear_' + oid + '_' + vid);
+					if(clear) clear.style.display = 'inline';
+				} else {
+					alert((j && j.error) ? j.error : 'No se pudo subir la imagen.');
+				}
+			})
+			.catch(function(){ alert('Error de red al subir la imagen.'); });
+		input.value = '';
+	};
+	reader.readAsDataURL(file);
+	return false;
+}
+
+function amAttrImageClear(oid, vid) {
+	if(!confirm('Quitar la imagen de este valor?')) return false;
+	var data = new FormData();
+	data.append('products_id', productsId);
+	data.append('oid', oid);
+	data.append('vid', vid);
+	data.append('op', 'clear');
+	fetch(amAttrImageEndpoint(), { method: 'POST', body: data, credentials: 'same-origin' })
+		.then(function(r){ return r.json(); })
+		.then(function(j){
+			if(j && j.ok) {
+				var thumb = getElement('amAttrImgThumb_' + oid + '_' + vid);
+				if(thumb) { thumb.style.display = 'none'; thumb.src = ''; }
+				var clear = getElement('amAttrImgClear_' + oid + '_' + vid);
+				if(clear) clear.style.display = 'none';
+				var fileInput = getElement('amAttrImgFile_' + oid + '_' + vid);
+				if(fileInput) fileInput.value = '';
+			} else {
+				alert((j && j.error) ? j.error : 'No se pudo quitar la imagen.');
+			}
+		})
+		.catch(function(){ alert('Error de red al quitar la imagen.'); });
+	return false;
+}

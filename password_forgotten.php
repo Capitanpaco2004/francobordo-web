@@ -58,7 +58,7 @@
 	
 	if (!$entry_antirobotreg_error) {
 // EOF Anti Robotic Registration v2.5		
-    $email_address = tep_db_prepare_input( trim( $_POST['email_address'] ) );
+    $email_address = tep_db_prepare_input( trim( $_POST['email_address'] ?? '' ) );
 
     $check_customer_query = tep_db_query("select customers_firstname, customers_lastname, customers_password, customers_id from " . TABLE_CUSTOMERS . " where LCASE( customers_email_address ) = '" . tep_db_input( strtolower( $email_address ) ) . "'");
     if (tep_db_num_rows($check_customer_query)) {

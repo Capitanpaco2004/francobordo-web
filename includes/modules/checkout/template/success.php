@@ -44,7 +44,7 @@ if ($resenaGoogle == true):
 <?php endif; ?>
 <div class="success_image">
 	<div class="success_text">
-		<div class="col a12 chkc-sccs-titu afixed d-flex align-items-center"><?php echo str_replace('%ORDER%', $ordersId, CHECKOUT_SUCCESS_TITLE_ORDER); ?> </div>
+		<div class="col a12 chkc-sccs-titu afixed d-flex align-items-center"><?php echo str_replace('%ORDER%', (string)($ordersId ?? ''), CHECKOUT_SUCCESS_TITLE_ORDER); ?></div>
 
 		<div class="col a12 ax row chkc-sccs-infr afixed">
 			<div class="succes_info">

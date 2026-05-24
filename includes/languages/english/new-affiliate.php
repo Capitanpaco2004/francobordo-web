@@ -11,9 +11,9 @@ define('HEADING_TITLE', 'Create affiliate account');
 define('TEXT_ORIGIN_LOGIN', '<font color="#FF0000"><small><strong>NOTe:</strong></font></small> If you have already gone through this process and have an account, please <a href="%s">log in</a> to it.');
 
 define('EMAIL_SUBJECT', 'Welcome to our affiliate system' . STORE_NAME);
-define('EMAIL_GREET_MR', 'Dear ' . stripslashes($_POST['lastname']) . ',' . "\n\n");
-define('EMAIL_GREET_MS', 'Dear ' . stripslashes($_POST['lastname']) . ',' . "\n\n");
-define('EMAIL_GREET_NONE', 'Dear ' . stripslashes($_POST['firstname']) . ',' . "\n\n");
+define('EMAIL_GREET_MR', 'Dear ' . stripslashes($_POST['lastname'] ?? '') . ',' . "\n\n");
+define('EMAIL_GREET_MS', 'Dear ' . stripslashes($_POST['lastname'] ?? '') . ',' . "\n\n");
+define('EMAIL_GREET_NONE', 'Dear ' . stripslashes($_POST['firstname'] ?? '') . ',' . "\n\n");
 define('EMAIL_WELCOME', 'We welcome you to <strong>' . STORE_NAME . '</strong>.' . "\n\n");
 define('EMAIL_TEXT', 'Now you can enjoy the <strong>services</strong> we offer you. Some of these services are:' . "\n\n" . '<li><strong>Carrito Permanente</strong> - Cualquier producto añadido a su carrito permanecerá en el hasta que lo elimine, o hasta que realice la compra.' . "\n" . '<li><strong>Libro de Direcciones</strong> - Podemos enviar sus productos a otras direcciones aparte de la suya! Esto es perfecto para enviar regalos de cumpleaños directamente a la persona que cumple años.' . "\n" . '<li><strong>Historial de Pedidos</strong> - Vea la relación de compras que ha realizado con nosotros.' . "\n" . '<li><strong>Comentarios</strong> - Comparta su opinión sobre los productos con otros clientes.' . "\n" . '<li><strong>Boletín de Noticias</strong> - subscríbase a nuestro Boletín y estarás al día de todas nuestras ofertas y novedades.' . "\n\n");
 define('EMAIL_CONTACT', 'Para cualquier consulta sobre nuestros servicios, por favor escriba a: ' . STORE_OWNER_EMAIL_ADDRESS . '.' . "\n\n");
