@@ -11,8 +11,8 @@
     background: #f3f4f8;
     padding: 17px 0px 17px 20px;
 }
-.chkc-titu2{font-weight: bold;font-size: 20px;color: #2d333a;line-height: 20px;background: #f3f4f8;padding: 14px;}
-.chkc-titu2 .fright{font-size: 14px;color: #7891a1;line-height: 19px;font-weight: normal;font-style: initial;cursor: pointer;}
+.chkc-titu2{font-weight: bold;font-size: 17px;color: #2d333a;line-height: 17px;background: #f3f4f8;padding: 10px 14px;}
+.chkc-titu2 .fright{font-size: 15px;color: #0bbde0;line-height: 19px;font-weight: normal;font-style: initial;cursor: pointer;text-transform: uppercase;}
 .chkc-titu2 .chkc-chge{ font-size: 17px; line-height: 17px; }
 body .web-cntd #checkout > .web-cntd{padding-left: 0px; padding-right: 0px; min-width: 100%;}
 
@@ -176,20 +176,20 @@ body .web-cntd #checkout > .web-cntd{padding-left: 0px; padding-right: 0px; min-
 
 /* # Checkout metodo de pago y envio
 ================================================== */
-.chkc-mthh{ border-bottom: 1px solid #cdd7de; padding: 35px 0px; color: #7891a1; cursor: pointer; position: relative; align-items: center; }
+.chkc-mthh{ border-bottom: 1px solid #cdd7de; padding: 14px 0px; color: #7891a1; cursor: pointer; position: relative; align-items: center; }
 .chkc-mthh:after{content: ""; display: block; width: 100%; height: 100%; position: absolute; top: 0px; left: 0px; cursor: pointer; z-index: 1;}
 .chkc-mthh.actv { color: #2d333a; }
 .chkc-mthh.actv .imge{filter:inherit;}
-.chkc-mthh .prco{font-weight: bold;color: #2d333a;font-size: 18px;line-height: 18px;width: 80px;}
-.chkc-mthh .imge{filter: grayscale(100%) saturate(1382%) brightness(120%) contrast(120%);width: 125px;text-align: center;padding: 0px 15px;}
+.chkc-mthh .prco{font-weight: bold;color: #2d333a;font-size: 16px;line-height: 16px;width: 70px;}
+.chkc-mthh .imge{filter: grayscale(100%) saturate(1382%) brightness(120%) contrast(120%);width: 95px;text-align: center;padding: 0px 12px;}
 .chkc-mthh .inpt{ width: 30px; }
 .chkc-mthh .inpt.xform input[type="radio"] + label span{position: relative;width: 22px; height: 22px;display: inline-block;vertical-align: middle;top: -1px;margin-right: 0.3rem;cursor: pointer;border: 2px solid #cad2d8;border-radius: 5px;}
 .chkc-mthh .inpt.xform input[type="radio"] + label span:after{background: transparent; font-family: 'Font Awesome 7 Pro';content: "\f00c";font-weight: 900;color: #fff;-webkit-border-radius: 3px;-moz-border-radius: 3px;border-radius: 0px;display: inline-block;position: absolute;top: -1px; font-size: 13px; padding-top: 2px;transition: border 0.2s linear 0s,color 0.2s linear 0s;line-height: 17px;left: 0px;width: 100%;text-align: center;}
 .chkc-mthh .inpt.xform input[type="radio"]:checked + label span:after{color: #0bbde0;}
 .chkc-mthh .inpt.xform input[type="radio"]:checked + label span{border-color:#0bbde0;}
 .chkc-mthh .infr-wrp{ padding-right: 20px; }
-.chkc-mthh .infr-wrp .titu{ font-size: 16px; line-height: 16px; margin-bottom: 15px; }
-.chkc-mthh .infr-wrp .infr{ font-size: 15px; line-height: 18px; text-align: justify; font-style: italic; }
+.chkc-mthh .infr-wrp .titu{ font-size: 15px; line-height: 15px; margin-bottom: 5px; }
+.chkc-mthh .infr-wrp .infr{ font-size: 14px; line-height: 16px; text-align: justify; font-style: italic; }
 .chkc-mthh .infr-wrp .infr .selct label {
     display: block;
     margin: 0 0 5px 0;
@@ -204,8 +204,8 @@ body .web-cntd #checkout > .web-cntd{padding-left: 0px; padding-right: 0px; min-
 .chkc-mthh .infr-wrp.zindex {
     z-index: 10!important;
 }
-.chkc-mthh-wrpr >.chkc-mthh:last-child{ margin-bottom: 70px; border-bottom: 0px; padding-bottom: 0px; }
-.chkc-mthh-wrpr.chkc-mthh-wrpr-pymt .chkc-mthh{padding: 19px 0px;}
+.chkc-mthh-wrpr >.chkc-mthh:last-child{ margin-bottom: 25px; border-bottom: 0px; padding-bottom: 0px; }
+.chkc-mthh-wrpr.chkc-mthh-wrpr-pymt .chkc-mthh{padding: 10px 0px;}
 .chkc-mthh-wrpr.chkc-mthh-wrpr-pymt .chkc-mthh:last-child{padding-bottom: 0px;}
 
 
@@ -223,8 +223,8 @@ body .web-cntd #checkout > .web-cntd{padding-left: 0px; padding-right: 0px; min-
 
 /* # Checkout direción
 ================================================== */
-#checkout .chkc-adrb-wrpr{margin-bottom: 60px;}
-#checkout .chkc-adrb{ font-size: 16px; line-height: 20px; color: #2d333a; border-bottom: 1px solid #cdd7de; padding: 35px; position: relative; }
+#checkout .chkc-adrb-wrpr{margin-bottom: 18px;}
+#checkout .chkc-adrb{ font-size: 15px; line-height: 19px; color: #2d333a; border-bottom: 1px solid #cdd7de; padding: 14px 20px; position: relative; }
 #checkout .chkc-adrb .titu{margin-bottom: 5px;display: block;}
 #checkout .chkc-adrb .edit{font-size: 13px;line-height: 13px;color: #0bbde0;font-weight: initial;padding-left: 6px;cursor: pointer;}
 #checkout .chkc-adrb-wrpr .fotr{padding-top: 17px;}
@@ -235,7 +235,7 @@ body .web-cntd #checkout > .web-cntd{padding-left: 0px; padding-right: 0px; min-
 /* # Checkout textarea
 ================================================== */
 #checkout .chkc-text .text{font-size: 15px;line-height: 19px;color: #9db0bb;font-style: italic;text-align: justify;margin-bottom: 17px;}
-#checkout .chkc-text textarea{min-height: 100px;}
+#checkout .chkc-text textarea{min-height: 60px;}
 #checkout .chkc-text.xaccordion .xaccordion-title, #checkout .chkc-text.xaccordion .xaccordion-title:hover, #checkout .chkc-text.xaccordion .xaccordion-title:focus, #checkout .chkc-text.xaccordion .actv > .xaccordion-title{font-weight: bold;font-size: 20px;color: #2d333a;line-height: 20px;background: #f3f4f8;font-style: italic;padding: 14px;border: 0px;padding-right: 39px;}
 #checkout .chkc-text.xaccordion .xaccordion-title::before, #checkout .chkc-text.xaccordion .actv > .xaccordion-title::before{content:"\f329";color: #7891a1;font-style: initial;font-weight: bold;font-size: 22px;line-height: 22px;margin-top: -11px;right: 10px;}
 #checkout .chkc-text.xaccordion .xaccordion-content{border: 0px;padding: 25px 0px 0px;}
@@ -565,3 +565,17 @@ body .web-cntd #checkout > .web-cntd{padding-left: 0px; padding-right: 0px; min-
 		margin-right: 10px;
 	}
 }
+
+/* Compactar: subir 'Añadir nueva dirección' a la altura del telefono, a la derecha (desktop) */
+@media (min-width: 992px){
+	#checkout .chkc-adrb-wrpr{ position: relative; }
+	#checkout .chkc-adrb-wrpr .fotr{ position: absolute; right: 20px; bottom: 14px; padding-top: 0; }
+}
+
+/* Observaciones sin desplegable: caja siempre visible y compacta */
+#checkout .chkc-obsv-titu{ margin-bottom: 0; }
+#checkout .chkc-obsv{ padding: 12px 0 0; }
+#checkout .chkc-obsv .text{ margin-bottom: 8px; }
+
+/* Iconos de metodo de envio/pago mas pequenos */
+#checkout .chkc-mthh .imge img{ width: 60px; height: auto; }

@@ -4344,6 +4344,21 @@
 												$search_query = " and p.products_id = p2c.products_id and p2c.categories_id = '" . (int)$current_category_id . "' ";
 											}
 
+// === Staging: ocultar productos desactivados (status=0) si la categoría actual o su padre es status=0 ===
+                                                $isStagingCat = false; $hiddenOffCount = 0;
+                                                if (!isset($_GET['search']) && (int)$current_category_id > 0) {
+                                                    $cstq = tep_db_query("select c.categories_status cs, (select pc.categories_status from " . TABLE_CATEGORIES . " pc where pc.categories_id = c.parent_id) ps from " . TABLE_CATEGORIES . " c where c.categories_id = '" . (int)$current_category_id . "'");
+                                                    if ($cst = tep_db_fetch_array($cstq)) {
+                                                        if ((string)$cst['cs'] === '0' || (string)$cst['ps'] === '0') {
+                                                            $isStagingCat = true;
+                                                            $hcr = tep_db_fetch_array(tep_db_query("select count(*) n from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = p2c.products_id and p2c.categories_id = '" . (int)$current_category_id . "' and p.products_status = 0"));
+                                                            $hiddenOffCount = (int)$hcr['n'];
+                                                        }
+                                                    }
+                                                }
+                                                $showOff = isset($_GET['show_off']);
+                                                $hideOff = $isStagingCat && !$showOff;
+                                                if ($hideOff) $search_query .= " and p.products_status <> 0 ";
                                                 $products_query = tep_db_query("select DISTINCT p.products_fileupload, p.products_sort_order, p.products_import_exclude, p.products_import_origin, p.products_pdfupload, p.products_id, pd.products_name, p.products_model, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_cost, p.products_image, p.products_subimages, p.products_price, p.products_tax_class_id, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_status, p.amazon_status, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id " . $search_query . " and pd.language_id = '" . (int)$languages_id . "' order by FIELD(p.products_status, 1, 2, 0), p.products_model");
 
                                             while( $products = tep_db_fetch_array($products_query) )
@@ -4472,7 +4487,13 @@
                                                             if($admin_groups_id == 1)
                                                             {
                                                                 ?>
-                                                                <td class="smallText"><?php echo TEXT_CATEGORIES . '&nbsp;' . $categories_count . '<br>' . TEXT_PRODUCTS . '&nbsp;' . $products_count; ?></td>
+                                                                <td class="smallText"><?php echo TEXT_CATEGORIES . '&nbsp;' . $categories_count . '<br>' . TEXT_PRODUCTS . '&nbsp;' . $products_count;
+                                                                    if (!empty($isStagingCat) && $hiddenOffCount > 0) {
+                                                                        $btnBase = 'display:inline-block;margin-top:6px;padding:4px 10px;color:#fff;border-radius:4px;text-decoration:none;font-weight:bold;cursor:pointer;';
+                                                                        if (!empty($hideOff)) echo '<br><a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&show_off=1') . '" style="' . $btnBase . 'background:#36c;">Mostrar ' . $hiddenOffCount . ' desactivados</a>';
+                                                                        else echo '<br><a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath) . '" style="' . $btnBase . 'background:#888;">Ocultar ' . $hiddenOffCount . ' desactivados</a>';
+                                                                    }
+                                                                ?></td>
                                                                 <td style="vertical-align: middle;" align="right" class="smallText"><?php if (isset($cPath_array) && sizeof($cPath_array) > 0) echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, $cPath_back . 'cID=' . $current_category_id) . '">' . tep_image_button('button_back.png', IMAGE_BACK) . '</a>&nbsp;'; if (!isset($_GET['search'])) echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&action=new_category') . '">' . tep_image_button('button_new_category.png', IMAGE_NEW_CATEGORY) . '</a>&nbsp;<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&action=new_product') . '">' . tep_image_button('button_new_product.png', IMAGE_NEW_PRODUCT) . '</a>'; ?>&nbsp;</td>
                                                                 <?php
                                                             }

@@ -30,7 +30,7 @@ define('CHECKOUT_SHIPPING_BREADCRUMB', 'Shipping methods');
 define('CHECKOUT_SHIPPING_TITLE', 'Shipping methods');
 define('CHECKOUT_SHIPPING_TITLE_SELECT', '1. Select the preferred shipping method<span class="thide mhide"> for delivery of this order</span>');
 define('CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT', 'Observations for the carrier');
-define('CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT_TEXT', 'Use the following field if you need to make clarifications to the carrier that guarantee the delivery of the package.');
+define('CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT_TEXT', 'Use this field if you need to make any clarifications about your order.');
 define('CHECKOUT_SHIPPING_TITLE_SELECT_ADDRESS', 'Choose another <span class="thide mhide"> shipping address</span>');
 define('CHECKOUT_SHIPPING_SELECT_ADDRESS', 'Choose another shipping address');
 define('CHECKOUT_SHIPPING_TITLE_ADDRESS', '2. Shipping Address');

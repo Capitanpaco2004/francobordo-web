@@ -13,26 +13,6 @@
 <?php endif;?>
 
 <div id="checkout" class="<?php echo $router->controller; ?>">
-	<div class="head mhide">
-		<div class="web-cntd d-flex justify-content-between align-items-center">
-			<div class="row d-flex align-items-center">
-				<i class="ick-tt ick-tt-6"></i>
-				<span><?php echo CHECKOUT_HEADER_PAYMENT; ?></span>
-			</div>
-			<div class="row d-flex align-items-center">
-				<i class="ick-tt ick-tt-9"></i>
-				<span><?php echo CHECKOUT_HEADER_SHIPPING; ?></span>
-			</div>
-			<div class="row d-flex align-items-center">
-				<i class="ick-tt ick-tt-3"></i>
-				<span><?php echo CHECKOUT_HEADER_RETURN; ?></span>
-			</div>
-			<div class="row d-flex align-items-center">
-				<i class="ick-tt ick-tt-4"></i>
-				<span><?php echo CHECKOUT_HEADER_SATISFACTION; ?></span>
-			</div>
-		</div>
-	</div>
 	<div class="row bar aflex ax web-cntd">
 		<a href="<?php echo tep_href_link(FILENAME_SHOPPING_CART); ?>" class="col actv afixed a03 <?php echo ($nStep >= STEP_BAR_CART ? 'actv' : '') . ($nStep == STEP_BAR_CART ? 'here' : ''); ?>"><i class="mhide ick-tt ick-tt-17"></i><?php echo CHECKOUT_BAR_CART; ?></a>
 		<a href="<?php echo tep_href_link(FILENAME_CHECKOUT_SHIPPING); ?>" class="col afixed a02 <?php echo ($nStep >= STEP_BAR_SHIPPING ? 'actv' : '') . ($nStep == STEP_BAR_SHIPPING ? ' here' : ''); ?>"><i class="mhide ick-tt ick-tt-17"></i><?php echo CHECKOUT_BAR_SHIPPING; ?></a>

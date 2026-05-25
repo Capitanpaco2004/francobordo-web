@@ -1,5 +1,11 @@
 <?php
 
+// Existe otra clase `language` (estilo osCommerce viejo) en _admin/includes/classes/language.php.
+// Ambas son globales sin namespace; el addon-dependency-injection puede cargar cualquiera de las
+// dos rutas en el backoffice y provocar "Cannot redeclare class language". Esta guarda (igual que
+// la del admin) hace que la segunda en cargarse no redeclare. El código consumidor tolera ambas.
+if (class_exists('language')) return;
+
 class language
 {
 	public $language = '';

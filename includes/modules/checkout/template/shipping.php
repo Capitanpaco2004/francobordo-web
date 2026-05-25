@@ -108,15 +108,11 @@ if (isset($_SESSION['module_shipping_estimator'])) {
 		</div>
 	</div>
 
-	<ul class="xaccordion chkc-text" data-accordion>
-		<li class="xaccordion-item <?php echo (isset($comments) && $comments != '' ? 'actv' : ''); ?>" data-accordion-item>
-			<div class="xaccordion-title" data-accordion-link>3. <?php echo CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT; ?></div>
-			<div class="xaccordion-content" data-accordion-content>
-				<div class="text"><?php echo CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT_TEXT; ?></div>
-				<div class="xform"><?php echo tep_draw_textarea_field('comments', 'soft', '60', '5', isset($comments) ? $comments : ''); ?></div>
-			</div>
-		</li>
-	</ul>
+	<div class="chkc-titu2 chkc-obsv-titu">3. <?php echo CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT; ?></div>
+	<div class="chkc-obsv chkc-text">
+		<div class="text"><?php echo CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT_TEXT; ?></div>
+		<div class="xform"><?php echo tep_draw_textarea_field('comments', 'soft', '60', '3', isset($comments) ? $comments : ''); ?></div>
+	</div>
 </form>
 
 

@@ -140,7 +140,7 @@ try {
         if (!$mysqli->query($SQL_REVERSE_DELETE)) throw new Exception("DELETE reverse falló: " . $mysqli->error);
         $deleted = $mysqli->affected_rows;
         $dt = round(microtime(true) - $t0, 2);
-        logMsg("REVERSE — filas borradas: $deleted (${dt}s)");
+        logMsg("REVERSE — filas borradas: $deleted ({$dt}s)");
 
         $rev_after = (int) $mysqli->query($SQL_REVERSE_COUNT)->fetch_assoc()['n'];
         if ($rev_after !== 0) throw new Exception("Sanity REVERSE: tras DELETE siguen $rev_after huérfanos (esperado 0)");
@@ -153,7 +153,7 @@ try {
         if (!$mysqli->query($SQL_FORWARD_INSERT)) throw new Exception("INSERT forward falló: " . $mysqli->error);
         $inserted = $mysqli->affected_rows;
         $dt = round(microtime(true) - $t0, 2);
-        logMsg("FORWARD — filas insertadas: $inserted (${dt}s)");
+        logMsg("FORWARD — filas insertadas: $inserted ({$dt}s)");
 
         $fwd_after = (int) $mysqli->query($SQL_FORWARD_COUNT)->fetch_assoc()['n'];
         if ($fwd_after !== 0) throw new Exception("Sanity FORWARD: tras INSERT siguen $fwd_after huérfanos (esperado 0)");

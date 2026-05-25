@@ -31,16 +31,18 @@ const GARMIN_MFG_IDS = [5, 449, 589, 590]; // Garmin, Fusion, JL Audio, Clarion
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $max    = isset($_POST['max']) ? (int) $_POST['max'] : (isset($_GET['max']) ? (int) $_GET['max'] : 0);
-$dryRun = !isset($_POST['confirm_execute']) && !isset($_GET['confirm_execute']);
+$confirmExec = isset($_POST['confirm_execute']) || isset($_GET['confirm_execute']); $dryRun = !($action === 'execute' && $confirmExec); // fix footgun: el botón plan nunca ejecuta
 $skipDownload   = isset($_POST['skip_download']) || isset($_GET['skip_download']);
 $updateSpecials = isset($_POST['update_specials']) || isset($_GET['update_specials']);
 $scope = $_POST['scope'] ?? $_GET['scope'] ?? 'all'; // 'all' | 'no_stock'
 $applyExtremes = isset($_POST['apply_extremes']) || isset($_GET['apply_extremes']);
+$onlyExtremes = isset($_POST['only_extremes']) || isset($_GET['only_extremes']); // PLAN: mostrar SOLO los excluidos por extremos
 $maxChangePct  = isset($_POST['max_change_pct']) ? (float) $_POST['max_change_pct'] : (isset($_GET['max_change_pct']) ? (float) $_GET['max_change_pct'] : MAX_CHANGE_PCT_DEF);
 if ($maxChangePct < 0) $maxChangePct = 0;
 $maxChangeRatio = $maxChangePct / 100.0;
 
 function logMsg($msg) {
+	if (!empty($GLOBALS['onlyExtremes'])) { static $lmSeen = false, $lmShow = true; if (strpos($msg, '====') !== false) { /* banner */ } elseif (strpos($msg, '--- ') !== false) { $lmSeen = true; $lmShow = (stripos($msg, 'EXTREMO') !== false); if (!$lmShow) return; } elseif ($lmSeen && !$lmShow) return; }
 	$line = '[' . date('H:i:s') . '] ' . $msg . "\n";
 	echo '<pre style="margin:0;padding:2px 8px;border-bottom:1px solid #eee;white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word;font-family:monospace;font-size:12px;">' . htmlspecialchars($line) . '</pre>';
 	@flush();
@@ -357,7 +359,7 @@ if (!$applyExtremes && $maxChangeRatio > 0) {
 logMsg("Sin cambios significativos     : $noChange");
 logMsg("Sin match en CSV               : " . count($noMatch));
 
-$showLimit = 25;
+$showLimit = 25; if (!empty($onlyExtremes)) $showLimit = 1000000;
 if (!empty($updPrice)) {
 	logMsg("--- UPDATE products_price (top $showLimit) ---");
 	foreach (array_slice($updPrice, 0, $showLimit) as $u) {
@@ -522,6 +524,7 @@ end_action:
 		<p>
 			<label><input type="checkbox" name="confirm_execute" value="1"> Aplicar cambios (sin marcar = solo PLAN/dry-run)</label>
 		</p>
+		<p><label><input type="checkbox" name="only_extremes" value="1"> <strong>Ver SOLO los productos saltados por extremos</strong> (en el plan, oculta el resto)</label></p>
 		<button type="submit" name="action" value="plan" class="xbutton small hv9">Generar plan (dry-run)</button>
 		<button type="submit" name="action" value="execute" class="xbutton small hv9 verde" onclick="return this.form.confirm_execute.checked || (alert('Marca la casilla \'Aplicar cambios\' antes de ejecutar.'), false);">Ejecutar</button>
 	</form>

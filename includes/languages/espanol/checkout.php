@@ -25,7 +25,7 @@ define('CHECKOUT_SHIPPING_BREADCRUMB', 'Formas de envío');
 define('CHECKOUT_SHIPPING_TITLE', 'Formas de envío');
 define('CHECKOUT_SHIPPING_TITLE_SELECT', '1. Selecciona la forma de envío<span class="thide mhide"> preferida para la entrega de este pedido</span>');
 define('CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT', 'Observaciones');
-define('CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT_TEXT', 'Utiliza el siguiente campo si necesitas realizar aclaraciones al transportista que garanticen la entrega del paquete.');
+define('CHECKOUT_SHIPPING_TITLE_COMMENTS_TRANSPORT_TEXT', 'Utiliza este campo si necesitas realizar aclaraciones sobre tu pedido.');
 define('CHECKOUT_SHIPPING_TITLE_SELECT_ADDRESS', 'Selecciona otra dirección <span class="thide mhide"> para el envío</span>');
 define('CHECKOUT_SHIPPING_SELECT_ADDRESS', 'Seleccionar otra dirección de envío');
 define('CHECKOUT_SHIPPING_TITLE_ADDRESS', '2. Dirección de envío');

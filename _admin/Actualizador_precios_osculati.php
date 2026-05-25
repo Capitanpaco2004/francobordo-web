@@ -23,6 +23,7 @@ function roundToNickel($net) {
 
 $dryRun = !isset($_GET['execute']);
 $applyExtremes = isset($_GET['apply_extremes']);
+$onlyExtremes = isset($_GET['only_extremes']); // mostrar SOLO tablas de extremos
 $maxChangePct  = isset($_GET['max_change_pct']) ? (float) $_GET['max_change_pct'] : MAX_CHANGE_PCT_DEF;
 if ($maxChangePct < 0) $maxChangePct = 0;
 $maxChangeRatio = $maxChangePct / 100.0;
@@ -454,6 +455,7 @@ if ($dryRun) {
 	echo '<form method="get" style="background:#f5f5f5;padding:10px;border-radius:4px;margin-bottom:15px;">';
 	echo '<strong>Tope de variación</strong>: excluir cambios &gt; <input type="number" name="max_change_pct" value="' . (int) $maxChangePct . '" min="0" max="500" step="1" style="width:60px;"> %';
 	echo ' &nbsp; <label><input type="checkbox" name="apply_extremes" value="1"' . ($applyExtremes ? ' checked' : '') . '> Aplicar también los extremos (desactiva el tope)</label>';
+	echo ' &nbsp; <label><input type="checkbox" name="only_extremes" value="1"' . ($onlyExtremes ? ' checked' : '') . '> <strong>Ver SOLO los extremos</strong></label>';
 	echo ' &nbsp; <button type="submit" class="btn btn-back" style="background:#36c;">Recalcular plan</button>';
 	echo '<br><span class="small">Si el price o cost del producto (padre, en caso de variantes) cambia más del porcentaje, el producto ENTERO se excluye. 0 = sin tope. Protege contra pack-vs-unidad y errores de feed.</span>';
 	echo '</form>';
@@ -478,6 +480,8 @@ if ($dryRun) {
 function renderTable($title, $rows, $cols, $limit = 200) {
 	$n = count($rows);
 	if ($n === 0) return;
+	if (!empty($GLOBALS['onlyExtremes']) && stripos($title, 'EXTREMO') === false) return;
+	if (!empty($GLOBALS['onlyExtremes'])) $limit = 1000000;
 	echo '<details><summary>' . htmlspecialchars($title) . ' (' . $n . ($n > $limit ? ', mostrando primeros ' . $limit : '') . ')</summary>';
 	echo '<table><tr>';
 	foreach ($cols as $h) echo '<th>' . htmlspecialchars($h[0]) . '</th>';

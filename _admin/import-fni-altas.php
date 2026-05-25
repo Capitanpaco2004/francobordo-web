@@ -47,7 +47,7 @@ const BRAND_BLACKLIST = [
 // Traducción IT→ES vía LLM (mismo endpoint que Osculati/Trem)
 const LLM_URL    = 'http://217.127.199.171:28001/v1/chat/completions';
 const LLM_MODEL  = 'qwen36-sakamaki-nvfp4';
-const LLM_PROMPT = 'Eres un traductor profesional de italiano a español especializado en productos náuticos, marinos y de pesca. Usa terminología técnica náutica precisa en español de España. Texto plano, conserva <br> si los hay como saltos de línea. Responde SOLO con la traducción, sin comentarios ni explicaciones.';
+const LLM_PROMPT = 'Eres un traductor profesional de italiano a español especializado en productos náuticos, marinos y de pesca. Usa terminología técnica náutica precisa en español de España. Glosario náutico de referencia (IT/EN↔ES): rope/line/cima=cabo, shackle/grillo=grillete, cleat/galloccia=cornamusa, fairlead/passacavo=pasacable, winch/verricello=molinete o winche, thruster=hélice de maniobra, bilge/sentina=sentina, hatch/boccaporto=escotilla, fender/parabordo=defensa, mooring/ormeggio=amarre, anchor/ancora=ancla, chain/catena=cadena, hull/scafo=casco, deck/coperta=cubierta, rudder/timone=timón, through-hull/passascafo=pasacascos, seacock=grifo de fondo, stainless steel/acciaio inox=acero inoxidable, galvanized/zincato=galvanizado, outboard/fuoribordo=fueraborda. Usa siempre el sentido náutico; no lo traduzcas como términos de otros dominios. Texto plano, conserva <br> si los hay como saltos de línea. Responde SOLO con la traducción, sin comentarios ni explicaciones.';
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $max    = isset($_POST['max']) ? (int) $_POST['max'] : (isset($_GET['max']) ? (int) $_GET['max'] : 0);

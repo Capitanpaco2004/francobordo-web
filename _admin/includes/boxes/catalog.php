@@ -121,5 +121,24 @@
 				<?php echo tep_admin_files_boxes('import-vetus-altas.php', '<i class="bullet"></i> Importador'); ?>
 			</div>
 		</div>
+		<div>
+			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Lalizas <i class="fa fa-angle-right"></i></a>
+			<div class="sbmn">
+				<?php echo tep_admin_files_boxes('import-lalizas-altas.php', '<i class="bullet"></i> Importador'); ?>
+				<?php echo tep_admin_files_boxes('Actualizador_precios_lalizas.php', '<i class="bullet"></i> Actualizador precios'); ?>
+			</div>
+		</div>
+		<div>
+			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Motomarine <i class="fa fa-angle-right"></i></a>
+			<div class="sbmn">
+				<?php echo tep_admin_files_boxes('import-motomarine-altas.php', '<i class="bullet"></i> Importador'); ?>
+			</div>
+		</div>
+		<div>
+			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Foresti &amp; Suardi <i class="fa fa-angle-right"></i></a>
+			<div class="sbmn">
+				<?php echo tep_admin_files_boxes('import-forestisuardi-altas.php', '<i class="bullet"></i> Importador'); ?>
+			</div>
+		</div>
 	</div>
 </div>

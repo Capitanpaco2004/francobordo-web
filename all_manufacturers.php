@@ -15,32 +15,32 @@
 		// Separamos las palabras
 		$aWords = preg_split( "/[\s]|[,]|[.]|[-]/", $sBuscar, -1, PREG_SPLIT_NO_EMPTY );
 
-		// Formateamos las palabras de la búsqueda
+		// Formateamos las palabras de la bï¿½squeda
 		foreach( $aWords as $aWord )
 		{
 			// Eliminamos las palabras demasiado cortas (pronombres, etc)
 			if( strlen( $aWord ) > 1 )
 			{
-				// Si es una preposición, artículo o nexo continuamos
-				if( in_array( $aWord, array( 'a', 'ante', 'bajo', 'cabe', 'con', 'contra', 'de', 'desde', 'en', 'entre', 'hacia', 'hasta', 'para', 'por', 'según', 'segun', 'sin', 'so', 'sobre', 'tras', 'del', 'al', 'el', 'la', 'las', 'los', 'un', 'unos', 'un', 'una', 'unas', 'y', 'u', 'o', 'e' ) ) )
+				// Si es una preposiciï¿½n, artï¿½culo o nexo continuamos
+				if( in_array( $aWord, array( 'a', 'ante', 'bajo', 'cabe', 'con', 'contra', 'de', 'desde', 'en', 'entre', 'hacia', 'hasta', 'para', 'por', 'segï¿½n', 'segun', 'sin', 'so', 'sobre', 'tras', 'del', 'al', 'el', 'la', 'las', 'los', 'un', 'unos', 'un', 'una', 'unas', 'y', 'u', 'o', 'e' ) ) )
 					continue;
 
-				// Si es un número
+				// Si es un nï¿½mero
 				if( is_numeric( $aWord ) )
 				{
-					// Añadimos el número en singular y plural
+					// Aï¿½adimos el nï¿½mero en singular y plural
 					$aSearchPlural[] = $aWord;
 					$aSearchSingular[] = $aWord;
 					continue;
 				}
 
-				// Comprobamos si la palabra está en plural (si termina en -s, -es, -ces), para obtener su singular
+				// Comprobamos si la palabra estï¿½ en plural (si termina en -s, -es, -ces), para obtener su singular
 				if( preg_match( '/s$/', $aWord ) || preg_match( '/es$/', $aWord ) || preg_match( '/ces$/', $aWord ) )
 				{
-					// Añadimos al array plural
+					// Aï¿½adimos al array plural
 					$aSearchPlural[] = $aWord;
 
-					// Añadimos al array singular
+					// Aï¿½adimos al array singular
 					if( preg_match( '/ces$/', $aWord ) )
 						$aSearchSingular[] = preg_replace( '/ces$/', 'z', $aWord );
 					else if( preg_match( '/es$/', $aWord ) )
@@ -48,10 +48,10 @@
 					else if( preg_match( '/s$/', $aWord ) )
 						$aSearchSingular[] = preg_replace( '/s$/', '', $aWord );
 				}
-				// Si la palabra está en singular
+				// Si la palabra estï¿½ en singular
 				else
 				{
-					// Añadimos al array singular
+					// Aï¿½adimos al array singular
 					$aSearchSingular[] = $aWord;
 
 					// Obtenemos su plural
@@ -67,15 +67,15 @@
 
 		// WHERE //
 
-		// Recorremos las palabras y las añadimos al WHERE para el nombre
+		// Recorremos las palabras y las aï¿½adimos al WHERE para el nombre
 		if(!empty($aSearchSingular) && count( $aSearchSingular ) > 0 )
 		{
 			foreach( $aSearchSingular as $nWord => $aWord )
-				$sWhere .= '( ( LCASE( manufacturers_name ) LIKE "%' . tep_db_input( $aSearchSingular[$nWord] ) . '%" ) OR ( LCASE( manufacturers_name ) LIKE "%' . tep_db_input( $aSearchPlural[$nWord] ) . '%" ) ) AND ';
+				$sWhere .= '( ( LCASE( CONVERT( manufacturers_name USING utf8mb4 ) ) LIKE "%' . tep_db_input( $aSearchSingular[$nWord] ) . '%" ) OR ( LCASE( CONVERT( manufacturers_name USING utf8mb4 ) ) LIKE "%' . tep_db_input( $aSearchPlural[$nWord] ) . '%" ) ) AND ';
 			$sWhere = substr( $sWhere, 0, -4 );
 		}
 		else
-			$sWhere .= '( LCASE( manufacturers_name ) LIKE "%' . tep_db_input( $sBuscar ) . '%" )';
+			$sWhere .= '( LCASE( CONVERT( manufacturers_name USING utf8mb4 ) ) LIKE "%' . tep_db_input( $sBuscar ) . '%" )';
 	}
 
 	// Consultamos

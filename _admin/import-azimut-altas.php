@@ -21,7 +21,7 @@ const EAN_INTERNAL_PREFIX = 22; // prefijo GS1 in-store para EANs generados (ori
 // Traducción ES→EN vía LLM (mismo endpoint que Osculati)
 const LLM_URL    = 'http://217.127.199.171:28001/v1/chat/completions';
 const LLM_MODEL  = 'qwen36-sakamaki-nvfp4';
-const LLM_PROMPT = 'You are a professional translator from Spanish to English specialised in nautical, marine and fishing products. Use precise English nautical terminology. Plain text only — preserve <br> tags as line breaks if present. Reply ONLY with the translation, no comments or explanations.';
+const LLM_PROMPT = 'You are a professional translator from Spanish to English specialised in nautical, marine and fishing products. Use precise English nautical terminology. Nautical reference glossary (ES↔EN): cabo=rope/line, grillete=shackle, cornamusa=cleat, pasacable=fairlead/chock, winche=winch, molinete=windlass, hélice de maniobra=thruster, sentina=bilge, escotilla=hatch, defensa=fender, amarre=mooring, ancla=anchor, cadena=chain, casco=hull, cubierta=deck, timón=rudder, pasacascos=through-hull, grifo de fondo=seacock, acero inoxidable=stainless steel, galvanizado=galvanized, fueraborda=outboard. Always use the nautical meaning; do not translate as terms from other domains. Plain text only — preserve <br> tags as line breaks if present. Reply ONLY with the translation, no comments or explanations.';
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $max    = isset($_POST['max']) ? (int) $_POST['max'] : (isset($_GET['max']) ? (int) $_GET['max'] : 0);
