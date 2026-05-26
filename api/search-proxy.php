@@ -113,6 +113,40 @@ function fb_meili_post(string $url, string $payload): array {
     return [$resp, $code, $err];
 }
 
+// --- Exclusión de marca al buscar su propio nombre ---
+// Cuando el cliente busca el nombre de ciertas marcas, NO queremos mostrar los
+// productos de ESA marca (p.ej. al buscar "seaflo" se ocultan los de brand=Seaflo,
+// pero sí salen productos de otras marcas que mencionan Seaflo en el título).
+// Mapa: token de búsqueda normalizado => valor EXACTO del campo brand en Meili.
+const HIDE_BRAND_WHEN_SEARCHED = [
+    'seaflo' => 'Seaflo',
+];
+function fb_inject_brand_exclusions(array $bodyJson): array {
+    $q = mb_strtolower(trim((string)($bodyJson['q'] ?? '')), 'UTF-8');
+    $q = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $q);
+    $tokens = preg_split('/[^a-z0-9]+/', $q, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $extra = [];
+    foreach ($tokens as $tok) {
+        if (isset(HIDE_BRAND_WHEN_SEARCHED[$tok])) {
+            $brand = str_replace(['\\', '"'], ['\\\\', '\\"'], HIDE_BRAND_WHEN_SEARCHED[$tok]);
+            $extra['brand != "' . $brand . '"'] = true;   // clave = dedup
+        }
+    }
+    if (!$extra) return $bodyJson;
+    $extra = array_keys($extra);
+
+    $existing = $bodyJson['filter'] ?? null;
+    if (is_array($existing)) {
+        // En Meili, los elementos de un array de filtros van AND-eados.
+        $bodyJson['filter'] = array_merge($existing, $extra);
+    } elseif (is_string($existing) && trim($existing) !== '') {
+        $bodyJson['filter'] = '(' . $existing . ') AND ' . implode(' AND ', $extra);
+    } else {
+        $bodyJson['filter'] = implode(' AND ', $extra);
+    }
+    return $bodyJson;
+}
+
 $url = MEILI_BASE . $ENDPOINTS[$endpoint];
 $resp = null;
 $code = 0;
@@ -152,6 +186,7 @@ if ($endpoint === 'search' && is_array($bodyJson)) {
 // --- Forward normal a Meili (si la estricta no aplicó o no tuvo hits) ---
 if ($resp === null) {
     if ($endpoint === 'search' && is_array($bodyJson)) {
+        $bodyJson = fb_inject_brand_exclusions($bodyJson);
         $bodyJson['showRankingScore'] = true;
         $body = json_encode($bodyJson);
     }

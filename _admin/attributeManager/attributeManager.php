@@ -224,37 +224,15 @@ if(false){
 					<img src="attributeManager/images/icon_arrow.gif" >
 				</td>
 				<td>
-					<?php echo $optionValueInfo['name']; ?>
+					<?php $amValNameEsc = htmlspecialchars((string)$optionValueInfo['name'], ENT_QUOTES, CHARSET); $amValUid = $optionId.'_'.$optionValueId; ?>
+					<span style="display:inline-flex;align-items:center;gap:5px;max-width:100%;">
+						<input type="text" id="amValName_<?php echo $amValUid; ?>" class="amValName" value="<?php echo $amValNameEsc; ?>" data-orig="<?php echo $amValNameEsc; ?>" readonly style="width:420px;max-width:100%;box-sizing:border-box;font-size:12px;background:#f3f3f3;border:1px solid #ccc;" title="Pulsa el lapiz para editar el nombre" onkeydown="if(event.keyCode==13){this.blur();return false;}" onblur="return amAttrNameBlur('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>',this);">
+						<input type="image" id="amValEdit_<?php echo $amValUid; ?>" src="attributeManager/images/icon_rename.png" border="0" title="Editar nombre del valor" onclick="return amAttrNameEdit('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>');" style="vertical-align:middle;cursor:pointer;">
+					</span>
+					<div id="amValAffected_<?php echo $amValUid; ?>" class="amValAffected" style="display:none;margin-top:4px;font-size:11px;line-height:1.35;color:#444;background:#fffbe6;border:1px solid #e8d98a;border-radius:3px;padding:5px 7px;max-width:480px;"></div>
 					
 				</td>
 				<td align="right">
-<?php
-//----------------------------
-// Change: Add download attributes function for AM
-// @author Urs Nyffenegger ak mytool
-// Function: Add Buttons for functionality
-//-----------------------------
-
-				
-					if($optionValueInfo['products_attributes_filename']){
-
-						?>
-						
-					<input type="image" border="0" onClick="return customPrompt('amEditDownloadForProduct','<?php echo addslashes('option_id:' . $optionId . '|products_attributes_filename:' . $optionValueInfo['products_attributes_filename'] . '|products_attributes_maxdays:'.$optionValueInfo['products_attributes_maxdays']  . '|products_attributes_maxcount:'.$optionValueInfo['products_attributes_maxcount'] .'|option_value_name:'.str_replace('"','&quot;',$optionValueInfo['name'] .'|products_attributes_id:'.$optionValueInfo['products_attributes_id']))?>');" src="attributeManager/images/icon_down_edit.png" title="<? echo htmlspecialchars(sprintf(AM_AJAX_DOWLNOAD_EDIT,$optionValueInfo['name'],$optionInfo['name'])) ?>" >
-					<input type="image" border="0" onClick="return customPrompt('amDeleteDownloadForProduct','<?php echo addslashes('option_id:' . $optionId . '|option_value_name:'.str_replace('"','&quot;',$optionValueInfo['name']) .'|products_attributes_id:'.$optionValueInfo['products_attributes_id'])?>');" src="attributeManager/images/icon_down_delete.png" title="<? echo htmlspecialchars(sprintf(AM_AJAX_DOWLNOAD_DELETE,$optionValueInfo['name'],$optionInfo['name'])) ?>" style="margin-right: 30px;" >
-							
-					<?php
-					} else {
-					?>
-					<input type="image" border="0" onClick="return customPrompt('amAddNewDownloadForProduct','<?php echo addslashes('option_id:' . $optionId .'|option_value_id:'.$optionValueId . '|option_value_name:'.str_replace('"','&quot;',$optionValueInfo['name']).'|products_attributes_id:'.$optionValueInfo['products_attributes_id'])?>');" src="attributeManager/images/icon_download.png" title="<? echo htmlspecialchars(sprintf(AM_AJAX_DOWLNOAD_ADD_NEW,$optionValueInfo['name'],$optionInfo['name'])) ?>" style="margin-right: 30px;" >		
-<?php					
-					}	
-
-
-//----------------------------
-// EOF Change: download attributes for AM
-//-----------------------------
-?>	
 
 					<span style="margin-right:41px;padding: 20px 0 0;display: inline-block;">
 					<?php echo drawDropDownPrefix('id="prefix_'.$optionValueId.'" style="margin:3px 0px 3px 0px;" onChange="return amUpdate(\''.$optionId.'\',\''.$optionValueId.'\',\'prefix\');"',$optionValueInfo['prefix']);?>

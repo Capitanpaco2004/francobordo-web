@@ -742,3 +742,113 @@ function amAttrImageClear(oid, vid) {
 		.catch(function(){ alert('Error de red al quitar la imagen.'); });
 	return false;
 }
+
+//----------------------------
+// Editar el nombre de un valor de atributo (products_options_values_name) en el idioma activo.
+// Flujo: el campo nace readonly; al pulsar el lapiz (amAttrNameEdit) se desbloquea Y se muestra
+// el desglose de productos afectados (op=info). Al salir del campo (amAttrNameBlur) se guarda.
+// Endpoint attributeManager/amAttrName.php, anclado a location.origin + SID (ver amAttrImage).
+//----------------------------
+function amAttrNameEndpoint() {
+	var base = location.origin + location.pathname.replace(/[^/]*$/, '') + 'attributeManager/amAttrName.php';
+	if(typeof sessionId !== 'undefined' && sessionId !== '')
+		base += '?' + sessionId;
+	return base;
+}
+
+function amHtmlEscape(s) {
+	return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function amAttrNameAffectedHtml(j) {
+	var n = j.products || 0;
+	if(n <= 1)
+		return 'Solo este producto usa este valor. El cambio no afecta a ningun otro producto.';
+	var html = '<b>Atencion:</b> este valor lo usan <b>' + n + ' productos</b>. Al renombrarlo cambiara en TODOS:';
+	html += '<ul style="margin:3px 0 0 16px;padding:0;">';
+	var list = j.list || [];
+	for(var i=0;i<list.length;i++)
+		html += '<li>#' + list[i].id + ' &mdash; ' + amHtmlEscape(list[i].name) + '</li>';
+	if(j.more && j.more > 0)
+		html += '<li>&hellip; y ' + j.more + ' productos mas</li>';
+	html += '</ul>';
+	return html;
+}
+
+// Pulsar el lapiz: desbloquea el campo y muestra el desglose de productos afectados
+function amAttrNameEdit(oid, vid) {
+	var input = getElement('amValName_' + oid + '_' + vid);
+	var box   = getElement('amValAffected_' + oid + '_' + vid);
+	if(!input) return false;
+	if(!input.readOnly) { input.focus(); return false; }
+
+	if(box) { box.style.display = 'block'; box.innerHTML = 'Cargando productos afectados...'; }
+	var data = new FormData();
+	data.append('vid', vid);
+	data.append('op', 'info');
+	fetch(amAttrNameEndpoint(), { method: 'POST', body: data, credentials: 'same-origin' })
+		.then(function(r){ return r.json(); })
+		.then(function(j){
+			if(box) box.innerHTML = (j && j.ok) ? amAttrNameAffectedHtml(j) : ((j && j.error) ? j.error : 'No se pudo obtener la lista.');
+		})
+		.catch(function(){ if(box) box.innerHTML = 'Error de red al obtener la lista de productos.'; });
+
+	input.readOnly = false;
+	input.style.background = '#fff';
+	input.focus();
+	input.select();
+	return false;
+}
+
+// Volver al estado bloqueado (texto fijo)
+function amAttrNameLock(oid, vid, input) {
+	input.readOnly = true;
+	input.style.background = '#f3f3f3';
+	var box = getElement('amValAffected_' + oid + '_' + vid);
+	if(box) { box.style.display = 'none'; box.innerHTML = ''; }
+}
+
+function amAttrNameSend(oid, vid, input) {
+	var data = new FormData();
+	data.append('vid', vid);
+	data.append('op', 'save');
+	data.append('name', input.value);
+	data.append('confirmed', 1); // el desglose de afectados ya se mostro al entrar en edicion
+	fetch(amAttrNameEndpoint(), { method: 'POST', body: data, credentials: 'same-origin' })
+		.then(function(r){ return r.json(); })
+		.then(function(j){
+			if(j && j.ok) {
+				input.setAttribute('data-orig', input.value);
+				input.style.background = '#d8f5d8';
+				setTimeout(function(){ amAttrNameLock(oid, vid, input); }, 700);
+			} else {
+				alert((j && j.error) ? j.error : 'No se pudo guardar el nombre.');
+				input.value = input.getAttribute('data-orig') || '';
+				amAttrNameLock(oid, vid, input);
+			}
+		})
+		.catch(function(){
+			alert('Error de red al guardar el nombre.');
+			input.value = input.getAttribute('data-orig') || '';
+			amAttrNameLock(oid, vid, input);
+		});
+	return false;
+}
+
+// Al salir del campo: guarda si cambio, re-bloquea siempre
+function amAttrNameBlur(oid, vid, input) {
+	if(input.readOnly) return false;
+	var v    = (input.value || '').replace(/^\s+|\s+$/g, '');
+	var orig = input.getAttribute('data-orig') || '';
+	if(v === '') {
+		alert('El nombre no puede estar vacio.');
+		input.value = orig;
+		amAttrNameLock(oid, vid, input);
+		return false;
+	}
+	if(v === orig) {
+		amAttrNameLock(oid, vid, input);
+		return false;
+	}
+	return amAttrNameSend(oid, vid, input);
+}

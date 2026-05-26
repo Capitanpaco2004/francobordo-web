@@ -23,13 +23,19 @@ $manufacturers_list = array(
 );
 
 $manufacturers_query = tep_db_query("select manufacturers_id, manufacturers_name from " . TABLE_MANUFACTURERS . " order by manufacturers_name");
-while ($manufacturers = tep_db_fetch_array($manufacturers_query)) 
+while ($manufacturers = tep_db_fetch_array($manufacturers_query))
 {
 	$manufacturers_list[] = array(
 		'id' => $manufacturers['manufacturers_id'],
 		'text' => $manufacturers['manufacturers_name']
 	);
 }
+
+// Nombres de los grupos de cliente (para mostrar el grupo de cada oferta)
+$group_names = array();
+$groups_query = tep_db_query("select customers_group_id, customers_group_name from " . TABLE_CUSTOMERS_GROUPS . " order by customers_group_id");
+while ($g = tep_db_fetch_array($groups_query))
+	$group_names[$g['customers_group_id']] = $g['customers_group_name'];
 
 $sort_fields = array(
 	'product_id' => array(
@@ -94,6 +100,14 @@ if(preg_match('/^([0-9]{1,2})\/([0-9]{1,2})\/([0-9]{4,4})$/',(string)($start_dat
 
 $page = (isset($_GET['page']) && intval($_GET['page']) > 0 ? intval($_GET['page']):1);
 
+// Repetir oferta cada 14 dias (null = no tocar; solo se envia en edicion por fila)
+$expires_repeat = (isset($_GET['expires_repeat']) ? (($_GET['expires_repeat'] == '1') ? 1 : 0) : null);
+
+// Nº de ofertas temporales ya caducadas (para el boton de limpieza)
+$expired_temp_count = 0;
+$etc_q = tep_db_query("SELECT COUNT(*) AS n FROM " . TABLE_SPECIALS . " WHERE is_temp = '1' AND expires_date > 0 AND expires_date < NOW()");
+if($etc_r = tep_db_fetch_array($etc_q)) $expired_temp_count = (int)$etc_r['n'];
+
 /* FUNCTIONS *********************************************************************** */
 
 /*
@@ -115,7 +129,7 @@ function specials_enhanced_get_all_id()
 	if ($product_name != null)
 	{
 	   $tables[] = ' INNER JOIN ' . TABLE_PRODUCTS_DESCRIPTION . ' pd ON p.products_id = pd.products_id';
-	   $clauses[] = "pd.products_name LIKE '%" .  $product_name . "%'";
+	   $clauses[] = "pd.products_name LIKE '%" .  tep_db_input($product_name) . "%'";
 	   $clauses[] = 'pd.language_id = '. (int)$languages_id;
 	}
 	
@@ -165,7 +179,7 @@ function specials_enhanced_get_all_products(&$products_split, &$products_query_n
 	$tables = array();
 	$clauses = array();
 
-	$fields = 'p.products_id, p.products_price, p.products_tax_class_id, p.products_model, pd.products_name, s.specials_id, s.specials_new_products_price, s.expires_date, s.status, s.start_date';
+	$fields = 'p.products_id, p.products_price, p.products_tax_class_id, p.products_model, pd.products_name, s.specials_id, s.specials_new_products_price, s.expires_date, s.status, s.start_date, s.customers_group_id, s.expires_repeat, s.is_temp';
 	
 	if($specials_flag)
 	{
@@ -201,7 +215,7 @@ function specials_enhanced_get_all_products(&$products_split, &$products_query_n
 	
 	if ($product_name != null)
 	{
-	   $clauses[] = "pd.products_name LIKE '%" .  $product_name . "%'";
+	   $clauses[] = "pd.products_name LIKE '%" .  tep_db_input($product_name) . "%'";
 	}
 	
 	$tables_text = implode(' ', $tables);
@@ -244,7 +258,7 @@ function specials_enhanced_set_status($specials_id, $status)
 /*
 	Updates a product special offer
 */
-function specials_enhanced_update_product($product_id, $discount = null, $discount_percent = false, $date = null, $start_date = null)
+function specials_enhanced_update_product($product_id, $discount = null, $discount_percent = false, $date = null, $start_date = null, $expires_repeat = null, $activate = true)
 {
 	$product_query = tep_db_query("SELECT p.products_id AS id, p.products_price AS price, p.products_tax_class_id AS tax FROM " . TABLE_PRODUCTS . " p WHERE p.products_id = $product_id");
 	$product = tep_db_fetch_array($product_query);
@@ -277,6 +291,11 @@ function specials_enhanced_update_product($product_id, $discount = null, $discou
 		$fields['start_date'] = $start_date;
 	}
 
+	if($expires_repeat !== null)
+	{
+		$fields['expires_repeat'] = (int)$expires_repeat;
+	}
+
 	$aOfertas = array();
 	// Obtenemos ofertas del producto
 	$aAuxs = tep_db_query( 'SELECT * FROM specials WHERE products_id = "' . (int)$product_id . '"' );
@@ -304,25 +323,28 @@ function specials_enhanced_update_product($product_id, $discount = null, $discou
 		$key_fields = implode(', ', $key_fields);
 		$value_fields = implode(', ', $value_fields);
 
-		tep_db_query("INSERT INTO " . TABLE_SPECIALS . " (products_id, specials_date_added, status, $key_fields) VALUES ('" . (int)$product_id . "', now(), '0', $value_fields)");
+		tep_db_query("INSERT INTO " . TABLE_SPECIALS . " (products_id, specials_date_added, status, $key_fields) VALUES ('" . (int)$product_id . "', now(), '" . ($activate ? '1' : '0') . "', $value_fields)");
 	}
 	else
 	{
 		// Si hemos introducido fecha de inicio
 		if( $start_date != '' && $start_date != '0000-00-00 00:00:00' )
-			$nSpecialId = $aOfertas['fechas'];
+			$nSpecialId = $aOfertas['fechas'] ?? 0;
 		else
-			$nSpecialId = $aOfertas['normal'];
+			$nSpecialId = $aOfertas['normal'] ?? 0;
 
 		if( $nSpecialId > 0 )
 		{
 			$set_fields = array();
 			foreach($fields as $k => $v)
-				$set_fields[] = "$k = '$v'";
+				$set_fields[] = "$k = '" . tep_db_input($v) . "'";
+
+			if($activate)
+				$set_fields[] = "status = '1'";
 
 			$set_fields = implode(', ', $set_fields);
-			
-			tep_db_query("UPDATE " . TABLE_SPECIALS . " SET $set_fields WHERE specials_id = '$nSpecialId'");
+
+			tep_db_query("UPDATE " . TABLE_SPECIALS . " SET $set_fields WHERE specials_id = '" . (int)$nSpecialId . "'");
 		}
 		else
 		{
@@ -337,9 +359,81 @@ function specials_enhanced_update_product($product_id, $discount = null, $discou
 			$key_fields = implode(', ', $key_fields);
 			$value_fields = implode(', ', $value_fields);
 
-			tep_db_query("INSERT INTO " . TABLE_SPECIALS . " (products_id, specials_date_added, status, $key_fields) VALUES ('" . (int)$product_id . "', now(), '0', $value_fields)");
+			tep_db_query("INSERT INTO " . TABLE_SPECIALS . " (products_id, specials_date_added, status, $key_fields) VALUES ('" . (int)$product_id . "', now(), '" . ($activate ? '1' : '0') . "', $value_fields)");
 		}
 	}
+
+	return true;
+}
+
+/*
+	Updates a single special offer by its specials_id (edicion fila a fila)
+*/
+function specials_enhanced_update_special($sid, $discount = null, $discount_percent = false, $date = null, $start_date = null, $expires_repeat = null, $activate = true)
+{
+	$sid = (int)$sid;
+	$row_query = tep_db_query("SELECT s.products_id, p.products_price AS price, p.products_tax_class_id AS tax FROM " . TABLE_SPECIALS . " s INNER JOIN " . TABLE_PRODUCTS . " p ON p.products_id = s.products_id WHERE s.specials_id = $sid");
+	if(!($row = tep_db_fetch_array($row_query)))
+		return false;
+
+	$fields = array();
+
+	if($discount !== null)
+	{
+		if($discount_percent)
+			$discounted_price = ($row['price'] - (($discount / 100) * $row['price']));
+		elseif(DISPLAY_PRICE_WITH_TAX == 'true')
+			$discounted_price = floatval($discount/(1 + tep_get_tax_rate_value($row['tax'])/100));
+		else
+			$discounted_price = floatval($discount);
+
+		$fields['specials_new_products_price'] = $discounted_price;
+	}
+
+	if($date !== null)
+		$fields['expires_date'] = $date;
+
+	if($start_date !== null)
+		$fields['start_date'] = $start_date;
+
+	if($expires_repeat !== null)
+		$fields['expires_repeat'] = (int)$expires_repeat;
+
+	if($activate)
+		$fields['status'] = '1';
+
+	if(count($fields) == 0)
+		return true;
+
+	$set_fields = array();
+	foreach($fields as $k => $v)
+		$set_fields[] = "$k = '" . tep_db_input($v) . "'";
+	$set_fields = implode(', ', $set_fields);
+
+	tep_db_query("UPDATE " . TABLE_SPECIALS . " SET $set_fields WHERE specials_id = $sid");
+
+	return true;
+}
+
+/*
+	Crea una oferta TEMPORAL (is_temp=1) con fecha de inicio y fin, sin tocar la oferta principal del producto.
+	Al caducar, tep_expire_specials la desactiva (status=0) y reaparece la principal; luego se purga con remove_expired_temp.
+*/
+function specials_enhanced_add_temp($product_id, $group, $discount, $discount_percent, $start_date, $expires_date)
+{
+	$product_id = (int)$product_id;
+	$product_query = tep_db_query("SELECT products_price AS price, products_tax_class_id AS tax FROM " . TABLE_PRODUCTS . " WHERE products_id = $product_id");
+	if(!($product = tep_db_fetch_array($product_query)))
+		return false;
+
+	if($discount_percent)
+		$price = ($product['price'] - (($discount / 100) * $product['price']));
+	elseif(DISPLAY_PRICE_WITH_TAX == 'true')
+		$price = floatval($discount/(1 + tep_get_tax_rate_value($product['tax'])/100));
+	else
+		$price = floatval($discount);
+
+	tep_db_query("INSERT INTO " . TABLE_SPECIALS . " (products_id, customers_group_id, specials_new_products_price, specials_date_added, start_date, expires_date, status, expires_repeat, is_temp) VALUES ('" . $product_id . "', '" . (int)$group . "', '" . tep_db_input($price) . "', now(), '" . tep_db_input($start_date) . "', '" . tep_db_input($expires_date) . "', '1', '0', '1')");
 
 	return true;
 }
@@ -378,16 +472,21 @@ if (tep_not_null($action))
 		// Updates a single product/special offer
 		case 'update':
 			$id = (isset($_GET['id']) ? intval($_GET['id']):0);
-			
-			if($id && $discount !== null)
-				specials_enhanced_update_product($id, $discount, $discount_percent, $date, $start_date);
+			$sid = (isset($_GET['sid']) ? intval($_GET['sid']):0);
 
-			tep_redirect(tep_href_link(FILENAME_SPECIALS_AVANZADO, tep_get_all_get_params(array('action','id','discount','date', 'start_date')), 'NONSSL'));
+			$has_change = ($discount !== null || $date !== null || $start_date !== null || $expires_repeat !== null);
+
+			if($sid > 0 && $has_change)
+				specials_enhanced_update_special($sid, $discount, $discount_percent, $date, $start_date, $expires_repeat, true);
+			elseif($id && $discount !== null)
+				specials_enhanced_update_product($id, $discount, $discount_percent, $date, $start_date, $expires_repeat, true);
+
+			tep_redirect(tep_href_link(FILENAME_SPECIALS_AVANZADO, tep_get_all_get_params(array('action','id','sid','discount','date','start_date','expires_repeat')), 'NONSSL'));
 		break;
 
 		// Updates all the filtered products/special offers
 		case 'update_all':
-			if($discount !== null || $date !== null)
+			if($discount !== null || $date !== null || $start_date !== null)
 			{
 				if($discount === null && $date != null)
 					$specials_flag = 1;
@@ -397,12 +496,27 @@ if (tep_not_null($action))
 
 				$ids = specials_enhanced_get_all_id();
 				foreach($ids as $id)
-					specials_enhanced_update_product($id['pid'], $discount, $discount_percent, $date, $start_date);
+					specials_enhanced_update_product($id['pid'], $discount, $discount_percent, $date, $start_date, null, true);
 			}
 
-			tep_redirect(tep_href_link(FILENAME_SPECIALS_AVANZADO, tep_get_all_get_params(array('action','id','discount','date', 'start_date')), 'NONSSL'));
+			tep_redirect(tep_href_link(FILENAME_SPECIALS_AVANZADO, tep_get_all_get_params(array('action','id','sid','discount','date','start_date','expires_repeat')), 'NONSSL'));
 		break;
-		
+
+		// Crea una oferta temporal (boton +) para un producto
+		case 'add_temp':
+			$id = (isset($_GET['id']) ? intval($_GET['id']):0);
+			if($id && $discount !== null && $start_date !== null && $date !== null)
+				specials_enhanced_add_temp($id, 0, $discount, $discount_percent, $start_date, $date);
+
+			tep_redirect(tep_href_link(FILENAME_SPECIALS_AVANZADO, tep_get_all_get_params(array('action','id','sid','discount','date','start_date','expires_repeat','percent_flag')), 'NONSSL'));
+		break;
+
+		// Borra todas las ofertas temporales ya caducadas (limpieza)
+		case 'remove_expired_temp':
+			tep_db_query("DELETE FROM " . TABLE_SPECIALS . " WHERE is_temp = '1' AND expires_date > 0 AND expires_date < NOW()");
+			tep_redirect(tep_href_link(FILENAME_SPECIALS_AVANZADO, tep_get_all_get_params(array('action','id','sid','discount','date','start_date','expires_repeat','percent_flag')), 'NONSSL'));
+		break;
+
 		// removes a single special offer
 		case 'remove':
 			$sid = (isset($_GET['sid']) ? intval($_GET['sid']):0);
@@ -457,7 +571,7 @@ if (tep_not_null($action))
 														<td class="main"><b><?php echo @SPECIALS_ENHANCED_FILTER;?></b></td>
 														<td class="main">
 														    <?php echo @SPECIALS_ENHANCED_NAME;?>
-														    <input name="product_name" type="text" value="<?php echo $product_name; ?>" size="20" maxlength="100"/>
+														    <input name="product_name" type="text" value="<?php echo htmlspecialchars((string)$product_name, ENT_QUOTES); ?>" size="20" maxlength="100"/>
 															<?php echo tep_draw_pull_down_menu('cPath', $categories_list, $current_category_id, '');?>
 															<?php $current_manufacturer_id = $current_manufacturer_id ?? ''; echo tep_draw_pull_down_menu('manufacturer_id', $manufacturers_list, $current_manufacturer_id);?>
 														</td>
@@ -515,21 +629,23 @@ if (tep_not_null($action))
 																
 																<tr>
 																	<td><span class="main">Fecha Inicio (dd/mm/yyyy):</span></td>
-																	<td><input name="start_date" type="text" value="" size="10" maxlength="10"/></td>
+																	<td><input name="start_date" class="dxdatepicker" type="text" value="" size="10" maxlength="10"/></td>
 																	<td></td>
 																</tr>
 																<tr>
 																	<td><span class="main">Fecha Fin (dd/mm/yyyy):</span></td>
-																	<td><input name="date" type="text" value="" size="10" maxlength="10" /></td>
-																	<td>&nbsp;&nbsp;<input type="image" src="includes/languages/<?php echo $language;?>/images/buttons/button_specials_enh_apply_discount.gif" onclick="this.form.action.value='update_all';this.form.submit();" alt="<?php echo @SPECIALS_ENHANCED_APPLY_DISCOUNT; ?>"/></td>
+																	<td><input name="date" class="dxdatepicker" type="text" value="" size="10" maxlength="10" /></td>
+																	<td>&nbsp;&nbsp;<button type="submit" class="btn btn-primary" onclick="return confirmApplyAll(this.form);"><?php echo @SPECIALS_ENHANCED_APPLY_DISCOUNT; ?></button></td>
 																</tr>
 															</table>
 														</td>
 														<td align="right" valign="bottom">
-															<input type="image" src="includes/languages/<?php echo $language;?>/images/buttons/button_specials_enh_activate.gif" onclick="if(!confirm('<?php echo @SPECIALS_ENHANCED_GENERAL_CONFIRM;?>')) return false;this.form.action.value='setflag_all';this.form.flag.value='1';this.form.submit();" alt="<?php echo @SPECIALS_ENHANCED_ACTIVATE_ALL; ?>"/>
-															<input type="image" src="includes/languages/<?php echo $language;?>/images/buttons/button_specials_enh_deactivate.gif" onclick="if(!confirm('<?php echo @SPECIALS_ENHANCED_GENERAL_CONFIRM;?>')) return false;this.form.action.value='setflag_all';this.form.flag.value='0';this.form.submit();" alt="<?php echo @SPECIALS_ENHANCED_DEACTIVATE_ALL; ?>"/>
+															<button type="submit" class="btn" onclick="return confirmFlagAll(this.form,'1');"><?php echo @SPECIALS_ENHANCED_ACTIVATE_ALL; ?></button>
+															<button type="submit" class="btn" onclick="return confirmFlagAll(this.form,'0');"><?php echo @SPECIALS_ENHANCED_DEACTIVATE_ALL; ?></button>
 															&nbsp;
-															<input type="image" src="includes/languages/<?php echo $language;?>/images/buttons/button_specials_enh_remove.gif" onclick="if(!confirm('<?php echo @SPECIALS_ENHANCED_GENERAL_CONFIRM;?>')) return false;this.form.action.value='remove_all';this.form.submit();" alt="<?php echo @SPECIALS_ENHANCED_REMOVE_ALL; ?>"/>
+															<button type="submit" class="btn btn-danger" onclick="return confirmRemoveAll(this.form);"><?php echo @SPECIALS_ENHANCED_REMOVE_ALL; ?></button>
+															<br/><br/>
+															<button type="submit" class="btn" title="Elimina de la base de datos las ofertas temporales (boton +) que ya han caducado" onclick="return confirmRemoveExpiredTemp(this.form);"><i class="fa fa-broom"></i> Borrar temporales caducadas (<?php echo (int)$expired_temp_count; ?>)</button>
 														</td>
 													</tr>
 												</table>
@@ -547,22 +663,26 @@ if (tep_not_null($action))
 											<table border="0" width="100%" cellspacing="0" cellpadding="2">
 												<tr class="dataTableHeadingRow">
 													<td width="10%" class="dataTableHeadingContent"><?php echo @SPECIALS_ENHANCED_TH_MODEL; ?></td>
-													<td width="25%" class="dataTableHeadingContent"><?php echo @SPECIALS_ENHANCED_TH_PRODUCTS; ?></td>
+													<td width="20%" class="dataTableHeadingContent"><?php echo @SPECIALS_ENHANCED_TH_PRODUCTS; ?></td>
+														<td width="9%" class="dataTableHeadingContent" align="center">Grupo</td>
 													<td width="8%" class="dataTableHeadingContent" align="center"><?php echo @SPECIALS_ENHANCED_TH_PRICE . '(' . (DISPLAY_PRICE_WITH_TAX == 'true' ? SPECIALS_ENHANCED_TH_GROSS:SPECIALS_ENHANCED_TH_NET) . ')'; ?></td>
 													<td width="15%" class="dataTableHeadingContent" align="center"><?php echo @SPECIALS_ENHANCED_TH_DISCOUNTED_PRICE . '(' . (DISPLAY_PRICE_WITH_TAX == 'true' ? SPECIALS_ENHANCED_TH_GROSS:SPECIALS_ENHANCED_TH_NET) . ') / %'; ?></td>
 													<td width="8%" class="dataTableHeadingContent" align="center"><?php echo @SPECIALS_ENHANCED_TH_DISCOUNT_PERCENT; ?></td>
 													<td width="10%" class="dataTableHeadingContent" align="center">Fecha Inicio (dd/mm/yyyy)</td>
 													<td width="10%" class="dataTableHeadingContent" align="center">Fecha Fin (dd/mm/yyyy)</td>
+														<td width="7%" class="dataTableHeadingContent" align="center">Repetir</td>
 													<td width="8%" class="dataTableHeadingContent" align="center"><?php echo @SPECIALS_ENHANCED_TH_STATUS; ?></td>
 													<td class="dataTableHeadingContent" align="right"><?php echo @SPECIALS_ENHANCED_TH_ACTIONS; ?></td>
 												</tr>
 												<?php
-												foreach($specials_array as $specials) 
+												$row_idx = 0;
+												foreach($specials_array as $specials)
 												{
+													$row_idx++;
 													$tax_rate = tep_get_tax_rate_value($specials['products_tax_class_id']);
 												?>
 												<tr class="dataTableRow" onmouseover="rowOverEffect(this)" onmouseout="rowOutEffect(this)">
-													<td colspan="9">
+													<td colspan="11">
 														<form>
 															<input type="hidden" name="cPath" value="<?php echo $category_id;?>"/>
 															<input type="hidden" name="manufacturer_id" value="<?php echo $manufacturer_id;?>"/>
@@ -571,19 +691,21 @@ if (tep_not_null($action))
 															<input type="hidden" name="sort" value="<?php echo $sort;?>"/>
 															<input type="hidden" name="sort_type" value="<?php echo $sort_type;?>"/>
 															<input type="hidden" name="page" value="<?php echo $page;?>"/>
-															<input type="hidden" name="product_name" value="<?php echo $product_name;?>"/>
+															<input type="hidden" name="product_name" value="<?php echo htmlspecialchars((string)$product_name, ENT_QUOTES);?>"/>
 															<input type="hidden" name="action" value="update"/>
 															<input type="hidden" name="id" value="<?php echo $specials['products_id'];?>"/>
 															<input type="hidden" name="sid" value="<?php echo $specials['specials_id'];?>"/>
 															<table width="100%">
 																<tr>
 																	<td width="10%" class="dataTableContent"><?php echo $specials['products_model']; ?></td>
-																	<td width="25%" class="dataTableContent"><?php echo $specials['products_name']; ?></td>
+																	<td width="20%" class="dataTableContent"><?php if(!empty($specials['is_temp'])) echo '<i class="fa fa-hourglass-half" style="color:#2980b9;margin-right:5px;" title="Oferta temporal"></i>'; echo $specials['products_name']; ?></td>
+																		<td width="9%" class="dataTableContent" align="center"><?php echo ($specials['specials_id'] != null ? (isset($group_names[$specials['customers_group_id']]) ? $group_names[$specials['customers_group_id']] : ('Grupo ' . (int)$specials['customers_group_id'])) : '----'); ?></td>
 																	<td width="8%" class="dataTableContent" align="center"><?php echo $currencies->display_price($specials['products_price'], $tax_rate); ?></td>
 																	<td width="15%" class="dataTableContent" align="center"><?php echo $currencies->currencies[DEFAULT_CURRENCY]['symbol_left']; ?><input name="discount" style="border:1px solid #ccc;text-align:right" type="text" size="8" value="<?php echo number_format(tep_add_tax($specials['specials_new_products_price'], $tax_rate),intval($currencies->currencies[DEFAULT_CURRENCY]["decimal_places"]), $currencies->currencies[DEFAULT_CURRENCY]["decimal_point"], $currencies->currencies[DEFAULT_CURRENCY]["thousands_point"]);?>"/> <?php echo $percent_select; ?></td>
 																	<td width="8%" class="dataTableContent" align="center"><?php if($specials['specials_new_products_price']){echo number_format(-1*($specials['products_price'] - $specials['specials_new_products_price'])*100/$specials['products_price'], intval($currencies->currencies[DEFAULT_CURRENCY]["decimal_places"]), $currencies->currencies[DEFAULT_CURRENCY]["decimal_point"], $currencies->currencies[DEFAULT_CURRENCY]["thousands_point"]).'%';}else{ echo '---';} ?></td>
-																	<td width="10%" class="dataTableContent" align="center"><input name="start_date" style="border:1px solid #ccc;" type="text" value="<?php echo (!empty($specials['start_date']) && $specials['start_date'] != '0000-00-00 00:00:00' ? preg_replace('/([0-9]{4,4})-([0-9]{2,2})-([0-9]{2,2}) ([0-9]{2,2}):([0-9]{2,2}):([0-9]{2,2})/','$3/$2/$1', $specials['start_date']):''); ?>" size="10" maxlength="10" onfocus="this.select();"/></td>
-																	<td width="10%" class="dataTableContent" align="center"><input name="date" style="border:1px solid #ccc;" type="text" value="<?php echo (!empty($specials['expires_date']) && $specials['expires_date'] != '0000-00-00 00:00:00' ? preg_replace('/([0-9]{4,4})-([0-9]{2,2})-([0-9]{2,2}) ([0-9]{2,2}):([0-9]{2,2}):([0-9]{2,2})/','$3/$2/$1', $specials['expires_date']):''); ?>" size="10" maxlength="10" onfocus="this.select();"/></td>
+																	<td width="10%" class="dataTableContent" align="center"><input name="start_date" class="dxdatepicker" style="border:1px solid #ccc;" type="text" value="<?php echo (!empty($specials['start_date']) && $specials['start_date'] != '0000-00-00 00:00:00' ? preg_replace('/([0-9]{4,4})-([0-9]{2,2})-([0-9]{2,2}) ([0-9]{2,2}):([0-9]{2,2}):([0-9]{2,2})/','$3/$2/$1', $specials['start_date']):''); ?>" size="10" maxlength="10" onfocus="this.select();"/></td>
+																	<td width="10%" class="dataTableContent" align="center"><input name="date" class="dxdatepicker" style="border:1px solid #ccc;" type="text" value="<?php echo (!empty($specials['expires_date']) && $specials['expires_date'] != '0000-00-00 00:00:00' ? preg_replace('/([0-9]{4,4})-([0-9]{2,2})-([0-9]{2,2}) ([0-9]{2,2}):([0-9]{2,2}):([0-9]{2,2})/','$3/$2/$1', $specials['expires_date']):''); ?>" size="10" maxlength="10" onfocus="this.select();"/></td>
+																		<td width="7%" class="dataTableContent" align="center"><?php if($specials['specials_id'] != null) { echo tep_draw_pull_down_menu('expires_repeat', array(array('id'=>0,'text'=>'No'), array('id'=>1,'text'=>'Si')), (int)$specials['expires_repeat']);} else { echo '----'; } ?></td>
 																	<td width="8%" class="dataTableContent" align="center">
 																	<?php
 																		if($specials['status'] != null)
@@ -598,15 +720,42 @@ if (tep_not_null($action))
 																			echo '----';
 																	?>
 																	</td>
-																	<td align="right">
-																		<input type="image" src="images/button_specials_enh_update.gif" alt="<?php echo @SPECIALS_ENHANCED_UPDATE; ?>" style="border:1px solid #ccc;margin-right:5px;"/><?php if($specials['specials_new_products_price']) { ?><input type="image" src="images/button_specials_enh_remove.gif" alt="<?php echo @SPECIALS_ENHANCED_REMOVE; ?>" onclick="if(!confirm('<?php echo @SPECIALS_ENHANCED_REMOVE_CONFIRM; ?>')) return false;this.form.action.value ='remove';this.form.submit();" style="border:1px solid #ccc;"/><?php }else{?><img src="images/button_specials_enh_no_remove.gif" alt="<?php echo @SPECIALS_ENHANCED_REMOVE; ?>" style="border:1px solid #ccc;"/><?php } ?>
+																	<td align="right" style="white-space:nowrap;">
+																		<button type="button" class="btn btn-success" title="A&ntilde;adir oferta temporal" style="margin-right:4px;" onclick="toggleTempRow('temprow_<?php echo $row_idx; ?>');"><i class="fa fa-plus"></i></button><button type="submit" class="btn" title="Guardar" style="margin-right:4px;"><i class="fa fa-save"></i></button><?php if($specials['specials_new_products_price']) { ?><button type="submit" class="btn btn-danger" title="Borrar" onclick="if(!confirm('<?php echo @SPECIALS_ENHANCED_REMOVE_CONFIRM; ?>')) return false; this.form.action.value='remove'; return true;"><i class="fa fa-trash"></i></button><?php } ?>
 																	</td>
 																</tr>
 															</table>
 														</form>
 													</td>
 												</tr>
-												<?php
+												
+																				<tr class="dataTableRow" id="temprow_<?php echo $row_idx; ?>" style="display:none;background:#eef6ff;">
+																					<td colspan="11">
+																						<form>
+																							<input type="hidden" name="cPath" value="<?php echo $category_id;?>"/>
+																							<input type="hidden" name="manufacturer_id" value="<?php echo $manufacturer_id;?>"/>
+																							<input type="hidden" name="subcats_flag" value="<?php echo ($subcats_flag ? '1':'');?>"/>
+																							<input type="hidden" name="specials_flag" value="<?php echo ($specials_flag ? '1':'');?>"/>
+																							<input type="hidden" name="sort" value="<?php echo $sort;?>"/>
+																							<input type="hidden" name="sort_type" value="<?php echo $sort_type;?>"/>
+																							<input type="hidden" name="page" value="<?php echo $page;?>"/>
+																							<input type="hidden" name="product_name" value="<?php echo htmlspecialchars((string)$product_name, ENT_QUOTES);?>"/>
+																							<input type="hidden" name="action" value="add_temp"/>
+																							<input type="hidden" name="id" value="<?php echo $specials['products_id'];?>"/>
+																							<table width="100%"><tr>
+																								<td class="dataTableContent" style="padding:6px;"><b><i class="fa fa-plus"></i> Nueva oferta temporal</b> &nbsp; (Retail)</td>
+																								<td class="dataTableContent" align="center">Precio/Dto: <input name="discount" type="text" size="8" style="border:1px solid #ccc;text-align:right" value=""/> <?php echo $percent_select; ?></td>
+																								<td class="dataTableContent" align="center">Inicio: <input name="start_date" class="dxdatepicker" type="text" size="10" maxlength="10" style="border:1px solid #ccc;" value=""/></td>
+																								<td class="dataTableContent" align="center">Fin: <input name="date" class="dxdatepicker" type="text" size="10" maxlength="10" style="border:1px solid #ccc;" value=""/></td>
+																								<td class="dataTableContent" align="right" style="white-space:nowrap;">
+																									<button type="submit" class="btn btn-primary" title="Crear oferta temporal" onclick="return confirmAddTemp(this.form);"><i class="fa fa-plus"></i> Crear</button>
+																									<button type="button" class="btn" title="Cancelar" onclick="toggleTempRow('temprow_<?php echo $row_idx; ?>');"><i class="fa fa-times"></i></button>
+																								</td>
+																							</tr></table>
+																						</form>
+																					</td>
+																				</tr>
+																<?php
 												}
 												?>
 												<tr>
@@ -631,6 +780,50 @@ if (tep_not_null($action))
 			</tr>
 		</table>
 
+
+<script type="text/javascript">
+	var filteredCount = <?php echo (int)($products_query_numrows ?? 0); ?>;
+
+	function confirmApplyAll(form){
+		if(!confirm('Vas a aplicar el descuento/fechas a ' + filteredCount + ' productos filtrados.\nLas ofertas afectadas quedaran ACTIVADAS.\n\nContinuar?')) return false;
+		form.action.value = 'update_all';
+		return true;
+	}
+
+	function confirmFlagAll(form, flag){
+		var txt = (flag == '1') ? 'ACTIVAR' : 'DESACTIVAR';
+		if(!confirm('Vas a ' + txt + ' las ofertas de ' + filteredCount + ' productos filtrados.\n\nContinuar?')) return false;
+		form.action.value = 'setflag_all';
+		form.flag.value = flag;
+		return true;
+	}
+
+	function confirmRemoveAll(form){
+		if(!confirm('Vas a BORRAR las ofertas de ' + filteredCount + ' productos filtrados.\nEsta accion NO se puede deshacer.\n\nContinuar?')) return false;
+		form.action.value = 'remove_all';
+		return true;
+	}
+
+	function toggleTempRow(rowId){
+		var r = document.getElementById(rowId);
+		if(!r) return;
+		r.style.display = (r.style.display === 'none' || r.style.display === '') ? 'table-row' : 'none';
+	}
+
+	function confirmAddTemp(form){
+		if(form.discount.value == '' || form.start_date.value == '' || form.date.value == ''){
+			alert('Para crear una oferta temporal indica el precio/descuento, la fecha de inicio y la fecha de fin.');
+			return false;
+		}
+		return true;
+	}
+
+	function confirmRemoveExpiredTemp(form){
+		if(!confirm('Vas a BORRAR de la base de datos todas las ofertas temporales ya caducadas.\nLa oferta principal de cada producto (si la hay) seguira vigente.\n\nContinuar?')) return false;
+		form.action.value = 'remove_expired_temp';
+		return true;
+	}
+</script>
 
 <!-- footer //-->
 <?php require(THEME . 'html/footer.php'); ?>

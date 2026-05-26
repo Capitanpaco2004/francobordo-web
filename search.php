@@ -241,6 +241,17 @@ if ($sManufacturers != '' && (int) $sManufacturers > 0) {
     $sWhere .= ' AND p.manufacturers_id = ' . $sManufacturers . ' ';
 }
 
+// Ocultar la propia marca al buscar su nombre: al buscar "seaflo" NO mostramos
+// productos cuyo fabricante sea Seaflo (sí salen productos de OTRAS marcas que
+// mencionan Seaflo en nombre/descripción). Mismo criterio que el proxy Meili.
+// Mapa: token de búsqueda => manufacturers_id a excluir. Extensible.
+$aHideBrandWhenSearched = array('seaflo' => 307);
+foreach ($aHideBrandWhenSearched as $sBrandTok => $nBrandMid) {
+    if (preg_match('/\b' . preg_quote($sBrandTok, '/') . '/i', $sSearch)) {
+        $sWhere .= ' AND p.manufacturers_id <> ' . (int) $nBrandMid . ' ';
+    }
+}
+
 // Generamos el orden
 $sOrder = 'ORDER BY relevance2 DESC, ' . ($bSearchDescription ? 'relevance3 DESC, ' : '') . ' /*relevance DESC,*/ disponibilidad DESC,';
 

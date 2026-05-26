@@ -154,9 +154,10 @@
         $fecha_inicio = tep_db_prepare_input($_POST['start_date']);
         $hora_inicio = tep_db_prepare_input($_POST['hora_inicio']);
         $hora_fin = tep_db_prepare_input($_POST['hora_fin']);
-		
+        $expires_repeat = (isset($_POST['expires_repeat']) && $_POST['expires_repeat'] == '1') ? 1 : 0;
+
 		// venta flash
-        $start_date = fecha_mysql($fecha_inicio).' '.$hora_inicio;		
+        $start_date = fecha_mysql($fecha_inicio).' '.$hora_inicio;
         $expires_date = fecha_mysql($expires_date).' '.$hora_fin;
 		
 		// BOF Separate Pricing Per Customer
@@ -194,7 +195,7 @@
 	$sId = tep_db_insert_id();
 	
 	// venta flash
-	tep_db_query("update " . TABLE_SPECIALS . " set expires_date = '" . tep_db_input($expires_date) . "',  start_date = '" . tep_db_input($start_date) . "', venta_flash = '" . tep_db_input($venta_flash) . "', portada_flash = '" . tep_db_input($portada_flash) . "' where specials_id = '" . (int)$sId . "'");
+	tep_db_query("update " . TABLE_SPECIALS . " set expires_date = '" . tep_db_input($expires_date) . "',  start_date = '" . tep_db_input($start_date) . "', venta_flash = '" . tep_db_input($venta_flash) . "', portada_flash = '" . tep_db_input($portada_flash) . "', expires_repeat = '" . (int)$expires_repeat . "' where specials_id = '" . (int)$sId . "'");
 // EOF Separate Pricing Per Customer
 
         if( $_GET['pID'] )
@@ -214,15 +215,16 @@
         $fecha_inicio = tep_db_prepare_input($_POST['start_date']);
         $hora_inicio = tep_db_prepare_input($_POST['hora_inicio']);
         $hora_fin = tep_db_prepare_input($_POST['hora_fin']);
+        $expires_repeat = (isset($_POST['expires_repeat']) && $_POST['expires_repeat'] == '1') ? 1 : 0;
 
 		// venta flash
-        $start_date = fecha_mysql($fecha_inicio).' '.$hora_inicio;		
+        $start_date = fecha_mysql($fecha_inicio).' '.$hora_inicio;
         $expires_date = fecha_mysql($expires_date).' '.$hora_fin;
-		
+
 		if (substr($specials_price, -1) == '%') $specials_price = ($products_price - (($specials_price / 100) * $products_price));
-		
+
 		// venta flash
-        tep_db_query("update " . TABLE_SPECIALS . " set specials_new_products_price = '" . tep_db_input($specials_price) . "', specials_last_modified = now(), status = '1', expires_date = '" . tep_db_input($expires_date) . "',  start_date = '" . tep_db_input($start_date) . "', venta_flash = '" . tep_db_input($venta_flash) . "', portada_flash = '" . tep_db_input($portada_flash) . "' where specials_id = '" . (int)$specials_id . "'");
+        tep_db_query("update " . TABLE_SPECIALS . " set specials_new_products_price = '" . tep_db_input($specials_price) . "', specials_last_modified = now(), status = '1', expires_date = '" . tep_db_input($expires_date) . "',  start_date = '" . tep_db_input($start_date) . "', venta_flash = '" . tep_db_input($venta_flash) . "', portada_flash = '" . tep_db_input($portada_flash) . "', expires_repeat = '" . (int)$expires_repeat . "' where specials_id = '" . (int)$specials_id . "'");
 		
         
         // if( $expires_date != '' )
@@ -285,7 +287,7 @@
       $form_action = 'update';
 
 // BOF Separate Pricing Per Customer
-      $product_query = tep_db_query("select p.products_id, p.products_tax_class_id, venta_flash, portada_flash, DATE_FORMAT( s.start_date, '%d/%m/%Y %H:%i:%s') as start_date, pd.products_name, p.products_price, s.specials_new_products_price, DATE_FORMAT( s.expires_date, '%d/%m/%Y %H:%i:%s') as expires_date, s.customers_group_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_SPECIALS . " s where p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "' and p.products_id = s.products_id and s.specials_id = '" . (int)$_GET['sID'] . "'");
+      $product_query = tep_db_query("select p.products_id, p.products_tax_class_id, venta_flash, portada_flash, DATE_FORMAT( s.start_date, '%d/%m/%Y %H:%i:%s') as start_date, pd.products_name, p.products_price, s.specials_new_products_price, DATE_FORMAT( s.expires_date, '%d/%m/%Y %H:%i:%s') as expires_date, s.expires_repeat, s.customers_group_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_SPECIALS . " s where p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "' and p.products_id = s.products_id and s.specials_id = '" . (int)$_GET['sID'] . "'");
 
       $product = tep_db_fetch_array($product_query);
 
@@ -414,8 +416,13 @@
 				<input id="hora_fin" name="hora_fin" value="<?php echo (isset($sInfo->expires_date) ? $aAux[1] : '00:00'); ?>" />
 			</td>
           </tr>
-		  
-			<tr>				
+
+          <tr>
+            <td class="main">Repetir oferta (cada 14 d&iacute;as):</td>
+            <td class="main"><?php echo tep_draw_pull_down_menu('expires_repeat', array( array( 'id' => 0, 'text' => 'No' ), array( 'id' => 1, 'text' => 'Si' ) ), (isset($sInfo->expires_repeat) ? $sInfo->expires_repeat : 0)); ?></td>
+          </tr>
+
+			<tr>
 				<td colspan="2" class="main" align="right" valign="top"><br><?php echo (($form_action == 'insert') ? tep_image_submit('button_insert.png', IMAGE_INSERT) : tep_image_submit('button_update.png', IMAGE_UPDATE)). '&nbsp;&nbsp;&nbsp;<a href="' . tep_href_link(FILENAME_SPECIALS, 'page=' . $_GET['page'] . (isset($_GET['sID']) ? '&sID=' . $_GET['sID'] : '')) . '">' . tep_image_button('button_cancel.png', IMAGE_CANCEL) . '</a>'; ?></td>
 			</tr>
 		  
