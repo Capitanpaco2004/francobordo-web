@@ -95,7 +95,7 @@ function field_generator($db_field_name)
             $output_field_value = !empty($product['categories_id']) ? $categories[$product['categories_id']][$cur_feed['language_id']][0] : '';
             break;
         case 'CATEGORY_TREE':
-            $output_field_value = !empty($product['categories_id']) ? implode($cur_feed['category_tree_seperator'], $categories[$product['categories_id']][$cur_feed['language_id']]) : '';
+            $output_field_value = !empty($product['categories_id']) ? implode($cur_feed['category_tree_seperator'], $categories[$product['categories_id']][$cur_feed['language_id']] ?? []) : '';
             break;
         case 'PRICE':
             $output_field_value = $current_product_prices['products_price'];
@@ -315,6 +315,7 @@ $cycle_length = floor(1000 / sizeof($languages_used)) * sizeof($languages_used);
 
 $count = 0;
 $counter = 0;
+$seen_ids = array(); // dedup por id (por feed) a traves de todos los ciclos de paginacion
 
 while (true) {
     ++$counter;
@@ -611,6 +612,13 @@ END) as final_price
                                 break;
                         }
                     }
+                    // Dedup por id: un producto en varias categorias puede generar
+                    // varias filas; si su id ya se escribio en este feed, se omite.
+                    $dedup_id = (string) ($product['products_id'] ?? '');
+                    if ($dedup_id !== '' && isset($seen_ids[$cur_feed_id][$dedup_id])) {
+                        continue;
+                    }
+                    if ($dedup_id !== '') $seen_ids[$cur_feed_id][$dedup_id] = true;
                     fwrite($fps[$cur_feed_id]['fp'], $output_line);
                 }
             }

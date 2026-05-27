@@ -114,7 +114,7 @@ function imagettftextbox(&$gdImage, $sFontSize, $nAngle, $nLeft, $nTop, $aColor,
 			// imagefilledrectangle( $imDebug, 0, 0, $aLinesWidth[$key], $nAltoFijo, $imRelleno );
 			// imagecopyresampled( $gdImage, $imDebug, $nLeft + $nMarginLeft, $nTop + ($nAltoFijo * $key), 0, 0,$aLinesWidth[$key], $nAltoFijo, $aLinesWidth[$key], $nAltoFijo );
 			
-			imagettftext( $gdImage, $sFontSize, $nAngle, $nLeft + $nMarginLeft, $nTop + $nAltoFijo + ($nAltoFijo * $key), imagecolorallocate($gdImage, $aColor[0], $aColor[1], $aColor[2] ), $sFont, $line );
+			imagettftext( $gdImage, $sFontSize, $nAngle, (int) ($nLeft + $nMarginLeft), (int) ($nTop + $nAltoFijo + ($nAltoFijo * $key)), imagecolorallocate($gdImage, $aColor[0], $aColor[1], $aColor[2] ), $sFont, $line );
 		}
 		
 		return array(

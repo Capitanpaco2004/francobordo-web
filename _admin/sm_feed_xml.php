@@ -56,8 +56,11 @@ function sm_xml_clean(string $s): string
 }
 
 /**
- * Strip tracking params (utm_*, etc.) from a product URL, keeping only the
- * params SM needs: `language` and (for variants) `attr`. Order: language, attr.
+ * Reduce a product URL to match the site's real canonical URL that SM's
+ * monitoring sees: drop tracking (utm_*) AND the language param (the canonical
+ * is clean — language is only a feed artifact; audiences are split by SM
+ * location francobordo_es/en instead). Keep `attr` for variants so the link
+ * still points to the specific variant.
  * Input must be an already entity-decoded URL.
  */
 function sm_clean_url(string $url): string
@@ -67,8 +70,7 @@ function sm_clean_url(string $url): string
 
     parse_str($parts['query'], $params);
     $ordered = [];
-    if (isset($params['language'])) $ordered['language'] = $params['language'];
-    if (isset($params['attr']))     $ordered['attr']     = $params['attr'];
+    if (isset($params['attr'])) $ordered['attr'] = $params['attr']; // solo variante
 
     $base = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . ($parts['path'] ?? '');
     if (!empty($ordered)) {
@@ -115,6 +117,8 @@ foreach ($jobs as $job) {
     $col = fn($row, $name) => isset($cols[$name]) && isset($row[$cols[$name]]) ? $row[$cols[$name]] : '';
 
     $n = 0;
+    $seen = [];   // dedup por g:id — el comparador repite filas por categoría
+    $dups = 0;
     while (($line = fgets($in)) !== false) {
         $row = explode("\t", rtrim($line, "\r\n"));
         if (count($row) < 3) continue;
@@ -122,6 +126,11 @@ foreach ($jobs as $job) {
         // Decode HTML entities from the TSV, then output as CDATA/escaped XML.
         $id    = trim($col($row, 'id'));
         if ($id === '') continue;
+
+        // Skip duplicate ids (same product in N categories → N feed rows).
+        // Keep the first occurrence only.
+        if (isset($seen[$id])) { $dups++; continue; }
+        $seen[$id] = true;
 
         $title = sm_xml_clean(html_entity_decode($col($row, 'title'), ENT_QUOTES, 'UTF-8'));
         $desc  = sm_xml_clean(html_entity_decode($col($row, 'description'), ENT_QUOTES, 'UTF-8'));
@@ -166,7 +175,7 @@ foreach ($jobs as $job) {
     @chmod($dst, 0644);
 
     $elapsed = round((microtime(true) - $tStart) * 1000);
-    echo "OK {$job['lang']}: $n items → " . basename($dst) . " (" . round(filesize($dst) / 1048576, 1) . " MB, {$elapsed} ms)\n";
+    echo "OK {$job['lang']}: $n items (dedup: $dups dupes omitidos) → " . basename($dst) . " (" . round(filesize($dst) / 1048576, 1) . " MB, {$elapsed} ms)\n";
 }
 
 echo "done\n";

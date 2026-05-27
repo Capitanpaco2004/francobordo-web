@@ -887,6 +887,36 @@
                 tep_redirect( tep_href_link( FILENAME_CATEGORIES, 'cPath=' . $new_parent_id . '&pID=' . $products_id ) );
             break;
 
+            case 'move_products_bulk_confirm':
+                $new_parent_id = (int)tep_db_prepare_input( $_POST['move_to_category_id'] );
+                $bulk_ids = ( isset( $_POST['products_id'] ) && is_array( $_POST['products_id'] ) ) ? $_POST['products_id'] : array();
+                $src_cat = (int)$current_category_id;
+
+                if( $new_parent_id > 0 && $src_cat > 0 && $new_parent_id != $src_cat )
+                {
+                    foreach( $bulk_ids as $bulk_pid )
+                    {
+                        $bulk_pid = (int)$bulk_pid;
+                        if( $bulk_pid <= 0 ) continue;
+
+                        $dup = tep_db_fetch_array( tep_db_query( "select count(*) as total from " . TABLE_PRODUCTS_TO_CATEGORIES . " where products_id = '" . $bulk_pid . "' and categories_id = '" . $new_parent_id . "'" ) );
+
+                        if( $dup['total'] < 1 )
+                            tep_db_query( "update " . TABLE_PRODUCTS_TO_CATEGORIES . " set categories_id = '" . $new_parent_id . "' where products_id = '" . $bulk_pid . "' and categories_id = '" . $src_cat . "'" );
+                        else
+                            tep_db_query( "delete from " . TABLE_PRODUCTS_TO_CATEGORIES . " where products_id = '" . $bulk_pid . "' and categories_id = '" . $src_cat . "'" );
+                    }
+                }
+
+                if( USE_CACHE == 'true' )
+                {
+                    tep_reset_cache_block( 'categories' );
+                    tep_reset_cache_block( 'also_purchased' );
+                }
+
+                tep_redirect( tep_href_link( FILENAME_CATEGORIES, 'cPath=' . $new_parent_id ) );
+            break;
+
             case 'insert_product':
             case 'update_product':
 				// Variables
@@ -4206,7 +4236,7 @@
                                 <tr>
                                     <td valign="top"><table border="0" width="100%" cellspacing="0" cellpadding="2">
                                         <tr class="dataTableHeadingRow">
-                                            <td class="dataTableHeadingContent"><?php echo TABLE_HEADING_CATEGORIES_PRODUCTS; ?></td>
+                                            <td class="dataTableHeadingContent"><input type="checkbox" id="js-bulk-cb-all" title="Seleccionar todos" style="margin-right:6px;vertical-align:middle;"><?php echo TABLE_HEADING_CATEGORIES_PRODUCTS; ?></td>
                                             <td class="dataTableHeadingContent" align="center">Referencia</td>
 											<td class="dataTableHeadingContent" align="center">Ref. Proveedor</td>
                                             <td class="dataTableHeadingContent" align="center">Cód. EAN</td>
@@ -4394,6 +4424,7 @@
                                                 ?>
 
                                                 <td class="dataTableContent">
+													<label class="noclick" onclick="event.stopPropagation();" style="display:inline-block;padding:8px 12px 8px 6px;margin:0;cursor:pointer;vertical-align:middle;"><input type="checkbox" class="js-bulk-cb" value="<?php echo (int)$products['products_id']; ?>" onclick="event.stopPropagation();" style="width:16px;height:16px;vertical-align:middle;cursor:pointer;"></label>
 													<?php echo tep_image(DIR_WS_CATALOG_IMAGES . 'productos/' . $products['products_image'], $products['products_name'], 50, 50, '', false); ?>
 													<?php echo $products['products_name']; ?></td>
 												<td class="dataTableContent" align="center"><?php echo $products['products_model']; ?></td>
@@ -4454,7 +4485,7 @@
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=copy_to">' . tep_image(DIR_WS_ICONS . 'duplicate.png', ICON_DUPLICATE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=move_product">' . tep_image(DIR_WS_ICONS . 'move.png', ICON_MOVE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=delete_product">' . tep_image(DIR_WS_ICONS . 'delete.png', ICON_DELETE) . '</a>'; ?>
-													<?php echo '<a href="' . tep_href_link('stats_products_orders.php', 'reference_selected=' . $products['products_model']) . '&month=ALL&year=ALL&no_status=&status=">' . tep_image(DIR_WS_ICONS . 'icon_stats_sold.png', 'Ver quien ha comprado este producto') . '</a>'; ?>
+													<?php echo '<a href="' . tep_href_link('stats_products_orders.php', 'reference_selected=' . rawurlencode($products['products_model'])) . '&month=ALL&year=ALL&no_status=&status=">' . tep_image(DIR_WS_ICONS . 'icon_stats_sold.png', 'Ver quien ha comprado este producto') . '</a>'; ?>
                                                 </td>
                                             </tr>
                                         <?php
@@ -4513,6 +4544,18 @@
                                             </td>
                                         </tr>
                                     </table>
+                                    <script>
+                                    /* Seleccionar / deseleccionar todos los checkboxes de productos */
+                                    document.addEventListener('click', function(e){
+                                        if(e.target && e.target.id === 'js-bulk-cb-all'){
+                                            var on = e.target.checked;
+                                            document.querySelectorAll('.js-bulk-cb').forEach(function(cb){
+                                                cb.checked = on;
+                                                cb.dispatchEvent(new Event('change', { bubbles: true }));
+                                            });
+                                        }
+                                    });
+                                    </script>
                                 </td>
                                 <?php
                                     $heading = array();
@@ -4757,23 +4800,70 @@
                                         case 'move_product':
                                             $heading[] = array('text' => '<b>' . TEXT_INFO_HEADING_MOVE_PRODUCT . '</b>');
 
-                                            $contents = array('form' => tep_draw_form('products', FILENAME_CATEGORIES, 'action=move_product_confirm&cPath=' . $cPath) . tep_draw_hidden_field('products_id', $pInfo->products_id));
-                                            $contents[] = array('text' => sprintf(TEXT_MOVE_PRODUCTS_INTRO, $pInfo->products_name));
+                                            // Construir lista de categorías para el buscador autocompletado (mismo que el editor de producto)
+                                            $_mvCatNames = [];
+                                            $_mvCatParents = [];
+                                            $_qMvCat = tep_db_query("SELECT c.categories_id, c.parent_id, cd.categories_name
+                                                FROM " . TABLE_CATEGORIES . " c
+                                                INNER JOIN " . TABLE_CATEGORIES_DESCRIPTION . " cd ON cd.categories_id = c.categories_id
+                                                WHERE cd.language_id = '" . (int) $languages_id . "'");
+                                            while ($_rMvCat = tep_db_fetch_array($_qMvCat)) {
+                                                $_mvCatNames[(int) $_rMvCat['categories_id']] = $_rMvCat['categories_name'];
+                                                $_mvCatParents[(int) $_rMvCat['categories_id']] = (int) $_rMvCat['parent_id'];
+                                            }
+                                            $_mvPathCache = [];
+                                            $_mvBuildPath = function ($id) use (&$_mvBuildPath, &$_mvPathCache, &$_mvCatNames, &$_mvCatParents) {
+                                                if (isset($_mvPathCache[$id])) return $_mvPathCache[$id];
+                                                if (!isset($_mvCatNames[$id])) return '';
+                                                $parent = $_mvCatParents[$id] ?? 0;
+                                                $prefix = $parent > 0 ? $_mvBuildPath($parent) . '>' : '';
+                                                return $_mvPathCache[$id] = $prefix . $_mvCatNames[$id];
+                                            };
+                                            $_mvCatList = [];
+                                            foreach ($_mvCatNames as $_mid => $_mname) {
+                                                $_mlabel = $_mvBuildPath($_mid);
+                                                $_mvCatList[] = ['id' => $_mid, 'label' => $_mlabel, 'value' => $_mlabel];
+                                            }
+                                            usort($_mvCatList, function ($a, $b) { return strcasecmp($a['label'], $b['label']); });
+
+                                            $contents = array('form' => tep_draw_form('products', FILENAME_CATEGORIES, 'action=move_products_bulk_confirm&cPath=' . $cPath, 'post', 'id="bulk-move-form"'));
+                                            $contents[] = array('text' => 'Marca con el check los productos de la lista que quieres mover y elige la categoría de destino.');
+                                            $contents[] = array('text' => '<br><span id="bulk-move-count" style="font-weight:bold;"></span>');
                                             $contents[] = array('text' => '<br>' . TEXT_INFO_CURRENT_CATEGORIES . '<br><b>' . tep_output_generated_category_path($pInfo->products_id, 'product') . '</b>');
-
-                                            // BOF: KategorienAdmin / OLISWISS
-                                            if( is_array($admin_cat_access_array_cats) && (in_array("ALL",$admin_cat_access_array_cats)== false) && (pos($admin_cat_access_array_cats)!= "") )
-                                            {
-                                                $contents[] = array('text' => '<br>' . sprintf(TEXT_MOVE, $pInfo->products_name) . '<br>' . tep_draw_pull_down_menu('move_to_category_id', tep_get_category_tree('','','0','',$admin_cat_access_array_cats), $current_category_id));
-                                            }
-                                            else if( in_array("ALL",$admin_cat_access_array_cats)== true)
-                                            {
-                                                ////nur Top-ADMIN
-                                                $contents[] = array('text' => '<br>' . sprintf(TEXT_MOVE, $pInfo->products_name) . '<br>' . tep_draw_pull_down_menu('move_to_category_id', tep_get_category_tree(), $current_category_id));
-                                            }
-                                            // EOF: KategorienAdmin / OLISWISS
-
+                                            $contents[] = array('text' => '<br>Mover a:<br>'
+                                                . '<input type="hidden" name="move_to_category_id" id="bulk-cat-picker-id" value="" data-srccat="' . (int)$current_category_id . '">'
+                                                . '<input type="text" id="bulk-cat-picker-search" value="" placeholder="Buscar categoría..." autocomplete="off" style="width:100%;box-sizing:border-box;padding:5px;" oninput="document.getElementById(\'bulk-cat-picker-id\').value=\'\';">'
+                                                . '<div id="bulk-move-hidden"></div>');
                                             $contents[] = array('align' => 'center', 'text' => '<br>' . tep_image_submit('button_move.png', IMAGE_MOVE) . ' <a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $pInfo->products_id) . '">' . tep_image_button('button_cancel.png', IMAGE_CANCEL) . '</a>');
+                                            $contents[] = array('text' => '<script>
+                                            (function(){
+                                                var form = document.getElementById("bulk-move-form");
+                                                if(!form) return;
+                                                var countEl = document.getElementById("bulk-move-count");
+                                                function boxes(){ return Array.prototype.slice.call(document.querySelectorAll(".js-bulk-cb:checked")); }
+                                                function updateCount(){ var n = boxes().length; if(countEl) countEl.textContent = n>0 ? (n + (n===1?" producto seleccionado":" productos seleccionados")) : "Ningún producto seleccionado"; }
+                                                document.addEventListener("change", function(e){ if(e.target && e.target.classList && e.target.classList.contains("js-bulk-cb")) updateCount(); });
+                                                var pre = document.querySelector(".js-bulk-cb[value=\"' . (int)$pInfo->products_id . '\"]"); if(pre) pre.checked = true;
+                                                updateCount();
+                                                var data = ' . json_encode($_mvCatList, JSON_UNESCAPED_UNICODE) . ';
+                                                (function initAC(){
+                                                    if(!window.jQuery || !jQuery.ui || !jQuery.ui.autocomplete) return setTimeout(initAC, 200);
+                                                    jQuery("#bulk-cat-picker-search").autocomplete({
+                                                        source: data, minLength: 1, delay: 50,
+                                                        select: function(e, ui){ jQuery("#bulk-cat-picker-id").val(ui.item.id); jQuery(this).val(ui.item.label); return false; }
+                                                    });
+                                                })();
+                                                form.addEventListener("submit", function(e){
+                                                    var ids = boxes();
+                                                    var pi = document.getElementById("bulk-cat-picker-id");
+                                                    if(ids.length === 0){ alert("Marca al menos un producto de la lista."); e.preventDefault(); return; }
+                                                    if(!pi.value){ alert("Elige una categoría de destino."); e.preventDefault(); return; }
+                                                    if(pi.value === pi.getAttribute("data-srccat")){ alert("Elige una categoría distinta a la actual."); e.preventDefault(); return; }
+                                                    var wrap = document.getElementById("bulk-move-hidden"); wrap.innerHTML = "";
+                                                    ids.forEach(function(cb){ var i = document.createElement("input"); i.type="hidden"; i.name="products_id[]"; i.value=cb.value; wrap.appendChild(i); });
+                                                });
+                                            })();
+                                            </script>');
                                         break;
 
                                         case 'copy_to':

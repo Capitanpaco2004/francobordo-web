@@ -28,6 +28,9 @@ define('TABLE_HEADING_POINTS_STATUS', 'Estado Puntos');
 define('TABLE_HEADING_ACTION', 'Acci&oacute;n');
 define('TABLE_HEADING_POINTS', 'Puntos');
 define('TABLE_HEADING_POINTS_VALUE', 'Valor');
+// Usadas por el helper tep_send_points_notification() en includes/functions/redemptions.php
+define('TABLE_HEADING_POINTS_TYPE', 'Concepto Puntos:');
+define('TABLE_HEADING_DATE_ADDED', 'Fecha:');
 
 define('TABLE_HEADING_SORT', 'Sort this rows by ');
 define('TABLE_HEADING_SORT_UA', ' --> A-B-C From Top');
