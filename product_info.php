@@ -292,6 +292,9 @@ if ($product_check['total'] < 1 || $product_check['products_status'] == '0') {
 	}
 
 
+	// Panel interno almacen (solo IP Francobordo) -- define $sStaffStockPanel
+	include(DIR_WS_INCLUDES . 'staff_stock_panel.php');
+
 	// Theme
 	include(DIR_THEME_ROOT . 'html/templates/' . basename(__FILE__));
 	//Asiganamos la variable para gtag

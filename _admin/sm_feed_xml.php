@@ -56,27 +56,18 @@ function sm_xml_clean(string $s): string
 }
 
 /**
- * Reduce a product URL to match the site's real canonical URL that SM's
- * monitoring sees: drop tracking (utm_*) AND the language param (the canonical
- * is clean — language is only a feed artifact; audiences are split by SM
- * location francobordo_es/en instead). Keep `attr` for variants so the link
- * still points to the specific variant.
+ * Reduce a product URL to the site's real canonical URL: strip the ENTIRE
+ * query string (utm_*, language, attr, …). SM flags any "?param" as an
+ * irregularity, and the canonical product page is clean anyway. Variants stay
+ * uniquely identified by g:id ({products_id}-{products_attributes_id}); the
+ * link just lands on the base product page.
  * Input must be an already entity-decoded URL.
  */
 function sm_clean_url(string $url): string
 {
     $parts = parse_url($url);
-    if ($parts === false || empty($parts['query'])) return $url;
-
-    parse_str($parts['query'], $params);
-    $ordered = [];
-    if (isset($params['attr'])) $ordered['attr'] = $params['attr']; // solo variante
-
-    $base = ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . ($parts['path'] ?? '');
-    if (!empty($ordered)) {
-        $base .= '?' . http_build_query($ordered);
-    }
-    return $base;
+    if ($parts === false) return $url;
+    return ($parts['scheme'] ?? 'https') . '://' . ($parts['host'] ?? '') . ($parts['path'] ?? '');
 }
 
 /** Map Google-feed availability strings → g:availability values. */
@@ -142,7 +133,11 @@ foreach ($jobs as $job) {
         $img   = sm_xml_clean(html_entity_decode($col($row, 'image_link'), ENT_QUOTES, 'UTF-8'));
         $price = trim($col($row, 'price'));
         $mpn   = trim($col($row, 'mpn'));
-        $gtin  = trim($col($row, 'gtin'));
+        // Sanitize gtin: strip non-digits (fixes mojibake/spaces/letters) and
+        // only keep it if a valid GTIN length remains (8/12/13/14). Otherwise
+        // omit — an invalid gtin makes SM/Google reject the item as "invalid data".
+        $gtin  = preg_replace('/\D/', '', (string) $col($row, 'gtin'));
+        if (!in_array(strlen($gtin), [8, 12, 13, 14], true)) $gtin = '';
         $cond  = trim($col($row, 'condition')) ?: 'new';
         $avail = sm_xml_availability($col($row, 'availability'));
 

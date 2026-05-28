@@ -151,6 +151,7 @@
 			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Dometic <i class="fa fa-angle-right"></i></a>
 			<div class="sbmn">
 				<?php echo tep_admin_files_boxes('import-dometic-altas.php', '<i class="bullet"></i> Importador'); ?>
+				<?php echo tep_admin_files_boxes('Actualizador_precios_dometic.php', '<i class="bullet"></i> Actualizador precios'); ?>
 			</div>
 		</div>
 	</div>

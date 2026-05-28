@@ -175,7 +175,6 @@ echo tep_draw_form('cart_quantity', tep_href_link('product_info.php', tep_get_al
 			if( $aHtmlOption != '' ) {
 				echo '<div class="attrs"><p class="attrs-title">' . ATTRIBUTES_TITLE_TEXT . '</p>' . $aHtmlOption. '</div>';
 			}
-
 			echo '<div class="wrpr-prco-buy d-flex flex-column-mx">';
 				echo '<div class="wrpr-prco">';
 					echo ($aProductoInfo['CLASS_OFERTA'] != '' ? '<s>' . $aProductoInfo['PRECIO_ANTERIOR'] . '</s>' : '');
@@ -194,6 +193,9 @@ echo tep_draw_form('cart_quantity', tep_href_link('product_info.php', tep_get_al
 						echo $dxWishlist->getHtmlIconAdd( $aProductoInfo['products_id'], $aProductoInfo['products_name'], true );
 				echo '</div>';
 			echo '</div>';
+
+			// Panel interno almacen (debajo del precio) -- solo IP Francobordo
+			echo ( isset($sStaffStockPanel) ? $sStaffStockPanel : '' );
 
 			echo '<div class="wrpr-shimg-seqr d-flex">';
 				echo '<div class="shimg"' . ($aProductoInfo['PRECIO_RICHSNIPPET'] < 100.00 ? ' style="width:100%!important;"' : '') . '>';

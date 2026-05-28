@@ -601,6 +601,11 @@ END) as final_price
 
                         $output_field_value = empty($cur_feed['text_qualifier']) ? preg_replace('#[' . $cur_feed['seperator'] . $cur_feed['newline'] . ']+#s', ' ', $output_field_value) : preg_replace('#' . $cur_feed['text_qualifier'] . '#s', $cur_feed['text_qualifier'] . $cur_feed['text_qualifier'], $output_field_value);
 
+                        // Sanitizar gtin: solo digitos y longitud valida (8/12/13/14); si no, omitir.
+                        if ($output_field_name === 'gtin') {
+                            $output_field_value = preg_replace('/\D/', '', (string) $output_field_value);
+                            if (!in_array(strlen($output_field_value), [8, 12, 13, 14], true)) $output_field_value = '';
+                        }
                         $output_line .= $cur_feed['seperator'] . $cur_feed['text_qualifier'] . trim($output_field_value) . $cur_feed['text_qualifier'];
 
                     }

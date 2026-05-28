@@ -50,21 +50,42 @@
 			echo '</div>';
 
 			echo '<div class="righ">';
-				//echo '<form method="post" action="lists/?p=subscribe&id=1" name="subscribeform">';
-					echo '<div class="titu">' . TEXT_BOLETIN . '</div>';
-					echo '<div class="stitu">' . TEXT_BOLETIN_INFO . '</div>';
-					echo '<div class="text">';
-						echo '<div class="tt tt-18"></div>';
-						echo '<input placeholder="' . TEXT_ESCRIBE . ' E-mail" type="text" name="email" />';
-						echo '<input type="submit">';
-						echo '<div class="tt sbmt tt-1"></div>';
-					echo '</div>';
-					echo '<div class="pltc rgpd-check">';
-						$aText = json_decode( str_replace( array( '\"' ), array('"'), RGPD_TERMS_TRADE_TEXT_CHECK ), true );
-						$aTextTooltop = json_decode( str_replace( array( '\"' ), array('"'), RGPD_TERMS_TRADE_TEXT ), true );
-						echo '<input type="checkbox" name="newsletter" value="1" id="newsletter"><label style="margin-right: 0px;" for="newsletter"><span></span>' . str_replace( '{LINK}', tep_href_link('information.php', 'info_id=' . RGPD_TERMS_TRADE_INFO_ID),  html_entity_decode( $aText[$languages_id] ) ) . ' <i title="' . $aTextTooltop[$languages_id] . '" class="fa fa-exclamation-circle"></i></label>';
-					echo '</div>';
-				echo '</form>';
+					// SalesManago — formulario de suscripción del footer (sustituye al form nativo).
+					// El iframe trae su propio título/subtítulo, así que NO repetimos el del sitio.
+					// Postea directamente a SM; pide email + nombre + consentimiento.
+					echo <<<'SMFOOTERFORM'
+<div id="salesmanago-Iframe_f40bdfec-c37a-4c9a-af3c-ad67bdc28bd3"></div>
+<script>
+    (function() {
+        var smIframeParentElem = document.getElementById("salesmanago-Iframe_f40bdfec-c37a-4c9a-af3c-ad67bdc28bd3");
+        var smIframeElem = document.createElement("iframe");
+        smIframeElem.src = "https://www.salesmanago.com/mscf/3c4292550f151571/default/Formulario_Footer_Suscripcion.htm";
+        smIframeElem.style.padding = "0";
+        smIframeElem.width = "100%";
+        smIframeElem.id = "formulario_footer";
+        smIframeElem.style.overflowY = "hidden";
+        smIframeElem.style.overflowX = "hidden";
+        smIframeElem.style.background = "#FFFFFF";
+        smIframeElem.style.maxWidth = "100%";
+        smIframeElem.style.border = "none";
+        smIframeParentElem.appendChild(smIframeElem);
+
+        window.addEventListener('message', function(event) {
+        if (event.data && event.data.height) {
+        var iframe = document.getElementById('formulario_footer');
+
+        iframe.style.height = event.data.height + 'px';
+        }
+        });
+
+        var iframe = document.getElementById('formulario_footer');
+        iframe.onload = function() {
+
+        iframe.contentWindow.postMessage({ action: 'sendHeight' }, '*');
+        };
+    }());
+</script>
+SMFOOTERFORM;
 				echo '<div class="rdes d-flex">';
 					// echo '<a href="https://www.facebook.com/francobordocom" target="_blank" class="fb hv9" title="Facebook Francobordo"><i class="fab fa-facebook-f"></i></a>';
 					// echo '<a href="https://twitter.com/francobordo_com" target="_blank" class="tw hv9" title="Twitter Francobordo"><i class="fab fa-twitter"></i></a>';

@@ -1065,7 +1065,7 @@ if( tep_not_null($action) )
 	<div>
 		<div class="toolbarHead">
 			<div class="hdr-tlbr">
-				<h1 class="pageHeading">Pedido Nº <?php echo $oID; ?> - <?php echo tep_date_short( $order->info['date_purchased'] ); ?><br><br><?php echo ($order->info['amazon_id'] ? 'ID Amazon: ' . $order->info['amazon_id'] : ($order->info['ebay_id'] ? 'ID eBay: ' . $order->info['ebay_id'] : '')); ?></h1>
+				<h1 class="pageHeading">Pedido Nº <?php echo $oID; ?> - <?php echo tep_date_short( $order->info['date_purchased'] ); ?> <?php echo date('H:i', strtotime($order->info['date_purchased'])); ?><br><br><?php echo ($order->info['amazon_id'] ? 'ID Amazon: ' . $order->info['amazon_id'] : ($order->info['ebay_id'] ? 'ID eBay: ' . $order->info['ebay_id'] : '')); ?></h1>
 				<div class="btn-right">
 					<a href="#" onclick="connectAsCustomer('<?php echo htmlspecialchars($order->customer['email_address'], ENT_QUOTES); ?>');return false;" style="float: left;"><img class="dx-hovr" src="images/icons/cnct_user.png" border="0" /></a>
 					<a href="<?php echo tep_href_link(FILENAME_ORDERS_EDIT, 'oID=' . $oID);?>" title="Crear Pedido"><img class="dx-hovr" src="images/icons/icon_edit_order.png"></a>

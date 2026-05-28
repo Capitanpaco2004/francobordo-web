@@ -91,6 +91,7 @@ $skipTranslation = isset($_POST['skip_translation']) || isset($_GET['skip_transl
 $forceRefresh = isset($_POST['refresh']) || isset($_GET['refresh']);          // re-parsea xlsx
 $webRefresh   = isset($_POST['web_refresh']) || isset($_GET['web_refresh']);  // ignora cache web
 $skipSpecs    = isset($_POST['skip_specs']) || isset($_GET['skip_specs']);
+$allowNoImage = isset($_POST['allow_no_image']) || isset($_GET['allow_no_image']);  // importa stubs del xlsx sin ficha web
 $codesParam   = trim((string) ($_POST['codes'] ?? $_GET['codes'] ?? ''));
 $selectedDept = trim((string) ($_POST['dept'] ?? $_GET['dept'] ?? 'all'));
 
@@ -141,6 +142,17 @@ function calcG1Price($price, $cost) {
         elseif  ($margin >= 0.30) $mult = 0.85;
     }
     return round(max($price * $mult, $cost * G1_FLOOR_FACTOR), 4);
+}
+
+/** Marca real del producto a partir de la descripción del xlsx (col B).
+ * La lista de precios mezcla varias marcas del grupo; '' (Dometic) es el defecto. */
+function domDetectBrand($descB) {
+    $b = (string) $descB;
+    if (preg_match('/B[üu]ttner/iu', $b) || preg_match('/\bTempra\b/i', $b)) return 'Büttner';
+    if (preg_match('/Green\s?Power/i', $b)) return 'Green Power';
+    if (preg_match('/\bDyno/i', $b))        return 'Dyno';
+    if (preg_match('/\bNDS\b/i', $b))       return 'NDS';
+    return 'Dometic';
 }
 
 function domSlugify($text, $maxLen = 50) {
@@ -529,15 +541,22 @@ function ensureCategoryPath($mysqli, array $path, $rootId, $dryRun, &$cache, &$c
     return $parent ?: $rootId;
 }
 
-function buildName($webName, $descEn) {
-    $n = trim((string) $webName);
-    if ($n === '') {
+function buildName($webName, $descEn, $brand = 'Dometic') {
+    if ($brand !== 'Dometic') {
+        // marcas propias (NDS/Büttner/Green Power/Dyno): la web de Dometic no las nombra
+        // correctamente; el nombre del xlsx (col B) ya lleva la marca/modelo.
         $n = trim((string) $descEn);
-        if ($n !== '' && stripos($n, 'dometic') === false) $n = 'Dometic ' . $n;
+        if ($n !== '' && stripos($n, $brand) === false && stripos($n, 'tempra') === false) $n = $brand . ' ' . $n;
+    } else {
+        $n = trim((string) $webName);
+        if ($n === '') {
+            $n = trim((string) $descEn);
+            if ($n !== '' && stripos($n, 'dometic') === false) $n = 'Dometic ' . $n;
+        }
     }
     $n = html_entity_decode($n, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     $n = trim(preg_replace('/\s+/u', ' ', $n));
-    if ($n === '') $n = 'Dometic';
+    if ($n === '') $n = ($brand !== 'Dometic' ? $brand : 'Dometic');
     if (mb_strlen($n, 'UTF-8') > PRODUCT_NAME_MAX) $n = rtrim(mb_substr($n, 0, PRODUCT_NAME_MAX, 'UTF-8'));
     return $n;
 }
@@ -574,6 +593,7 @@ logMsg("Modo: " . ($dryRun ? "dry-run" : "EXECUTE")
     . ($codesParam !== '' ? " | codes=$codesParam" : "")
     . ($skipTranslation ? " | sin LLM" : "")
     . ($skipSpecs ? " | sin ficha técnica" : "")
+    . ($allowNoImage ? " | importa stubs sin ficha" : "")
     . ($webRefresh ? " | web-refresh" : "")
     . ($max > 0 ? " | max=$max" : ""));
 
@@ -589,6 +609,7 @@ if (!is_dir(IMG_ABS_DIR)) @mkdir(IMG_ABS_DIR, 0775, true);
 
 $createdLog = []; $catCache = [];
 $mfgId = ensureManufacturer($mysqli, MFG_NAME, $dryRun, $createdLog);
+$brandMfg = ['Dometic' => $mfgId];   // caché lazy de fabricante por marca (NDS/Büttner/Green Power/Dyno)
 $rootCatId = getOrCreateCategory($mysqli, PARENT_CATEGORY_NAME_ES, PARENT_CATEGORY_NAME_EN, 0, 0, $dryRun, $catCache, $createdLog);
 
 logMsg("Cargando referencias existentes en BD (model/ref/EAN globales)…");
@@ -617,19 +638,28 @@ foreach ($rows as $row) {
     $ean = $row['ean'];
     if (isset($existing[strtolower($sku)]) || ($ean !== '' && isset($existing[strtolower($ean)]))) { $skipExist++; continue; }
 
-    // enriquecimiento web (obligatorio: sin ficha → no se importa)
+    // marca real (col B): NDS / Büttner / Green Power / Dyno / Dometic
+    $brand = domDetectBrand($row['desc']);
+    if (!isset($brandMfg[$brand])) $brandMfg[$brand] = ensureManufacturer($mysqli, $brand, $dryRun, $createdLog);
+    $useMfg = $brandMfg[$brand];
+
+    // enriquecimiento web (dometic.com). Sin ficha/imagen → se salta, salvo allow_no_image (stub del xlsx).
     $note = '';
     $web = domEnrich($sku, $webRefresh, $skipSpecs, $note);
-    if (!$web) { $skipNoWeb++; if ($skipNoWeb <= 30) logMsg("SKIP $sku '" . mb_substr($row['desc'],0,34,'UTF-8') . "': sin ficha web ($note)"); continue; }
-    $imageUrls = array_values(array_filter((array) ($web['images'] ?? [])));
-    if (empty($imageUrls)) { $skipNoImg++; logMsg("SKIP $sku: ficha web sin imagen"); continue; }
+    $imageUrls = $web ? array_values(array_filter((array) ($web['images'] ?? []))) : [];
+    $stub = false;
+    if (empty($imageUrls)) {
+        if (!$allowNoImage) { $skipNoWeb++; if ($skipNoWeb <= 30) logMsg("SKIP $sku [$brand] '" . mb_substr($row['desc'],0,34,'UTF-8') . "': sin ficha web ($note)"); continue; }
+        $stub = true; if (!is_array($web)) $web = [];
+    }
 
     $price = roundToNickel($row['pvp']);
     $cost  = round((float) $row['cost'], 4);
     $g1    = roundToNickel(calcG1Price($price, $cost));
 
-    $name  = buildName($web['name'] ?? '', $row['desc']);
+    $name  = buildName($web['name'] ?? '', $row['desc'], $brand);
     $descEsBase = trim((string) ($web['descEs'] ?? ''));
+    if ($descEsBase === '') $descEsBase = trim((string) $row['desc']);   // fallback (stub): descripción del xlsx
     $specsText  = $skipSpecs ? '' : specsToText($web['specs'] ?? []);
 
     // descripciones
@@ -665,15 +695,15 @@ foreach ($rows as $row) {
     if ($dryRun) {
         $nInserted++;
         if ($nInserted <= 25) {
-            logMsg(sprintf("  WOULD INSERT %s '%s' [%s] price=%.2f cost=%.2f g1=%.2f imgs=%d specs=%d ean=%s",
-                $sku, mb_substr($name,0,40,'UTF-8'), implode(' > ', $row['path']) ?: 'raíz',
-                $price, $cost, $g1, count($imageUrls), count($web['specs'] ?? []), $ean !== '' ? $ean : '(interno)'));
+            logMsg(sprintf("  WOULD INSERT %s [%s] '%s' [%s] price=%.2f cost=%.2f g1=%.2f imgs=%d specs=%d ean=%s%s",
+                $sku, $brand, mb_substr($name,0,38,'UTF-8'), implode(' > ', $row['path']) ?: 'raíz',
+                $price, $cost, $g1, count($imageUrls), count($web['specs'] ?? []), $ean !== '' ? $ean : '(interno)', $stub ? ' STUB' : ''));
         }
         continue;
     }
 
-    $tmpFiles = downloadImagesToTmp($imageUrls, MAX_SUBIMAGES + 1);
-    if (empty($tmpFiles)) { $skipNoImg++; logMsg("SKIP $sku '" . mb_substr($name,0,34,'UTF-8') . "': imágenes no descargables"); continue; }
+    $tmpFiles = $stub ? [] : downloadImagesToTmp($imageUrls, MAX_SUBIMAGES + 1);
+    if (!$stub && empty($tmpFiles)) { $skipNoImg++; logMsg("SKIP $sku '" . mb_substr($name,0,34,'UTF-8') . "': imágenes no descargables"); continue; }
 
     $targetCat = ensureCategoryPath($mysqli, $row['path'], $rootCatId, false, $catCache, $createdLog);
 
@@ -685,7 +715,7 @@ foreach ($rows as $row) {
         $weight = number_format(DEFAULT_WEIGHT, 3, '.', '');
         $qEan   = $mysqli->real_escape_string($ean);
         $sql = "INSERT INTO products (products_quantity, check_stock, products_model, products_image, products_price, products_cost, products_date_added, products_weight, products_status, products_tax_class_id, manufacturers_id, product_ean, reference_prov, products_import_origin)
-            VALUES (0, 0, \"$qmodel\", \"\", $pricef, $costf, NOW(), $weight, 2, " . TAX_CLASS_IVA21 . ", " . (int)$mfgId . ", \"$qEan\", \"$qmodel\", \"" . ORIGIN_FLAG . "\")";
+            VALUES (0, 0, \"$qmodel\", \"\", $pricef, $costf, NOW(), $weight, 2, " . TAX_CLASS_IVA21 . ", " . (int)$useMfg . ", \"$qEan\", \"$qmodel\", \"" . ORIGIN_FLAG . "\")";
         if (!$mysqli->query($sql)) throw new Exception("products: " . $mysqli->error);
         $pid = (int) $mysqli->insert_id;
 
@@ -699,21 +729,23 @@ foreach ($rows as $row) {
         if (!$mysqli->query("INSERT INTO products_to_categories (products_id, categories_id) VALUES ($pid, " . (int)$targetCat . ")")) throw new Exception("p2c: " . $mysqli->error);
         if (!$mysqli->query("INSERT INTO products_groups (customers_group_id, products_id, customers_group_price, products_qty_blocks, products_min_order_qty) VALUES (" . G1_GROUP_ID . ", $pid, " . number_format($g1, 4, '.', '') . ", 1, 1)")) throw new Exception("g1: " . $mysqli->error);
 
-        // imágenes
-        $slug = domSlugify($name);
+        // imágenes (los stubs sin ficha web se insertan sin imagen, para revisión)
         $imgFinal = [];
-        foreach ($tmpFiles as $i => $tmpAbs) {
-            $suffix = ($i === 0) ? '' : ('-' . ($i + 1));
-            $finalName = $slug . '-' . $pid . $suffix . '.jpg';
-            if (@rename($tmpAbs, IMG_ABS_DIR . $finalName)) $imgFinal[] = $finalName;
-            else @unlink($tmpAbs);
-        }
-        if (empty($imgFinal)) throw new Exception("rename imágenes falló");
-        $mainImg = array_shift($imgFinal);
-        $mysqli->query("UPDATE products SET products_image=\"" . $mysqli->real_escape_string($mainImg) . "\" WHERE products_id=$pid");
-        if (!empty($imgFinal)) {
-            $subJson = json_encode($imgFinal, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            $mysqli->query("UPDATE products SET products_subimages='" . $mysqli->real_escape_string($subJson) . "' WHERE products_id=$pid");
+        if (!$stub) {
+            $slug = domSlugify($name);
+            foreach ($tmpFiles as $i => $tmpAbs) {
+                $suffix = ($i === 0) ? '' : ('-' . ($i + 1));
+                $finalName = $slug . '-' . $pid . $suffix . '.jpg';
+                if (@rename($tmpAbs, IMG_ABS_DIR . $finalName)) $imgFinal[] = $finalName;
+                else @unlink($tmpAbs);
+            }
+            if (empty($imgFinal)) throw new Exception("rename imágenes falló");
+            $mainImg = array_shift($imgFinal);
+            $mysqli->query("UPDATE products SET products_image=\"" . $mysqli->real_escape_string($mainImg) . "\" WHERE products_id=$pid");
+            if (!empty($imgFinal)) {
+                $subJson = json_encode($imgFinal, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                $mysqli->query("UPDATE products SET products_subimages='" . $mysqli->real_escape_string($subJson) . "' WHERE products_id=$pid");
+            }
         }
 
         $mysqli->commit();
@@ -725,9 +757,9 @@ foreach ($rows as $row) {
         }
 
         $nInserted++;
-        logMsg(sprintf("OK pid=%d %s cat='%s' price=%.2f cost=%.2f g1=%.2f imgs=%d specs=%d name='%s'",
-            $pid, $sku, implode(' > ', $row['path']) ?: 'raíz', $price, $cost, $g1,
-            1 + count($imgFinal), count($web['specs'] ?? []), mb_substr($name, 0, 42, 'UTF-8')));
+        logMsg(sprintf("OK pid=%d %s [%s] cat='%s' price=%.2f cost=%.2f g1=%.2f imgs=%d specs=%d name='%s'%s",
+            $pid, $sku, $brand, implode(' > ', $row['path']) ?: 'raíz', $price, $cost, $g1,
+            $stub ? 0 : (1 + count($imgFinal)), count($web['specs'] ?? []), mb_substr($name, 0, 40, 'UTF-8'), $stub ? ' STUB' : ''));
     } catch (Exception $e) {
         $mysqli->rollback();
         $errors++;
@@ -767,14 +799,14 @@ end_action:
     </p>
     <p style="background:#fffbe6;border:1px solid #ffd700;padding:10px;border-radius:4px;font-size:13px;">
         <strong>Reglas siempre aplicadas</strong>:<br>
-        • Fabricante <code>Dometic</code> (se crea si no existe). <strong>SIN atributos/variantes</strong>: cada SKU = producto suelto.<br>
+        • <strong>Fabricante por marca real</strong> (detectada en la descripción del xlsx): Dometic (defecto) y las marcas del grupo <code>NDS</code>, <code>Büttner</code> (incl. Tempra), <code>Green Power</code>, <code>Dyno</code> — se crean si no existen. <strong>SIN atributos/variantes</strong>: cada SKU = producto suelto.<br>
         • <code>products_price</code> = roundToNickel(col C — PVP sin IVA) &nbsp;|&nbsp;
           <code>products_cost</code> = col E (neto) &nbsp;|&nbsp;
           <code>G1</code> = roundToNickel(tiers de margen + piso cost×<?php echo G1_FLOOR_FACTOR; ?>).<br>
         • Categorías: <strong>Dometic Nuevos</strong> (status 0, oculta) &gt; Departamento &gt; [Familia] &gt; Serie (jerarquía del xlsx).<br>
         • Descripción ES de la web (JSON-LD) + ficha técnica; EN traducido vía LLM (glosario RV/náutico).<br>
         • EAN real del xlsx; sin EAN válido → interno prefijo <?php echo EAN_INTERNAL_PREFIX; ?> (nunca <code>299…</code>).<br>
-        • <strong>Sin ficha en dometic.com → NO se importa</strong> (sin imagen). Imágenes: alta-res por SKU + galería (hasta <?php echo MAX_SUBIMAGES; ?> sub).<br>
+        • <strong>Sin ficha en dometic.com → NO se importa</strong> (sin imagen), salvo que marques "importar stubs". Imágenes: alta-res por SKU + galería (hasta <?php echo MAX_SUBIMAGES; ?> sub). Nota: las marcas propias (NDS, etc.) tienen poca cobertura en dometic.com y su web (ndsenergy.it) no es casable por SKU.<br>
         • <code>products_status=2</code> (revisión), <code>check_stock=0</code>, stock NO se toca.<br>
         • Dedup: <code>products_model</code> / <code>reference_prov</code> / EAN <strong>globales</strong> (Dometic ya tiene catálogo legacy sin origin).
     </p>
@@ -794,6 +826,7 @@ end_action:
         <p><label><input type="checkbox" name="dry_run" value="1" checked> Dry-run (sin cambios)</label></p>
         <p><label><input type="checkbox" name="skip_translation" value="1"> Saltar LLM (descripción queda en español crudo + specs sin maquetar, mucho más rápido)</label></p>
         <p><label><input type="checkbox" name="skip_specs" value="1"> Sin ficha técnica (solo descripción)</label></p>
+        <p><label><input type="checkbox" name="allow_no_image" value="1"> Importar stubs sin ficha web (usa nombre/desc del xlsx, sin imagen — útil para NDS/Büttner/Green Power/Dyno que casi no están en dometic.com; quedan en status 2 para enriquecer)</label></p>
         <p><label><input type="checkbox" name="refresh" value="1"> Re-parsear xlsx (tras actualizar el fichero de precios)</label></p>
         <p><label><input type="checkbox" name="web_refresh" value="1"> Ignorar cache web (re-descarga fichas de dometic.com)</label></p>
         <p>Inserts máximos por ejecución (0 = sin límite): <input type="number" name="max" value="3" min="0" style="width:80px;"></p>
