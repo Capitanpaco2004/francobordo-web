@@ -4,10 +4,7 @@
 // Ambas son globales sin namespace; el addon-dependency-injection puede cargar cualquiera de las
 // dos rutas en el backoffice y provocar "Cannot redeclare class language". Esta guarda (igual que
 // la del admin) hace que la segunda en cargarse no redeclare. El código consumidor tolera ambas.
-// PHP hoistea las declaraciones de clase a nivel top en compile-time, ANTES de ejecutar
-// cualquier `if return` previo. Para que la guarda sea efectiva, hay que ENVOLVER la
-// declaración dentro del condicional.
-if (!class_exists('language')) {
+if (class_exists('language')) return;
 
 class language
 {
@@ -133,5 +130,3 @@ class language
 		return DEFAULT_LANGUAGE;
 	}
 }
-
-} // fin de if (!class_exists('language'))

@@ -55,10 +55,10 @@ function imagettftextbox(&$gdImage, $sFontSize, $nAngle, $nLeft, $nTop, $aColor,
 				// Si el ancho de la linea nueva creada excede el ancho permitido y no es la primera palabra de linea
 				if( $nLineWidth >= $nMaxWidth && !$bFistWord )
 				{
-					// Añadimos al array de lineas nuevas la actual linea que aun no tiene concatenado la ultima palabra ya que no entra en el ancho maximo
+					// Aï¿½adimos al array de lineas nuevas la actual linea que aun no tiene concatenado la ultima palabra ya que no entra en el ancho maximo
 					$aLinesCreate[] = $sCurrentLine;
 
-					// Si contenemos el ancho anterior lo añadimos si no sera el ancho que ocupe la linea
+					// Si contenemos el ancho anterior lo aï¿½adimos si no sera el ancho que ocupe la linea
 					$aLinesWidth[] = $nLastWidth ? $nLastWidth : $nLineWidth;
 
 					// Como hemos excedido el maximo la nueva linea estara vacio y empezados por la palabra anterior
@@ -114,7 +114,7 @@ function imagettftextbox(&$gdImage, $sFontSize, $nAngle, $nLeft, $nTop, $aColor,
 			// imagefilledrectangle( $imDebug, 0, 0, $aLinesWidth[$key], $nAltoFijo, $imRelleno );
 			// imagecopyresampled( $gdImage, $imDebug, $nLeft + $nMarginLeft, $nTop + ($nAltoFijo * $key), 0, 0,$aLinesWidth[$key], $nAltoFijo, $aLinesWidth[$key], $nAltoFijo );
 			
-			imagettftext( $gdImage, $sFontSize, $nAngle, (int) ($nLeft + $nMarginLeft), (int) ($nTop + $nAltoFijo + ($nAltoFijo * $key)), imagecolorallocate($gdImage, $aColor[0], $aColor[1], $aColor[2] ), $sFont, $line );
+			imagettftext( $gdImage, $sFontSize, $nAngle, (int) ($nLeft + $nMarginLeft), (int) ($nTop + $nAltoFijo + ($nAltoFijo * $key)), imagecolorallocate($gdImage, (int)$aColor[0], (int)$aColor[1], (int)$aColor[2] ), $sFont, $line );
 		}
 		
 		return array(

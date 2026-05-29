@@ -64,7 +64,7 @@
 			$this->active = $this->configuration['DEBUGBAR_ACTIVE'] && $this->isAllowedIP($_SERVER['REMOTE_ADDR']);
 
 			// Verifica si el dominio de la solicitud termina en ".loc"
-			if (strpos($_SERVER['HTTP_HOST'], '.loc') !== false) {
+			if (strpos((string)($_SERVER['HTTP_HOST'] ?? ''), '.loc') !== false) {
 				// El dominio termina en ".loc", habilita la funcionalidad
 				$this->active = true;
 			}

@@ -226,6 +226,8 @@ echo tep_draw_form('cart_quantity', tep_href_link('product_info.php', tep_get_al
 						if (class_exists('sequra_pp') && $aProductoInfo['products_status'] == 1) {
 							sequra_pp::drawTeaser();
 						}
+						// Banner PayPal Pay Later (justo debajo del teaser Sequra, misma columna) -- solo IP Francobordo
+						echo ( isset($sPayPalPayLaterBanner) ? $sPayPalPayLaterBanner : '' );
 					echo '</div>';
 			echo '</div>';
 

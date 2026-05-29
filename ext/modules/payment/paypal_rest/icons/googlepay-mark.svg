@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Caja redondeada (era negra) -->
+  <rect x="8" y="26" width="84" height="48" rx="9" ry="9" fill="#fff" stroke="#009cde" stroke-width="2.5"/>
+  <!-- G multicolor (NO era negro, se queda Google brand) -->
+  <g transform="translate(22,40) scale(1.05)">
+    <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.12-.84 2.07-1.79 2.71v2.26h2.9c1.7-1.56 2.69-3.86 2.69-6.61z"/>
+    <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.34 0-4.32-1.59-5.03-3.71H.93v2.33C2.41 15.98 5.46 18 9 18z"/>
+    <path fill="#FBBC05" d="M3.97 10.71c-.18-.54-.28-1.11-.28-1.71s.1-1.17.28-1.71V4.96H.93C.34 6.14 0 7.53 0 9s.34 2.86.93 4.04l3.04-2.33z"/>
+    <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.46 0 2.41 2.02.93 4.96l3.04 2.33C4.68 5.17 6.66 3.58 9 3.58z"/>
+  </g>
+  <!-- "Pay" wordmark (era negro) -->
+  <text x="44" y="60" font-family="Helvetica,Arial,sans-serif" font-weight="900" font-size="22" fill="#009cde" letter-spacing="-0.5">Pay</text>
+</svg>

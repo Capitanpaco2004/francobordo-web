@@ -1639,7 +1639,7 @@
 									case 'top':
 									case 'bottom':
 										$sSize -= 29;
-										$gdImageLine = @imagecreate( 1, $sSize );
+										$gdImageLine = @imagecreate( 1, max(1, (int)$sSize) );
 
 										/**
 										 * Compruebo para que no de errores
@@ -1674,7 +1674,7 @@
 										$sSize -= 14.5;
 										$sX -= 14.5;
 
-										$gdImageLine = @imagecreate( $sSize, 1 );
+										$gdImageLine = @imagecreate( max(1, (int)$sSize), 1 );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
 										imagefilledrectangle( $gdImageLine, 0, 0, $sSize, 1, $imRelleno );
 										imagecopyresampled( $gdImage, $gdImageLine, $sX + 14.5, $sY + 14.5, 0, 0, $sSize, 1, $sSize, 1 );
@@ -1713,7 +1713,7 @@
 									break;
 
 									case 'izquierda':
-										$gdImageLine = @imagecreate( $sSize, 1 );
+										$gdImageLine = @imagecreate( max(1, (int)$sSize), 1 );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
 										imagefilledrectangle( $gdImageLine, 0, 0, $sSize, 1, $imRelleno );
 										imagecopyresampled( $gdImage, $gdImageLine, $sX + 14.5, $sY + 14.5, 0, 0, $sSize, 1, $sSize, 1 );
@@ -4485,7 +4485,7 @@
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=copy_to">' . tep_image(DIR_WS_ICONS . 'duplicate.png', ICON_DUPLICATE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=move_product">' . tep_image(DIR_WS_ICONS . 'move.png', ICON_MOVE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=delete_product">' . tep_image(DIR_WS_ICONS . 'delete.png', ICON_DELETE) . '</a>'; ?>
-													<?php echo '<a href="' . tep_href_link('stats_products_orders.php', 'reference_selected=' . rawurlencode($products['products_model'])) . '&month=ALL&year=ALL&no_status=&status=">' . tep_image(DIR_WS_ICONS . 'icon_stats_sold.png', 'Ver quien ha comprado este producto') . '</a>'; ?>
+													<?php echo '<a href="' . tep_href_link('stats_products_orders.php', 'reference_selected=' . rawurlencode($products['products_model'] ?? '')) . '&month=ALL&year=ALL&no_status=&status=">' . tep_image(DIR_WS_ICONS . 'icon_stats_sold.png', 'Ver quien ha comprado este producto') . '</a>'; ?>
                                                 </td>
                                             </tr>
                                         <?php

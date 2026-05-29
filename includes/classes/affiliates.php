@@ -332,9 +332,12 @@ class Affiliates
         } else {
             $affiliate = Affiliates::getAffiliateByID($affiliate_id);
 
-            $default_comission = floatval($affiliate['sales_comission']);
+            // getAffiliateByID puede devolver array vacio si no hay afiliado, y su SELECT
+            // ademas no incluye `sales_comission_eu` (solo `sales_comission`), asi que las
+            // dos lecturas necesitan fallback a 0 para evitar "Undefined array key" en PHP 8+.
+            $default_comission = floatval($affiliate['sales_comission'] ?? 0);
             if (intval($order->delivery['country']['id']) != 195) {
-                $default_comission = floatval($affiliate['sales_comission_eu']);
+                $default_comission = floatval($affiliate['sales_comission_eu'] ?? 0);
             }
         }
 

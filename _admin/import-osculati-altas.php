@@ -12,6 +12,7 @@ const OSC_FTP_BASE      = 'ftp://fw.osculati.it/';
 const OSC_IMG_FOLDER    = 'IMG/800/';
 define('OSC_TMP_DIR',     dirname(__FILE__) . '/import-osculati/');
 define('IMG_ABS_DIR',     dirname(dirname(__FILE__)) . '/images/productos/');
+define('IMG_ATTR_DIR',    dirname(dirname(__FILE__)) . '/images/atributos/');
 const NEW_CATEGORY_ID   = 1699;
 const OSCULATI_MFG_ID   = 259;
 const TAX_CLASS_IVA21   = 1;
@@ -38,6 +39,7 @@ const LLM_PROMPT = 'Eres un traductor profesional de italiano a español especia
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $max    = isset($_POST['max']) ? (int) $_POST['max'] : (isset($_GET['max']) ? (int) $_GET['max'] : 0);
 $dryRun = isset($_POST['dry_run']) || isset($_GET['dry_run']);
+$skipFormat = isset($_POST['skip_format']) || isset($_GET['skip_format']);
 $onlyCodesRaw = trim((string) ($_POST['codes'] ?? $_GET['codes'] ?? ''));
 $onlyCodes    = [];
 if ($onlyCodesRaw !== '') {
@@ -207,6 +209,20 @@ function getExistingBaseCodes() {
 	$q = tep_db_query("SELECT LOWER(products_attributes_ean) AS m FROM products_attributes WHERE products_attributes_ean IS NOT NULL AND products_attributes_ean != ''");
 	while ($row = tep_db_fetch_array($q)) $existing[$row['m']] = true;
 
+	// GLOBAL OSC BC scan (sin scope): products legacy bajo OTRAS marcas que usan la convención
+	// Osculati NN.NNN.NN como products_model o reference_prov. Captura el caso del pid 362548
+	// donde MZ Electronic tenía model=02.352.12 y el importador no lo veía por el scope filter.
+	// Es seguro globalmente porque el formato OSC BC es distintivo: NN.NNN.NN[A-Z0-9]{0,5}.
+	$oscBcRegex = "'^[0-9]{2}\\.[0-9]{3}\\.[0-9]{2}'";
+	$q = tep_db_query("SELECT LOWER(products_model) AS m FROM products WHERE products_model IS NOT NULL AND products_model<>'' AND products_model RLIKE $oscBcRegex");
+	while ($row = tep_db_fetch_array($q)) $existing[$row['m']] = true;
+	$q = tep_db_query("SELECT LOWER(reference_prov) AS m FROM products WHERE reference_prov IS NOT NULL AND reference_prov<>'' AND reference_prov RLIKE $oscBcRegex");
+	while ($row = tep_db_fetch_array($q)) $existing[$row['m']] = true;
+	$q = tep_db_query("SELECT LOWER(reference) AS m FROM products_attributes WHERE reference IS NOT NULL AND reference<>'' AND reference RLIKE $oscBcRegex");
+	while ($row = tep_db_fetch_array($q)) $existing[$row['m']] = true;
+	$q = tep_db_query("SELECT LOWER(reference_prov) AS m FROM products_attributes WHERE reference_prov IS NOT NULL AND reference_prov<>'' AND reference_prov RLIKE $oscBcRegex");
+	while ($row = tep_db_fetch_array($q)) $existing[$row['m']] = true;
+
 	return $existing;
 }
 
@@ -297,6 +313,234 @@ function downloadImageWithFallbacks(array $candidates, $targetPath) {
 function translateIT($text) {
 	return translateITto($text, 'es');
 }
+
+const LLM_FORMAT_PROMPT = "Eres un experto en maquetar fichas de producto náutico (Osculati). Recibes una descripción YA EN ESPAÑOL y la conviertes en HTML limpio y legible, SIN inventar ni añadir información.\n\nREGLAS OBLIGATORIAS:\n1. NO inventes, NO añadas datos, NO parafrasees ni amplíes. Usa EXACTAMENTE la información del texto original. Si el texto es corto, la salida es corta.\n2. Si el texto es UNA sola idea o 1-2 frases: devuélvelo como un único <p>, resaltando con <strong> los materiales y datos técnicos clave (ej. \"AISI 316\", \"polímero reforzado con fibra de vidrio\", medidas y cargas). NO crees listas.\n3. Si el texto enumera 3 o más componentes, funciones o características separadas (normalmente frases cortas seguidas): OBLIGATORIO un <p> introductorio breve + <ul><li>...</li></ul>, con <strong> al inicio de cada <li> marcando el concepto clave seguido de \":\". Una frase = un <li>; no repartas una sola frase en varios <li>. Ejemplo de entrada: \"Chaleco inflable automático de 150 N. Tela de nylon resistente. Hebilla de acero inoxidable. Incluye silbato y bandas reflectantes.\" → salida: <p>Chaleco salvavidas inflable automático.</p><ul><li><strong>Flotabilidad:</strong> 150 N.</li><li><strong>Material:</strong> tela de nylon resistente.</li><li><strong>Hebilla:</strong> de acero inoxidable.</li><li><strong>Visibilidad:</strong> incluye silbato y bandas reflectantes.</li></ul>\n4. Conserva el sentido náutico y la terminología técnica. Mantén cifras y unidades.\n5. Etiquetas permitidas: <p>, <ul>, <li>, <strong>. Prohibidas: <h1>, <h2>, <h3>, <h4>, <br>, <div>, <span>, <table>.\n6. Salida: SOLO el HTML, sin markdown, sin comentarios, sin tres-back-ticks.";
+
+/**
+ * Maqueta una descripción ES (prosa de Osculati) a HTML limpio vía LLM. Devuelve '' si falla.
+ */
+function llmFormatOsculatiHtml($html) {
+	$html = trim((string) $html);
+	if ($html === '') return '';
+	$payload = json_encode([
+		'model' => LLM_MODEL,
+		'messages' => [
+			['role' => 'system', 'content' => LLM_FORMAT_PROMPT],
+			['role' => 'user',   'content' => $html],
+		],
+		'chat_template_kwargs' => ['enable_thinking' => false],
+		'max_tokens' => 1500,
+		'temperature' => 0.2,
+	], JSON_UNESCAPED_UNICODE);
+	for ($i = 0; $i <= 2; $i++) {
+		$ch = curl_init(LLM_URL);
+		curl_setopt_array($ch, [
+			CURLOPT_POST => true,
+			CURLOPT_POSTFIELDS => $payload,
+			CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+			CURLOPT_RETURNTRANSFER => true,
+			CURLOPT_TIMEOUT => 90,
+		]);
+		$resp = curl_exec($ch);
+		$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+		unset($ch);
+		if ($code === 200 && $resp !== false) {
+			$d = json_decode($resp, true);
+			$out = trim((string) ($d['choices'][0]['message']['content'] ?? ''));
+			$out = preg_replace('/^```[a-z]*\\s*|\\s*```$/i', '', $out);
+			if (trim($out) !== '') return trim($out);
+		}
+		usleep(400000);
+	}
+	return '';
+}
+
+/** Valida la salida del maquetado: debe tener estructura y no perder/inventar texto. */
+function osculatiFmtValid($fmt, $orig) {
+	if (stripos($fmt, '<p') === false && stripos($fmt, '<li') === false) return false;
+	$lf = mb_strlen(strip_tags($fmt),  'UTF-8');
+	$lo = mb_strlen(strip_tags($orig), 'UTF-8');
+	if ($lo > 0 && $lf < $lo * 0.5) return false;  // perdió >50% del texto
+	if ($lo > 0 && $lf > $lo * 2.2) return false;  // inventó >120% de texto extra
+	return true;
+}
+
+/**
+ * Maqueta $descEs si procede. $status devuelve 'none'|'ok'|'fail' para los contadores.
+ * No toca descripciones muy cortas (<25 chars de texto) ni el fallback [TRADUCIR].
+ */
+function osculatiMaquetar($descEs, $skipFormat, &$status) {
+	$status = 'none';
+	if ($skipFormat) return $descEs;
+	if ($descEs === '' || strpos($descEs, '[TRADUCIR]') === 0) return $descEs;
+	if (mb_strlen(strip_tags($descEs), 'UTF-8') < 25) return $descEs;
+	$fmt = llmFormatOsculatiHtml($descEs);
+	if ($fmt !== '' && osculatiFmtValid($fmt, $descEs)) { $status = 'ok'; return $fmt; }
+	$status = 'fail';
+	return $descEs;
+}
+
+/* ============================================================
+ * Tabla de especificaciones Osculati (Code2SerXml) — 2026-05-29
+ * Parseo determinista de <attributi> (specs EXACTAS, nunca tocadas por LLM)
+ * + traducción ES solo de etiquetas/valores textuales (números/códigos pasan).
+ * ============================================================ */
+
+/** Un string que es solo números, unidades o medidas: no se traduce. */
+function oscIsNumericish($s) {
+	$s = trim((string) $s);
+	if ($s === '') return true;
+	return preg_match('/^[\d.,\/×x°\s\-]+$/u', $s) === 1;
+}
+
+/** Limpia el caption: recorta prefijo meta-grupo (tras doble espacio). */
+function oscCleanCap($c) {
+	$c = trim((string) $c);
+	if (preg_match('/\s{2,}/u', $c)) { $p = preg_split('/\s{2,}/u', $c); $c = trim(end($p)); }
+	return $c;
+}
+
+/** Limpia el attribVal: decodifica HTML, quita swatch COLORE_*, quita tags. */
+function oscCleanVal($v) {
+	$v = html_entity_decode((string) $v, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+	$v = preg_replace('/^\s*COLORE_\S+\s+/u', '', $v);
+	$v = strip_tags($v);
+	return trim(preg_replace('/\s{2,}/u', ' ', $v));
+}
+
+/** Parsea un xmlItem → [ ['cap'=>, 'val'=>, 'pos'=>], ... ] ordenado por posiz. */
+function oscParseAttribs($xml) {
+	$out = [];
+	if (preg_match_all('#<attributo><caption>(.*?)</caption><attribVal>(.*?)</attribVal><UM>(.*?)</UM><MetaType>(.*?)</MetaType><posiz>(.*?)</posiz></attributo>#s', (string) $xml, $mm, PREG_SET_ORDER)) {
+		foreach ($mm as $a) {
+			$cap = oscCleanCap($a[1]); $val = oscCleanVal($a[2]);
+			if ($cap === '' && $val === '') continue;
+			$out[] = ['cap' => $cap, 'val' => $val, 'pos' => (int) $a[5]];
+		}
+	}
+	usort($out, fn($x, $y) => $x['pos'] <=> $y['pos']);
+	return $out;
+}
+
+/** Extrae el primer código de imagen del bloque <images> de un xmlItem de Code2SerXml. */
+function oscImageCodeFromXml($xml) {
+	if (preg_match('#<img[^>]*>(.*?)</img>#', (string) $xml, $mm)) return trim($mm[1]);
+	return '';
+}
+
+/** Traduce un lote de términos EN→ES vía LLM (JSON in/out). Devuelve mapa original→es. */
+function oscLlmTranslateSpecTerms(array $terms) {
+	if (!$terms) return [];
+	$sys = 'Eres traductor técnico náutico EN→ES (España). Recibes un array JSON de términos cortos de especificaciones de producto náutico (etiquetas de columna y valores). Devuelve SOLO un objeto JSON {"original":"traducción"} con la traducción al español de CADA término del array. Usa terminología náutica. MANTÉN intactos números, códigos (ej. 14.200.00), dimensiones (192x65) y unidades (mm, V, W, kg). Ejemplos: "Light colour"->"Color de la luz", "Body"->"Cuerpo", "white"->"blanco", "Black"->"negro", "Bulb included"->"Bombilla incluida", "outside mm"->"medidas exteriores mm", "left"->"izquierda", "right"->"derecha", "Breaking load kg"->"Carga de rotura kg", "Material"->"Material", "Thread"->"Rosca", "Length mm"->"Longitud mm". Responde SOLO el JSON, sin comentarios ni ```.';
+	$payload = json_encode([
+		'model' => LLM_MODEL,
+		'messages' => [
+			['role' => 'system', 'content' => $sys],
+			['role' => 'user',   'content' => json_encode(array_values($terms), JSON_UNESCAPED_UNICODE)],
+		],
+		'chat_template_kwargs' => ['enable_thinking' => false],
+		'max_tokens' => 2000, 'temperature' => 0.1,
+	], JSON_UNESCAPED_UNICODE);
+	for ($i = 0; $i <= 2; $i++) {
+		$ch = curl_init(LLM_URL);
+		curl_setopt_array($ch, [CURLOPT_POST=>true, CURLOPT_POSTFIELDS=>$payload, CURLOPT_HTTPHEADER=>['Content-Type: application/json'], CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>90]);
+		$resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); unset($ch);
+		if ($code === 200 && $resp !== false) {
+			$d = json_decode($resp, true);
+			$txt = trim((string) ($d['choices'][0]['message']['content'] ?? ''));
+			$txt = preg_replace('/^```[a-z]*\s*|\s*```$/i', '', $txt);
+			$map = json_decode($txt, true);
+			if (is_array($map)) return $map;
+		}
+		usleep(400000);
+	}
+	return [];
+}
+
+/** Traduce términos con cache de ejecución (amortiza colores/captions repetidos). */
+function oscTranslateTerms(array $terms) {
+	static $cache = [];
+	$need = [];
+	foreach ($terms as $t) {
+		if ($t === '' || oscIsNumericish($t)) continue;
+		if (!array_key_exists($t, $cache)) $need[$t] = true;
+	}
+	if ($need) {
+		$map = oscLlmTranslateSpecTerms(array_keys($need));
+		foreach (array_keys($need) as $t) $cache[$t] = $map[$t] ?? $t; // fallback al original
+	}
+	return $cache;
+}
+
+/** Renderiza la tabla. $multi=true → matriz variantes×captions; false → 2 columnas. */
+function oscRenderSpecTable(array $rows, array $cols, $multi, $translate, array $tr) {
+	$T = function($s) use ($translate, $tr) {
+		if (!$translate || oscIsNumericish($s)) return $s;
+		return $tr[$s] ?? $s;
+	};
+	$tblOpen = '<table class="osc-spec-table" style="border-collapse:collapse;width:100%;margin-top:8px;font-size:13px;">';
+	$thS = ' style="border:1px solid #ccc;padding:4px 8px;text-align:left;background:#3598DB;color:#ffffff;font-weight:bold;"';
+	$tdS = ' style="border:1px solid #ccc;padding:4px 8px;text-align:left;"';
+	if ($multi) {
+		$codeHdr = $translate ? 'Código' : 'Code';
+		$h = $tblOpen . '<thead><tr><th' . $thS . '>' . $codeHdr . '</th>';
+		foreach ($cols as $cap) $h .= '<th' . $thS . '>' . htmlspecialchars($T($cap)) . '</th>';
+		$h .= '</tr></thead><tbody>';
+		foreach ($rows as $code => $byCap) {
+			$h .= '<tr><td' . $tdS . '>' . htmlspecialchars($code) . '</td>';
+			foreach ($cols as $cap) {
+				$v = $byCap[$cap] ?? '';
+				$h .= '<td' . $tdS . '>' . htmlspecialchars($T($v)) . '</td>';
+			}
+			$h .= '</tr>';
+		}
+		return $h . '</tbody></table>';
+	}
+	// 2 columnas (suelto): característica | valor del único code
+	$byCap = reset($rows) ?: [];
+	$hc = $translate ? 'Característica' : 'Feature';
+	$hv = $translate ? 'Valor' : 'Value';
+	$h = $tblOpen . '<thead><tr><th' . $thS . '>' . $hc . '</th><th' . $thS . '>' . $hv . '</th></tr></thead><tbody>';
+	foreach ($cols as $cap) {
+		$v = $byCap[$cap] ?? '';
+		if ($v === '') continue;
+		$h .= '<tr><td' . $tdS . '>' . htmlspecialchars($T($cap)) . '</td><td' . $tdS . '>' . htmlspecialchars($T($v)) . '</td></tr>';
+	}
+	return $h . '</tbody></table>';
+}
+
+/**
+ * Construye el bloque de especificaciones [esHtml, enHtml] para una lista de OrderCodes.
+ * $xtMap: orderCode(lower) => xmlItem crudo. Devuelve ['',''] si ningún code trae specs.
+ */
+function oscSpecBlock(array $orderCodes, array $xtMap) {
+	$rows = []; $cols = []; $anyAttr = false;
+	foreach ($orderCodes as $code) {
+		$disp = preg_replace('/#.*$/', '', trim((string) $code));
+		$key = strtolower($disp);
+		$attrs = isset($xtMap[$key]) ? oscParseAttribs($xtMap[$key]) : [];
+		$byCap = [];
+		foreach ($attrs as $a) {
+			if ($a['cap'] === '') continue;
+			$anyAttr = true;
+			if (!in_array($a['cap'], $cols, true)) $cols[] = $a['cap'];
+			$byCap[$a['cap']] = $a['val'];
+		}
+		$rows[$disp] = $byCap;
+	}
+	if (!$anyAttr || !$cols) return ['', ''];
+
+	$terms = [];
+	foreach ($cols as $c) $terms[$c] = true;
+	foreach ($rows as $byCap) foreach ($byCap as $v) if ($v !== '') $terms[$v] = true;
+	$tr = oscTranslateTerms(array_keys($terms));
+
+	$multi = count($orderCodes) > 1;
+	$es = '<p><strong>Especificaciones</strong></p>' . oscRenderSpecTable($rows, $cols, $multi, true, $tr);
+	$en = '<p><strong>Specifications</strong></p>' . oscRenderSpecTable($rows, $cols, $multi, false, $tr);
+	return [$es, $en];
+}
+
 
 /**
  * Traduce IT → ES o IT → EN. Devuelve '' si la llamada al LLM falla.
@@ -416,6 +660,7 @@ if ($isAction) {
 		<textarea name="codes" rows="3" style="width:100%;font-family:monospace;" placeholder="Uno o varios BaseCodes (ej. 01.018.04) separados por coma, espacio o salto de línea."><?php echo htmlspecialchars($onlyCodesRaw); ?></textarea>
 	</p>
 	<p><label><input type="checkbox" name="dry_run" value="1" checked> Dry-run (solo lista los nuevos, no inserta nada)</label></p>
+	<p><label><input type="checkbox" name="skip_format" value="1"> No maquetar descripción (solo traducir, más rápido)</label></p>
 	<p>Límite por ejecución (0 = sin límite): <input type="number" name="max" value="50" min="0" style="width:80px;"></p>
 	<input type="hidden" name="action" value="execute">
 	<button type="submit" class="xbutton small hv9 verde">Lanzar</button>
@@ -481,6 +726,23 @@ if ($isAction) {
 		$serMap = parseSerExport($serRows);
 		unset($serRows);
 		logMsg('  → ser_export: ' . count($serMap) . ' series');
+	}
+
+	$xtFile = $tmpDir . 'Code2SerXml.txt';
+	logMsg('Descargando ENG/Code2SerXml.txt vía FTP (especificaciones)...');
+	$xtMap = [];
+	if (!osculatiDownload('ENG/Code2SerXml.txt', $xtFile)) {
+		logMsg('AVISO: Code2SerXml.txt no descargado (sin tabla de especificaciones)');
+	} else {
+		logMsg('  → ' . number_format(filesize($xtFile)) . ' bytes');
+		$xtRows = readUtf16File($xtFile);
+		foreach ($xtRows as $r) {
+			if (count($r) < 5) continue;
+			$oc = strtolower(preg_replace('/#.*$/', '', trim($r[0])));
+			if ($oc !== '' && strpos($r[4], '<attributo>') !== false) $xtMap[$oc] = $r[4];
+		}
+		unset($xtRows);
+		logMsg('  → Code2SerXml: ' . count($xtMap) . ' ítems con especificaciones');
 	}
 
 	logMsg('Cargando BaseCodes existentes en BD...');
@@ -614,6 +876,10 @@ if ($isAction) {
 	$nWithVar  = 0;
 	$nErrors   = 0;
 	$processed = 0;
+	$nFormatted = 0;
+	$nFormatFail = 0;
+	$nWithSpec = 0;
+	$nVarImg = 0;
 
 	// 1) Series con N BaseCodes → 1 producto + N variantes
 	foreach ($newSeries as $serieId => $bases) {
@@ -698,6 +964,21 @@ if ($isAction) {
 			if ($descEn !== '') {
 				$descEs = translateIT($descEn);
 				if ($descEs === '') $descEs = '[TRADUCIR]<br>' . $descEn;
+				$_fs = 'none';
+				$descEs = osculatiMaquetar($descEs, $skipFormat, $_fs);
+				if ($_fs === 'ok') $nFormatted++; elseif ($_fs === 'fail') $nFormatFail++;
+			}
+
+			// Tabla de especificaciones (matriz variantes×captions) desde Code2SerXml.
+			if (!empty($xtMap)) {
+				$_ocodes = [];
+				foreach ($items as $_bc => $_it) { $_oc = $_it['order_code'] ?? $_bc; if ($_oc !== '') $_ocodes[] = $_oc; }
+				list($_specEs, $_specEn) = oscSpecBlock($_ocodes, $xtMap);
+				if ($_specEs !== '') {
+					$descEs = ($descEs !== '' ? $descEs . "\n" : '') . $_specEs;
+					$descEn = ($descEn !== '' ? $descEn . "\n" : '') . $_specEn;
+					$nWithSpec++;
+				}
 			}
 
 			$weightKg = $cheapestItem['weight_g'] / max(1, $cheapestItem['base_qty']) / 1000;
@@ -766,6 +1047,7 @@ if ($isAction) {
 			$variantsCreated = 0;
 			// Track de OVs ya consumidos por este producto (guardia anti-colisión de labels)
 			$ovsUsados = [];
+			$variantImgSrc = [];
 			foreach ($items as $bc => $it) {
 				$varUnitPrice = roundToNickel(calcUnitPriceNoVat($it['street_price'], $it['base_qty']));
 				$delta = round($varUnitPrice - $baseUnitPrice, 4);
@@ -816,14 +1098,47 @@ if ($isAction) {
 					options_values_id     = $valueId,
 					options_values_price  = " . number_format(abs($delta), 4, '.', '') . ",
 					price_prefix          = '$prefix',
-					reference             = '" . tep_db_input($it['order_code']) . "',
+					reference             = '" . tep_db_input($it['base_code']) . "',
 					reference_prov        = '" . tep_db_input($it['order_code']) . "',
 					products_attributes_ean = '" . tep_db_input($it['ean']) . "',
 					options_values_weight = " . number_format($wAbs, 3, '.', '') . ",
 					weight_prefix         = '$wPrefix'");
 				$variantsCreated++;
+
+				// Imagen por variante (change_image) desde Code2SerXml <images>
+				if (!empty($xtMap)) {
+					$vKey = strtolower(preg_replace('/#.*$/', '', (string) $it['order_code']));
+					$vImgCode = isset($xtMap[$vKey]) ? oscImageCodeFromXml($xtMap[$vKey]) : '';
+					if ($vImgCode !== '' && is_dir(IMG_ATTR_DIR)) {
+						$vImgName = preg_match('/\\.(jpg|jpeg|png|gif|webp)$/i', $vImgCode) ? $vImgCode : $vImgCode . '.jpg';
+						$aiFile = 'ai_' . $productsId . '-' . VARIANT_OPTION_ID . '-' . $valueId . '.jpg';
+						if (downloadImage($vImgName, IMG_ATTR_DIR . $aiFile)) {
+							tep_db_query("DELETE FROM products_attributes_actions WHERE products_id=$productsId AND products_attributes='" . VARIANT_OPTION_ID . "-$valueId' AND action='change_image'");
+							tep_db_query("INSERT INTO products_attributes_actions (products_id, products_attributes, value, action) VALUES ($productsId, '" . VARIANT_OPTION_ID . "-$valueId', '" . tep_db_input($aiFile) . "', 'change_image')");
+							if (!isset($variantImgSrc[$vImgCode])) $variantImgSrc[$vImgCode] = IMG_ATTR_DIR . $aiFile;
+							$nVarImg++;
+						}
+					}
+				}
 			}
 			if ($variantsCreated > 0) $nWithVar++;
+
+			// Galería del padre: añadir imágenes de variante DISTINTAS (dedup por md5 vs principal)
+			if (!empty($variantImgSrc) && !empty($imgInserted)) {
+				$mainPath = IMG_ABS_DIR . $localImgName;
+				$seenH = [];
+				if (file_exists($mainPath)) $seenH[md5_file($mainPath)] = true;
+				$subs = []; $gi = 1;
+				foreach ($variantImgSrc as $vc => $srcPath) {
+					if (!file_exists($srcPath)) continue;
+					$h = md5_file($srcPath);
+					if (isset($seenH[$h])) continue;
+					$seenH[$h] = true; $gi++;
+					$gName = preg_replace('/\\.(jpg|jpeg|png|gif|webp)$/i', '', $localImgName) . '-v' . $gi . '.jpg';
+					if (@copy($srcPath, IMG_ABS_DIR . $gName)) $subs[] = $gName;
+				}
+				if ($subs) tep_db_query("UPDATE products SET products_subimages='" . tep_db_input(json_encode($subs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . "' WHERE products_id=$productsId");
+			}
 
 			// G1 (Profesionales) = products_price × 0.85 sobre PVP sin IVA. Redondeado a .05 con IVA.
 			$g1Main = roundToNickel($baseUnitPrice * 0.85);
@@ -943,7 +1258,21 @@ if ($isAction) {
 					if ($descEn !== '') {
 						$descEs = translateIT($descEn);
 						if ($descEs === '') $descEs = '[TRADUCIR]<br>' . $descEn;
+						$_fs = 'none';
+						$descEs = osculatiMaquetar($descEs, $skipFormat, $_fs);
+						if ($_fs === 'ok') $nFormatted++; elseif ($_fs === 'fail') $nFormatFail++;
 					}
+				}
+			}
+
+			// Tabla de especificaciones (2 columnas) desde Code2SerXml para el OrderCode del suelto.
+			if (!empty($xtMap)) {
+				$_oc = $mainOrder['order_code'] ?? $baseCode;
+				list($_specEs, $_specEn) = oscSpecBlock([$_oc], $xtMap);
+				if ($_specEs !== '') {
+					$descEs = ($descEs !== '' ? $descEs . "\n" : '') . $_specEs;
+					$descEn = ($descEn !== '' ? $descEn . "\n" : '') . $_specEn;
+					$nWithSpec++;
 				}
 			}
 
@@ -988,6 +1317,9 @@ if ($isAction) {
 	logMsg("Insertados : $nInserted");
 	logMsg("Con imagen : $nWithImg");
 	logMsg("Con variantes: $nWithVar");
+	logMsg("Maquetadas : $nFormatted (fallidas: $nFormatFail)" . ($skipFormat ? " [maquetado DESACTIVADO]" : ""));
+	logMsg("Con tabla specs: $nWithSpec");
+	logMsg("Imágenes por variante: $nVarImg");
 	logMsg("SKIP sin imagen: " . ($nSkippedNoImg ?? 0));
 	logMsg("Errores    : $nErrors");
 

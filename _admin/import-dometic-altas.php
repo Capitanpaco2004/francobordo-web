@@ -216,7 +216,6 @@ function domHttpGet($url, $cacheKey, $forceRefresh, &$fromCache) {
     ]);
     $body = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
     if ($body === false || $code !== 200 || strlen($body) < 5000) return '';
     @file_put_contents($cf, gzencode($body, 6));
     usleep(WEB_SLEEP_US);
@@ -242,7 +241,6 @@ function downloadImage($url, $destAbs) {
     ]);
     $ok = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
     fclose($fp);
     $ok = $ok && $code === 200 && filesize($destAbs) >= IMG_MIN_BYTES;
     if (!$ok) @unlink($destAbs);
@@ -282,7 +280,6 @@ function llmCall($systemPrompt, $userText, $maxTokens = 2500, $maxRetries = 2) {
         ]);
         $resp = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
         if ($resp !== false && $code === 200) {
             $j = json_decode($resp, true);
             $content = $j['choices'][0]['message']['content'] ?? null;

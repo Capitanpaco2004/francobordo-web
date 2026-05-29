@@ -258,7 +258,7 @@ class Cookie
 	{
 		$cookieDomain = $this->configuration->check('request_type', true) ? $this->configuration->get('HTTP_COOKIE_DOMAIN') : $this->configuration->get('HTTPS_COOKIE_DOMAIN');
 
-		return str_replace('www.', '', $cookieDomain);
+		return str_replace('www.', '', (string)($cookieDomain ?? ''));
 	}
 
 	private function resolveEnabled(): bool

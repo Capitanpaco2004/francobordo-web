@@ -101,18 +101,22 @@ function checkDuplicatedModuleSortOrder($aModules)
 }
 
 /**
- * Obtiene un objeto de módulo sólo si está instalado.
+ * Obtiene un objeto de módulo.
  *
  * @param string $sModuleDirectory Ruta absoluta al directorio de módulos.
  * @param string $sModuleType      Tipo de módulo ('payment', 'shipping', …).
  * @param string $sModuleId        Código del módulo (por ejemplo 'bizum').
+ * @param bool   $bCheckStatus     true (default) → solo módulos ya instalados;
+ *                                 false → cualquiera (necesario para la acción 'install',
+ *                                 que naturalmente recibe módulos aún no instalados — sin esto
+ *                                 el botón "Instalar módulo" no hace nada porque getInstalledModules
+ *                                 filtra el modulo no-instalado y el caller hace tep_redirect).
  *
- * @return object|null             Instancia del módulo instalado, o null si no existe o no está instalado.
+ * @return object|null             Instancia del módulo, o null si no se encuentra.
  */
-function getModuleById($sModuleDirectory, $sModuleType, $sModuleId)
+function getModuleById($sModuleDirectory, $sModuleType, $sModuleId, $bCheckStatus = true)
 {
-	// Sólo traemos los instalados (bCheckStatus = true)
-	$aModules = getInstalledModules($sModuleDirectory, $sModuleType, true, false);
+	$aModules = getInstalledModules($sModuleDirectory, $sModuleType, $bCheckStatus, false);
 
 	$cModule = null;
 	foreach ($aModules as $module) {
@@ -122,7 +126,7 @@ function getModuleById($sModuleDirectory, $sModuleType, $sModuleId)
 		}
 	}
 
-	return $cModule; // null si no lo encuentra o no está instalado
+	return $cModule;
 }
 
 

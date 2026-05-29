@@ -8,7 +8,7 @@
 		ob_start();
 		$output = fopen("php://output", "a+");
 		foreach ($data as $row)
-			fputcsv( $output, $row );
+			fputcsv( $output, $row, ',', '"', '' );
 		fclose($output);
 
 		$a = ob_get_contents();

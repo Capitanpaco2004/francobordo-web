@@ -13,7 +13,10 @@
                                    Copyright Stephane Garin <sgarin@sgarin.com> (detect_language.php v0.1 04/02/2002)
 */
 
-  if (class_exists('language')) return;
+  // PHP hoistea las declaraciones de clase a nivel top en compile-time,
+  // ANTES de ejecutar `if (...) return;`. Para que la guarda funcione de verdad
+  // hay que envolver la declaración dentro del condicional.
+  if (!class_exists('language')) {
   class language {
     var $languages, $catalog_languages, $browser_languages, $language;
 
@@ -113,4 +116,5 @@
       }
     }
   }
+  } // fin de if (!class_exists('language'))
 ?>
