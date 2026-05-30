@@ -132,7 +132,7 @@ class order {
 						  'format_id'      => $order['billing_address_format_id']];
 
 		$index                 = 0;
-		$orders_products_query = tep_db_query("select products_id, orders_products_id, orders_products_id, products_name, products_model, products_ubicacion, products_price, products_tax, products_quantity, final_price, products_returned, products_id, products_reference from " . TABLE_ORDERS_PRODUCTS . " where orders_id = '" . (int)$order_id . "'");
+		$orders_products_query = tep_db_query("select products_id, orders_products_id, orders_products_id, products_name, products_model, products_ubicacion, products_price, products_tax, products_quantity, final_price, products_returned, products_id, products_reference, qfac_sync_note, qfac_sync_at from " . TABLE_ORDERS_PRODUCTS . " where orders_id = '" . (int)$order_id . "'");
 		while ($orders_products = tep_db_fetch_array($orders_products_query)) {
 			$this->products[$index] = ['id'                 => $orders_products['orders_products_id'],
 									   'products_id'        => $orders_products['products_id'],
@@ -144,7 +144,9 @@ class order {
 									   'tax'                => $orders_products['products_tax'],
 									   'price'              => $orders_products['products_price'],
 									   'products_reference' => $orders_products['products_reference'],
-									   'final_price'        => $orders_products['final_price']];
+									   'final_price'        => $orders_products['final_price'],
+									   'qfac_sync_note'     => $orders_products['qfac_sync_note'],
+									   'qfac_sync_at'       => $orders_products['qfac_sync_at']];
 
 			$subindex         = 0;
 			$attributes_query = tep_db_query("select products_options, products_options_values, options_values_price, price_prefix from " . TABLE_ORDERS_PRODUCTS_ATTRIBUTES . " where orders_id = '" . (int)$order_id . "' and orders_products_id = '" . (int)$orders_products['orders_products_id'] . "'");

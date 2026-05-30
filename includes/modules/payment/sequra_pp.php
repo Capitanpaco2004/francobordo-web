@@ -30,8 +30,18 @@ class sequra_pp extends sequra {
 		$this->api_version = '1.0.0';
 
 		$this->code                            = 'sequra_pp';
-		$this->title                           = defined('MODULE_PAYMENT_SEQURA_PP_TEXT_TITLE')?MODULE_PAYMENT_SEQURA_PP_TEXT_TITLE:'';
-		$this->public_title                    = defined('MODULE_PAYMENT_SEQURA_PP_TEXT_PUBLIC_TITLE')?MODULE_PAYMENT_SEQURA_PP_TEXT_PUBLIC_TITLE:'';
+		// FIX 2026-05-29 payment_method vacio: en confirmaciones server-to-server de SeQura
+		// sin la sesion web normal, payment.php no incluye el fichero de idioma del modulo y
+		// las constantes PP quedan indefinidas -> public_title='' -> el pedido se graba con
+		// payment_method vacio (caja 'Metodo de Pago' en blanco en el admin). Cargar el idioma.
+		if ( ! defined('MODULE_PAYMENT_SEQURA_PP_TEXT_PUBLIC_TITLE') ) {
+			global $language;
+			$sequra_lang = ( isset($language) && $language !== '' ) ? $language : ( defined('DEFAULT_LANGUAGE') ? DEFAULT_LANGUAGE : 'espanol' );
+			$sequra_lang_file = DIR_WS_LANGUAGES . $sequra_lang . '/modules/payment/sequra_pp.php';
+			if ( file_exists($sequra_lang_file) ) { include_once($sequra_lang_file); }
+		}
+		$this->title                           = defined('MODULE_PAYMENT_SEQURA_PP_TEXT_TITLE')?MODULE_PAYMENT_SEQURA_PP_TEXT_TITLE:'SeQura PP';
+		$this->public_title                    = defined('MODULE_PAYMENT_SEQURA_PP_TEXT_PUBLIC_TITLE')?MODULE_PAYMENT_SEQURA_PP_TEXT_PUBLIC_TITLE:'Fracciona tu pago con SeQura';
 		$this->description                     = defined('MODULE_PAYMENT_SEQURA_PP_TEXT_DESCRIPTION')?MODULE_PAYMENT_SEQURA_PP_TEXT_DESCRIPTION:'';
 		$this->text_confirmation_other_methods = defined('MODULE_PAYMENT_SEQURA_PP_TEXT_CONFIRMATION_OTHER_METHODS')?MODULE_PAYMENT_SEQURA_PP_TEXT_CONFIRMATION_OTHER_METHODS:'';
 		$this->text_confirmation_header        = defined('MODULE_PAYMENT_SEQURA_PP_TEXT_CONFIRMATION_HEADER')?MODULE_PAYMENT_SEQURA_PP_TEXT_CONFIRMATION_HEADER:'';

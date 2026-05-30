@@ -65,8 +65,20 @@ if(!class_exists('sequra')){
 			}
 
 			$this->code                            = 'sequra';
-			$this->title = defined( 'MODULE_PAYMENT_SEQURA_TEXT_TITLE' ) ? MODULE_PAYMENT_SEQURA_TEXT_TITLE : '';
-			$this->public_title = defined( 'MODULE_PAYMENT_SEQURA_TEXT_PUBLIC_TITLE' ) ? MODULE_PAYMENT_SEQURA_TEXT_PUBLIC_TITLE : '';
+			// FIX 2026-05-29 payment_method vacio: si el contexto no cargo el fichero de idioma
+			// del modulo (confirmaciones server-to-server de SeQura sin la sesion web normal),
+			// las constantes de titulo quedaban indefinidas y el pedido se grababa con
+			// payment_method vacio (caja 'Metodo de Pago' en blanco en el admin). Cargar el
+			// idioma aqui replica el flujo normal; en checkout normal este bloque NO se ejecuta
+			// porque payment.php ya incluyo el fichero de idioma antes del 'new'.
+			if ( ! defined( 'MODULE_PAYMENT_SEQURA_TEXT_PUBLIC_TITLE' ) ) {
+				global $language;
+				$sequra_lang = ( isset( $language ) && $language !== '' ) ? $language : ( defined( 'DEFAULT_LANGUAGE' ) ? DEFAULT_LANGUAGE : 'espanol' );
+				$sequra_lang_file = DIR_WS_LANGUAGES . $sequra_lang . '/modules/payment/sequra.php';
+				if ( file_exists( $sequra_lang_file ) ) { include_once( $sequra_lang_file ); }
+			}
+			$this->title = defined( 'MODULE_PAYMENT_SEQURA_TEXT_TITLE' ) ? MODULE_PAYMENT_SEQURA_TEXT_TITLE : 'SeQura';
+			$this->public_title = defined( 'MODULE_PAYMENT_SEQURA_TEXT_PUBLIC_TITLE' ) ? MODULE_PAYMENT_SEQURA_TEXT_PUBLIC_TITLE : 'SeQura';
 			$this->service_name = defined( 'MODULE_PAYMENT_SEQURA_SERVICE_NAME' ) ? MODULE_PAYMENT_SEQURA_SERVICE_NAME : '';
 			$this->description = defined( 'MODULE_PAYMENT_SEQURA_TEXT_DESCRIPTION' ) ? MODULE_PAYMENT_SEQURA_TEXT_DESCRIPTION : '';
 			$this->text_confirmation_other_methods = defined( 'MODULE_PAYMENT_SEQURA_TEXT_CONFIRMATION_OTHER_METHODS' ) ? MODULE_PAYMENT_SEQURA_TEXT_CONFIRMATION_OTHER_METHODS : '';

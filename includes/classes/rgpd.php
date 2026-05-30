@@ -221,7 +221,10 @@
 										$sHtml .= '<small>' . RGPD_WINDOW_MODAL_SUBTITLE . '</small>';
 									$sHtml .= '</div>';
 									$sHtml .= '<div class="ccEditor">';
-										$sHtml .= $this->aTermGeneral['text'];
+										// Parseamos los shortcodes del texto (igual que information.php / product_info.php); en el footer global no estan cargados
+											if( !function_exists('do_shortcode') ) include( DIR_WS_INCLUDES . 'functions/shortcodes.php' );
+											if( !function_exists('list_backgr') ) include( DIR_THEME_ROOT . 'functions/shortcodes.php' );
+											$sHtml .= function_exists('do_shortcode') ? do_shortcode( $this->aTermGeneral['text'] ) : $this->aTermGeneral['text'];
 									$sHtml .= '</div>';
 								$sHtml .= '</div>';
 								$sHtml .= '<div class="rgpd-btn">';

@@ -1409,6 +1409,14 @@ if( tep_not_null($action) )
 								'            <td align="center">' . $order->products[$i]['qty'] . '</td>' . "\n" .
 								'            <td>' . $order->products[$i]['name'] . $return_link;
 
+						// Marca de linea modificada por el sync de QFacWin
+						if (!empty($order->products[$i]['qfac_sync_note'])) {
+							$qn = htmlspecialchars($order->products[$i]['qfac_sync_note']);
+							$qd = !empty($order->products[$i]['qfac_sync_at']) ? date('d/m/Y H:i', strtotime($order->products[$i]['qfac_sync_at'])) : '';
+							echo '<br><span style="display:inline-block;background:#e67e22;color:#fff;font-size:9px;font-weight:600;padding:1px 6px;border-radius:8px;line-height:1.2;margin-top:3px;" title="Modificado por sincronizacion con QFacWin' . ($qd ? ' · ' . $qd : '') . '"><i class="fa fa-pencil" style="font-size:8px;"></i> Modificado QFac: ' . $qn . '</span>';
+						}
+						echo '';
+
 						if (isset($order->products[$i]['attributes']) && (sizeof($order->products[$i]['attributes']) > 0)) {
 							for ($j = 0, $k = sizeof($order->products[$i]['attributes']); $j < $k; $j++) {
 							  echo '<br><nobr><small>&nbsp;<i> - ' . $order->products[$i]['attributes'][$j]['option'] . ': ' . $order->products[$i]['attributes'][$j]['value'];

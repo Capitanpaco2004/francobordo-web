@@ -39,7 +39,8 @@ class sequra_splitpayment extends sequra {
 
 		$this->code                            = 'sequra_splitpayment';
 		$this->title                           = 'SeQura - Divide en 3';
-		$this->public_title                    = defined('MODULE_PAYMENT_SEQURA_SPLITPAYMENT_TEXT_PUBLIC_TITLE')?MODULE_PAYMENT_SEQURA_SPLITPAYMENT_TEXT_PUBLIC_TITLE:'';
+		// FIX 2026-05-29 payment_method vacio: fallback no vacio si falta la constante de idioma
+		$this->public_title                    = defined('MODULE_PAYMENT_SEQURA_SPLITPAYMENT_TEXT_PUBLIC_TITLE')?MODULE_PAYMENT_SEQURA_SPLITPAYMENT_TEXT_PUBLIC_TITLE:'SeQura - Divide en 3';
 		$this->description                     = 'SeQura - Divide en 3';
 		$this->cost_url  				       = defined('MODULE_PAYMENT_SEQURA_SPLITPAYMENT_COST_URL')?MODULE_PAYMENT_SEQURA_SPLITPAYMENT_COST_URL:'';
 		$this->mode                            = self::SQ_PRODUCT;

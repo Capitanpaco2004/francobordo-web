@@ -17,7 +17,7 @@ if( isset( $_GET['action'] ) )
 			$sCoupon = '';
 
 			// Valores aleatorios
-			srand( (double) microtime() * 1000000 );
+			srand( (int) ((float) microtime() * 1000000) );
 
 			// Recorremos y recreamos el cupón
 			for( $nCont = 0; $nCont < MODULE_ORDER_TOTAL_DISCOUNT_COUPON_RANDOM_CODE_LENGTH; ++$nCont )

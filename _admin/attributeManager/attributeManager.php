@@ -164,6 +164,32 @@ if(!isset($_GET['target']) || 'currentAttributes' == $_GET['target']) {
 		while($amAttrRow = tep_db_fetch_array($amAttrRes))
 			$amAttrImg[$amAttrRow['products_attributes']] = $amAttrRow['value'];
 	}
+
+	// Precio final con IVA + signo "=": mostramos el PVP real de cada valor (base +/- delta, IVA incl.)
+	// y forzamos el prefijo a "=". Internamente se sigue guardando como incremento (ver clase Instant,
+	// que reconvierte "=" -> delta ex-IVA al persistir). Es un punto fijo estable: display y campo viven
+	// en espacio "final + =", el server siempre convierte "final + = -> delta", sin doble conversion.
+	$amHasBase   = false;
+	$amBaseRetail = 0.0;   // products_price (ex-IVA)
+	$amBaseProf   = 0.0;   // precio base grupo 1 (customers_group_price) o products_price si no hay
+	$amTaxMul     = 1.0;   // 1 + IVA
+	if($amAttrPid > 0) {
+		$amBaseRes = tep_db_query('SELECT p.products_price, IF(pg.customers_group_price, pg.customers_group_price, p.products_price) AS prof_price, COALESCE(t.tax_rate,0) AS tax_rate FROM products p LEFT JOIN tax_rates t ON (p.products_tax_class_id = t.tax_class_id) LEFT JOIN products_groups pg ON (p.products_id = pg.products_id AND pg.customers_group_id = 1) WHERE p.products_id = "' . $amAttrPid . '" LIMIT 1');
+		if($amBaseRow = tep_db_fetch_array($amBaseRes)) {
+			$amHasBase    = true;
+			$amBaseRetail = (float)$amBaseRow['products_price'];
+			$amBaseProf   = (float)$amBaseRow['prof_price'];
+			$amTaxMul     = (float)$amBaseRow['tax_rate'] / 100 + 1;
+		}
+	}
+	// Convierte un delta guardado (precio + prefijo +/-) al precio final con IVA, formateado para el input
+	if(!function_exists('amFinalPriceFromDelta')) {
+		function amFinalPriceFromDelta($base, $price, $prefix, $taxMul) {
+			$p = (float)$price;
+			$signed = ($prefix === '-') ? -abs($p) : $p; // "=" guarda prefijo "+" con precio posible negativo
+			return number_format(($base + $signed) * $taxMul, 2, '.', '');
+		}
+	}
 	?>
 	<?php
 	if(0 < $numOptions) {
@@ -217,6 +243,13 @@ if(false){
 	<?php
 			if(0 < $numValues){
 				foreach($optionInfo['values'] as $optionValueId => $optionValueInfo) {
+					// Mostrar precio final con IVA y signo "=" (solo si tenemos base/IVA del producto)
+					if($amHasBase) {
+						$optionValueInfo['price']     = amFinalPriceFromDelta($amBaseRetail, $optionValueInfo['price'], $optionValueInfo['prefix'], $amTaxMul);
+						$optionValueInfo['prefix']    = '=';
+						$optionValueInfo['price_pr']  = amFinalPriceFromDelta($amBaseProf, $optionValueInfo['price_pr'], $optionValueInfo['prefix_pr'], $amTaxMul);
+						$optionValueInfo['prefix_pr'] = '=';
+					}
 	?>
 
 			<tr class="optionValue" id="trOptionsValues_<?php echo $optionId; ?>" style="display:none" >
@@ -363,14 +396,14 @@ if(!isset($_GET['target']) || 'newAttribute' == $_GET['target'] ) {
 					<input border="0" type="image" src="attributeManager/images/icon_add_new.png" onclick="return customPrompt('amAddOptionValue');" title="<?=AM_AJAX_ADDS_NEW_OPTION_VALUE?>" >
 			</td>
 			<td valign="top" class="newOptionPanel-label">
-				<?=AM_AJAX_PREFIX?> <?php echo drawDropDownPrefix('id="prefix_0"')?>
+				<?=AM_AJAX_PREFIX?> <?php echo drawDropDownPrefix('id="prefix_0"', '=')?>
 			</td>
 			<td valign="top" class="newOptionPanel-label">
 				<?=AM_AJAX_PRICE?> <?php echo tep_draw_input_field('newPrice','','size="5" id="newPrice"'); ?>
 			</td>
 
 			<td valign="top" class="newOptionPanel-label">
-				<?=AM_AJAX_PREFIX?> <?php echo drawDropDownPrefix('id="prefix_pr_0"')?>
+				<?=AM_AJAX_PREFIX?> <?php echo drawDropDownPrefix('id="prefix_pr_0"', '=')?>
 			</td>
 			<td valign="top" class="newOptionPanel-label">
 				Precio Prof. <?php echo tep_draw_input_field('newPricePr','','size="5" id="newPricePr"'); ?>

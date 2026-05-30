@@ -105,7 +105,17 @@ class paypal_applepay {
         <?php echo tep_draw_hidden_field('paypal_rest_capture_id', ''); ?>
         <?php echo tep_draw_hidden_field('paypal_rest_method', 'applepay'); ?>
         <div id="paypal-applepay-wrap" style="max-width:480px;margin:14px 0;">
-            <div id="paypal-applepay-status" style="font-size:12.5px;color:#666;margin-bottom:8px;">Pulsa el boton de Apple Pay para pagar:</div>
+            <div id="paypal-applepay-status" style="
+                display:flex;align-items:center;gap:10px;
+                font-size:14.5px;color:#003087;font-weight:600;
+                padding:10px 14px;margin:0 0 12px;
+                background:#f0f6fc;border-left:3px solid #009cde;border-radius:4px;
+                line-height:1.4;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="#009cde" style="flex-shrink:0;">
+                    <path d="M12 2 C 6.48 2 2 6.48 2 12 c 0 5.52 4.48 10 10 10 s 10 -4.48 10 -10 C 22 6.48 17.52 2 12 2 Z m 1 15 h -2 v -6 h 2 v 6 z m 0 -8 h -2 V 7 h 2 v 2 z"/>
+                </svg>
+                <span>Pulsa el bot&oacute;n de Apple Pay para completar el pago:</span>
+            </div>
             <div id="paypal-applepay-button-container"></div>
             <div id="paypal-applepay-error" style="display:none;background:#fff5f5;border-left:3px solid #a00;padding:8px 12px;color:#a00;font-size:13px;margin-top:10px;"></div>
         </div>

@@ -60,8 +60,8 @@
 	// DOM
 	$dcDocument = new DOMDocument();
 
-	// Cargamos el HTML
-	@$dcDocument->loadHTML( $sHtml );
+	// Cargamos el HTML (DOMDocument::loadHTML lanza ValueError con string vacío en PHP 8; @ no lo suprime)
+	if ( (string)$sHtml !== '' ) @$dcDocument->loadHTML( $sHtml );
 
 	// Array
 	$aReturn['new'] = [];

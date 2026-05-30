@@ -102,7 +102,6 @@ define('FILENAME_SHIPPING', 'shipping.php');
 define('FILENAME_SHIPPING_ESTIMATOR', 'shipping_estimator.php');
 define('FILENAME_SHOPPING_CART', 'checkout/cart/');
 define('FILENAME_SHOP_BY_PRICE', 'shop_by_price.php');
-define('FILENAME_SITEMAP_SEO', 'sitemap.php');
 define('FILENAME_SPECIALS', 'specials.php');
 define('FILENAME_SSL_CHECK', 'ssl_check.php');
 define('FILENAME_SUPPORT', 'support.php');

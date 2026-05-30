@@ -51,8 +51,51 @@ function sm_xml_clean(string $s): string
 {
     $s = @iconv('UTF-8', 'UTF-8//IGNORE', $s);
     if ($s === false) $s = '';
-    $s = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $s);
-    return $s ?? '';
+    // C0 control chars (byte level — they never appear as UTF-8 continuation bytes)
+    $s = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/', '', $s) ?? $s;
+    // DEL + C1 control chars (U+007F–U+009F). These are valid UTF-8 (e.g. U+0090
+    // = 0xC2 0x90) so iconv keeps them, but XML/SM import reject them. Strip at
+    // codepoint level — safe here because the string is already valid UTF-8.
+    $s = preg_replace('/[\x{007F}-\x{009F}]/u', '', $s) ?? $s;
+    return $s;
+}
+
+/**
+ * Clean a descriptive text field for SM import. SM rejects feeds whose text
+ * fields contain shortcodes, incomplete HTML fragments, bullet symbols, etc.
+ * Applied to title / description / brand / categories.
+ *
+ * Steps (order matters):
+ *  1. sm_xml_clean   — valid UTF-8 + drop XML-illegal control chars.
+ *  2. shortcodes     — remove [list_down ...], [/list_down], any [..].
+ *  3. complete tags  — strip_tags removes well-formed <...> tags.
+ *  4. broken tags    — remove leftover '<...'/'>' fragments (the feed truncates
+ *                      descriptions to ~900 chars and can cut a tag like '<td' ).
+ *  5. bullets/nbsp   — bullets (●•◦▪‣·) → '- '; nbsp → normal space.
+ *  6. whitespace     — collapse runs of spaces/newlines into single spaces.
+ */
+function sm_text_clean(string $s): string
+{
+    $s = sm_xml_clean($s);
+    // 2) shortcodes  [anything]  + truncated trailing '[list_down' with no ']'
+    $s = preg_replace('/\[[^\]]*\]/u', ' ', $s) ?? $s;
+    $s = preg_replace('/\[[^\]]*$/u', ' ', $s) ?? $s;   // dangling '[...' cut by truncation
+    // bare shortcode-name remnants left by odd truncation (e.g. '/ list_down').
+    // 'list_down' is the theme's only shortcode and never legit product text.
+    $s = preg_replace('#/?\s*list_down\b#iu', ' ', $s) ?? $s;
+    // 3) complete HTML tags
+    $s = strip_tags($s);
+    // 4) leftover broken tag fragments: '<' + rest with no closing '>' (truncated),
+    //    or stray '<' / '>' that survived.
+    $s = preg_replace('/<[^>]*$/u', ' ', $s) ?? $s;   // dangling '<td sty...' at the end
+    $s = preg_replace('/<[^>]*>/u', ' ', $s) ?? $s;   // any other tag-like remnant
+    $s = str_replace(['<', '>'], ' ', $s);            // truly stray angle brackets
+    // 5) bullets and non-breaking spaces
+    $s = preg_replace('/[\x{2022}\x{25CF}\x{25E6}\x{25AA}\x{2023}\x{00B7}\x{2219}\x{2043}]/u', '- ', $s) ?? $s;
+    $s = str_replace("\xC2\xA0", ' ', $s);            // UTF-8 nbsp
+    // 6) collapse whitespace
+    $s = preg_replace('/\s+/u', ' ', $s) ?? $s;
+    return trim($s);
 }
 
 /**
@@ -123,22 +166,30 @@ foreach ($jobs as $job) {
         if (isset($seen[$id])) { $dups++; continue; }
         $seen[$id] = true;
 
-        $title = sm_xml_clean(html_entity_decode($col($row, 'title'), ENT_QUOTES, 'UTF-8'));
-        $desc  = sm_xml_clean(html_entity_decode($col($row, 'description'), ENT_QUOTES, 'UTF-8'));
-        $brand = sm_xml_clean(html_entity_decode($col($row, 'brand'), ENT_QUOTES, 'UTF-8'));
-        $gcat  = sm_xml_clean(html_entity_decode($col($row, 'google_product_category'), ENT_QUOTES, 'UTF-8'));
-        $ptype = sm_xml_clean(html_entity_decode(str_replace('-', ' > ', $col($row, 'product_type')), ENT_QUOTES, 'UTF-8'));
+        $title = sm_text_clean(html_entity_decode($col($row, 'title'), ENT_QUOTES, 'UTF-8'));
+        $desc  = sm_text_clean(html_entity_decode($col($row, 'description'), ENT_QUOTES, 'UTF-8'));
+        $brand = sm_text_clean(html_entity_decode($col($row, 'brand'), ENT_QUOTES, 'UTF-8'));
+        $gcat  = sm_text_clean(html_entity_decode($col($row, 'google_product_category'), ENT_QUOTES, 'UTF-8'));
+        // product_type: clean first, then build the ' > ' hierarchy separator
+        // (doing it after cleaning so the '>' isn't stripped by sm_text_clean).
+        $ptype = str_replace('-', ' > ', sm_text_clean(html_entity_decode($col($row, 'product_type'), ENT_QUOTES, 'UTF-8')));
         // URLs already entity-encoded in TSV → decode, strip UTM (keep language/attr), then XML-escape
         $link  = sm_clean_url(sm_xml_clean(html_entity_decode($col($row, 'link'), ENT_QUOTES, 'UTF-8')));
         $img   = sm_xml_clean(html_entity_decode($col($row, 'image_link'), ENT_QUOTES, 'UTF-8'));
-        $price = trim($col($row, 'price'));
-        $mpn   = trim($col($row, 'mpn'));
+        // id / price / mpn / condition: run through sm_xml_clean too — they can
+        // also carry C1 control chars (e.g. an mpn like 'LISMART12100LX<U+0090>CHEMA').
+        $id    = sm_xml_clean($id);
+        $price = sm_xml_clean(trim($col($row, 'price')));
+        // mpn: manufacturer part numbers are always ASCII (letters/digits/-./_ space).
+        // Restrict to printable ASCII to drop mojibake + control chars in one go
+        // (e.g. corrupt source 'LISMART12100LXâ‚¬<U+0090>MA' → 'LISMART12100LXMA').
+        $mpn   = trim(preg_replace('/[^\x20-\x7E]/', '', sm_xml_clean(trim($col($row, 'mpn')))) ?? '');
         // Sanitize gtin: strip non-digits (fixes mojibake/spaces/letters) and
         // only keep it if a valid GTIN length remains (8/12/13/14). Otherwise
         // omit — an invalid gtin makes SM/Google reject the item as "invalid data".
         $gtin  = preg_replace('/\D/', '', (string) $col($row, 'gtin'));
         if (!in_array(strlen($gtin), [8, 12, 13, 14], true)) $gtin = '';
-        $cond  = trim($col($row, 'condition')) ?: 'new';
+        $cond  = sm_xml_clean(trim($col($row, 'condition'))) ?: 'new';
         $avail = sm_xml_availability($col($row, 'availability'));
 
         $item  = "<item>\n";

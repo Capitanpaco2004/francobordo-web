@@ -53,7 +53,7 @@
   */
   function kgt_create_random_coupon() {
     $chars = "ABCDEFGHJKLMNPQRTUVWXYZ023456789";
-    srand( (double) microtime() * 1000000 );
+    srand( (int) ((float) microtime() * 1000000) );
     $pass = '';
     for( $i = 0; $i < MODULE_ORDER_TOTAL_DISCOUNT_COUPON_RANDOM_CODE_LENGTH; $i++ ) {
         $pass .= substr( $chars, ( rand() % 33 ), 1 );

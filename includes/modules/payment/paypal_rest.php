@@ -80,7 +80,7 @@ class paypal_rest {
         $sIntent   = ( defined('MODULE_PAYMENT_PAYPAL_REST_INTENT') && MODULE_PAYMENT_PAYPAL_REST_INTENT === 'AUTHORIZE' ) ? 'authorize' : 'capture';
 
         $aEnable  = array();
-        $aDisable = array('card', 'credit'); // nunca card via PayPal: lo cobra Redsys
+        $aDisable = array('card'); // tarjeta via PayPal no (lo cobra Redsys). 'credit' quitado a peticion de PayPal (bloqueaba Pay Later)
         if ( defined('MODULE_PAYMENT_PAYPAL_REST_ENABLE_PAYLATER') && MODULE_PAYMENT_PAYPAL_REST_ENABLE_PAYLATER === 'True' ) $aEnable[] = 'paylater';
 
         $aSdkParams = array(
@@ -106,9 +106,23 @@ class paypal_rest {
         <?php echo tep_draw_hidden_field('paypal_rest_order_id', ''); ?>
         <?php echo tep_draw_hidden_field('paypal_rest_capture_id', ''); ?>
         <?php echo tep_draw_hidden_field('paypal_rest_method', 'paypal'); ?>
-        <div id="paypal-rest-buttons-wrap" style="max-width:480px;margin:14px 0;">
-            <div id="paypal-rest-status" style="font-size:12.5px;color:#666;margin-bottom:8px;"><?php echo defined('MODULE_PAYMENT_PAYPAL_REST_TEXT_BUTTON_HINT') ? MODULE_PAYMENT_PAYPAL_REST_TEXT_BUTTON_HINT : 'Pulsa uno de los botones para completar el pago:'; ?></div>
-            <div id="paypal-rest-buttons"></div>
+        <div id="paypal-rest-buttons-wrap" style="max-width:640px;margin:14px 0;">
+            <div id="paypal-rest-status" style="
+                display:flex;align-items:center;gap:10px;
+                font-size:14.5px;color:#003087;font-weight:600;
+                padding:10px 14px;margin:0 0 12px;
+                background:#f0f6fc;border-left:3px solid #009cde;border-radius:4px;
+                line-height:1.4;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="#009cde" style="flex-shrink:0;">
+                    <path d="M12 2 C 6.48 2 2 6.48 2 12 c 0 5.52 4.48 10 10 10 s 10 -4.48 10 -10 C 22 6.48 17.52 2 12 2 Z m 1 15 h -2 v -6 h 2 v 6 z m 0 -8 h -2 V 7 h 2 v 2 z"/>
+                </svg>
+                <span><?php echo defined('MODULE_PAYMENT_PAYPAL_REST_TEXT_BUTTON_HINT') ? MODULE_PAYMENT_PAYPAL_REST_TEXT_BUTTON_HINT : 'Pulsa uno de los botones para completar el pago:'; ?></span>
+            </div>
+            <div id="paypal-rest-buttons" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;"></div>
+            <style>
+                /* Cada boton PayPal (iframe) ocupa mitad del ancho y se apila en movil */
+                #paypal-rest-buttons > div { flex:1 1 240px; min-width:240px; }
+            </style>
             <div id="paypal-rest-error" style="display:none;background:#fff5f5;border-left:3px solid #a00;padding:8px 12px;color:#a00;font-size:13px;margin-top:10px;"></div>
         </div>
         <?php if ( $sClientId !== '' ): ?>
@@ -128,9 +142,11 @@ class paypal_rest {
             }
             whenReady(function(){
                 hideDefaultSubmit();
-                window.paypal_rest_sdk.Buttons({
-                    style:{layout:'vertical',shape:'rect',label:'paypal'},
-                    createOrder:function(){
+                var sdk = window.paypal_rest_sdk;
+
+                // Handlers compartidos por todos los funding sources
+                var commonHandlers = {
+                    createOrder: function(){
                         return fetch('ext/modules/payment/paypal_rest/create-order.php',{
                             method:'POST',credentials:'same-origin',
                             headers:{'Content-Type':'application/json'},body:'{}'
@@ -139,7 +155,7 @@ class paypal_rest {
                             return d.id;
                         });
                     },
-                    onApprove:function(data){
+                    onApprove: function(data){
                         var f=getForm();
                         return fetch('ext/modules/payment/paypal_rest/capture-order.php',{
                             method:'POST',credentials:'same-origin',
@@ -153,11 +169,33 @@ class paypal_rest {
                             if(f)f.submit();else window.location.href='checkout_process.php';
                         });
                     },
-                    onError:function(err){showError('Error en el pago: '+(err&&err.message?err.message:err));},
-                    onCancel:function(){showError('Has cancelado el pago. Puedes intentarlo de nuevo.');}
-                }).render('#paypal-rest-buttons').catch(function(err){
-                    showError('No se han podido renderizar los botones: '+err);
+                    onError: function(err){showError('Error en el pago: '+(err&&err.message?err.message:err));},
+                    onCancel: function(){showError('Has cancelado el pago. Puedes intentarlo de nuevo.');}
+                };
+
+                // Renderizamos cada funding source por separado (con isEligible() check)
+                // para que se vean apilados PayPal amarillo + Pay Later azul + lo que aplique.
+                var fundingSources = [sdk.FUNDING.PAYPAL, sdk.FUNDING.PAYLATER];
+                var rendered = 0;
+                fundingSources.forEach(function(fundingSource, idx){
+                    var button = sdk.Buttons({
+                        fundingSource: fundingSource,
+                        style: { layout: 'vertical', shape: 'rect', tagline: false, height: 48 },
+                        createOrder: commonHandlers.createOrder,
+                        onApprove:   commonHandlers.onApprove,
+                        onError:     commonHandlers.onError,
+                        onCancel:    commonHandlers.onCancel
+                    });
+                    if (!button.isEligible()) return;
+                    rendered++;
+                    button.render('#paypal-rest-buttons').catch(function(err){
+                        showError('No se ha podido renderizar el boton ' + String(fundingSource) + ': ' + err);
+                    });
                 });
+
+                if (rendered === 0) {
+                    showError('No hay metodos de pago PayPal disponibles para este pedido. Por favor elige otro metodo.');
+                }
             });
         })();
         </script>
