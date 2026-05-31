@@ -1639,7 +1639,7 @@
 									case 'top':
 									case 'bottom':
 										$sSize -= 29;
-										$gdImageLine = @imagecreate( 1, max(1, (int)$sSize) );
+										$gdImageLine = @imagecreate( 1, $sSize );
 
 										/**
 										 * Compruebo para que no de errores
@@ -1674,7 +1674,7 @@
 										$sSize -= 14.5;
 										$sX -= 14.5;
 
-										$gdImageLine = @imagecreate( max(1, (int)$sSize), 1 );
+										$gdImageLine = @imagecreate( $sSize, 1 );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
 										imagefilledrectangle( $gdImageLine, 0, 0, $sSize, 1, $imRelleno );
 										imagecopyresampled( $gdImage, $gdImageLine, $sX + 14.5, $sY + 14.5, 0, 0, $sSize, 1, $sSize, 1 );
@@ -1713,7 +1713,7 @@
 									break;
 
 									case 'izquierda':
-										$gdImageLine = @imagecreate( max(1, (int)$sSize), 1 );
+										$gdImageLine = @imagecreate( $sSize, 1 );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
 										imagefilledrectangle( $gdImageLine, 0, 0, $sSize, 1, $imRelleno );
 										imagecopyresampled( $gdImage, $gdImageLine, $sX + 14.5, $sY + 14.5, 0, 0, $sSize, 1, $sSize, 1 );
@@ -4485,7 +4485,7 @@
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=copy_to">' . tep_image(DIR_WS_ICONS . 'duplicate.png', ICON_DUPLICATE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=move_product">' . tep_image(DIR_WS_ICONS . 'move.png', ICON_MOVE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=delete_product">' . tep_image(DIR_WS_ICONS . 'delete.png', ICON_DELETE) . '</a>'; ?>
-													<?php echo '<a href="' . tep_href_link('stats_products_orders.php', 'reference_selected=' . rawurlencode($products['products_model'] ?? '')) . '&month=ALL&year=ALL&no_status=&status=">' . tep_image(DIR_WS_ICONS . 'icon_stats_sold.png', 'Ver quien ha comprado este producto') . '</a>'; ?>
+													<?php echo '<a href="' . tep_href_link('stats_products_orders.php', 'reference_selected=' . rawurlencode($products['products_model'])) . '&month=ALL&year=ALL&no_status=&status=">' . tep_image(DIR_WS_ICONS . 'icon_stats_sold.png', 'Ver quien ha comprado este producto') . '</a>'; ?>
                                                 </td>
                                             </tr>
                                         <?php
@@ -4831,8 +4831,9 @@
                                             $contents[] = array('text' => '<br><span id="bulk-move-count" style="font-weight:bold;"></span>');
                                             $contents[] = array('text' => '<br>' . TEXT_INFO_CURRENT_CATEGORIES . '<br><b>' . tep_output_generated_category_path($pInfo->products_id, 'product') . '</b>');
                                             $contents[] = array('text' => '<br>Mover a:<br>'
+                                                . '<style>.bulk-picker-menu,.bulk-picker-menu .ui-menu-item,.bulk-picker-menu .ui-menu-item-wrapper{font-size:11px;line-height:1.3;}#bulk-cat-picker-search{font-size:11px;}</style>'
                                                 . '<input type="hidden" name="move_to_category_id" id="bulk-cat-picker-id" value="" data-srccat="' . (int)$current_category_id . '">'
-                                                . '<input type="text" id="bulk-cat-picker-search" value="" placeholder="Buscar categoría..." autocomplete="off" style="width:100%;box-sizing:border-box;padding:5px;" oninput="document.getElementById(\'bulk-cat-picker-id\').value=\'\';">'
+                                                . '<input type="text" id="bulk-cat-picker-search" value="" placeholder="Buscar categoría..." autocomplete="off" style="width:100%;box-sizing:border-box;padding:4px;" oninput="document.getElementById(\'bulk-cat-picker-id\').value=\'\';">'
                                                 . '<div id="bulk-move-hidden"></div>');
                                             $contents[] = array('align' => 'center', 'text' => '<br>' . tep_image_submit('button_move.png', IMAGE_MOVE) . ' <a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $pInfo->products_id) . '">' . tep_image_button('button_cancel.png', IMAGE_CANCEL) . '</a>');
                                             $contents[] = array('text' => '<script>
@@ -4850,6 +4851,7 @@
                                                     if(!window.jQuery || !jQuery.ui || !jQuery.ui.autocomplete) return setTimeout(initAC, 200);
                                                     jQuery("#bulk-cat-picker-search").autocomplete({
                                                         source: data, minLength: 1, delay: 50,
+                                                        open: function(){ jQuery(this).autocomplete("widget").addClass("bulk-picker-menu"); },
                                                         select: function(e, ui){ jQuery("#bulk-cat-picker-id").val(ui.item.id); jQuery(this).val(ui.item.label); return false; }
                                                     });
                                                 })();

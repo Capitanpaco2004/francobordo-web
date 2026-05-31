@@ -25,7 +25,8 @@ const HELPER_PY      = '/home/francobordo/qfac_recovery/venv/bin/python';
 const HELPER_BIN     = '/home/francobordo/qfac_recovery/qfac_sync_pull.py';
 const HELPER_TIMEOUT = 60;
 
-const ELIGIBLE_STATUS = [1, 2, 13];          // Pendiente / Proceso / En preparacion
+const ELIGIBLE_STATUS = [1, 2, 7, 13];       // Pendiente / Proceso / Enviado Parcialmente / En preparacion
+const PARTIAL_STATUS  = 7;                    // Enviado Parcialmente
 const WINDOW_DAYS     = 30;
 const ALLOWED_TOTALS  = ['ot_subtotal', 'ot_shipping', 'ot_insurance', 'ot_tax', 'ot_total'];
 const TOTAL_CAP_PCT   = 0.30;                // no aplicar si el total cambia > 30%
@@ -161,116 +162,85 @@ function line_rate(array $line, array $header): ?float {
 }
 
 // ----------------------------------------------------------------------------
-/** Procesa un pedido. Devuelve estructura con accion/cambios; NO escribe (eso lo hace apply_changes). */
-function plan_order($link, int $oid, array $qfac): array {
-    $res = ['orders_id'=>$oid, 'action'=>'skip', 'reason'=>null, 'changes'=>[], 'old_total'=>null, 'new_total'=>null];
+/** Diff de lineas (cantidades/precios/altas/bajas) + recalculo de totales.
+ *  Devuelve ['changes'=>[], 'totals'=>?, 'old_total'=>, 'new_total'=>, 'reason'=>?].
+ *  reason != null => NO se aplican cambios de linea (guard fallido). changes vacio + reason null => sin cambios. */
+function plan_lines($link, array $web, array $prodLines): array {
+    $out = ['changes'=>[], 'totals'=>null,
+            'old_total'=>($web['tot']['ot_total']['value'] ?? null), 'new_total'=>null, 'reason'=>null];
 
-    $web = load_web_order($link, $oid);
-    if (!$web['ops']) { $res['reason']='web_sin_lineas'; return $res; }
-
-    // 1. Limpieza: orders_total solo clases permitidas
+    // Limpieza: orders_total solo clases permitidas
     foreach ($web['tot'] as $class => $_) {
-        if (!in_array($class, ALLOWED_TOTALS, true)) { $res['reason']='extras:'.$class; return $res; }
+        if (!in_array($class, ALLOWED_TOTALS, true)) { $out['reason']='extras:'.$class; return $out; }
     }
-    if (!isset($web['tot']['ot_total'])) { $res['reason']='sin_ot_total'; return $res; }
-    $res['old_total'] = $web['tot']['ot_total']['value'];
+    if (!isset($web['tot']['ot_total'])) { $out['reason']='sin_ot_total'; return $out; }
 
-    $header = $qfac['headers'][0];
-
-    // 2. Lineas de producto QFac (CCODIART != NULL); pseudo se ignoran
-    $prodLines = array_values(array_filter($qfac['lines'], fn($l)=>$l['ccodiart'] !== null && $l['ccodiart'] !== ''));
-    if (!$prodLines) { $res['reason']='qfac_sin_productos'; return $res; }
-
-    // 3. Resolver articulos -> products_id. Guardamos NPREU crudo (IVA inc); el neto
-    //    se calcula con el IVA del PROPIO web (products_tax), no con NTIPIVA de QFac
-    //    (que es un codigo interno, NO el tipo ni un indice a XIVA1/2/3).
+    // Resolver articulos -> products_id. NPREU crudo (IVA inc); el neto se calcula con el
+    // IVA del PROPIO web (products_tax), no con NTIPIVA de QFac (codigo interno, no fiable).
     $artMap = resolve_articles($link, array_column($prodLines, 'ccodiart'));
-    $qfacByPid = []; // pid => list of ['cvar','qty','npreu']
+    $qfacByPid = [];
     foreach ($prodLines as $l) {
         $art = $l['ccodiart'];
-        if (!isset($artMap[$art])) { $res['reason']='ccodiart_no_mapea:'.$art; return $res; }
-        $qfacByPid[$artMap[$art]][] = [
-            'cvar' => $l['ccodival1'], 'qty' => (int)round($l['quant']),
-            'npreu' => (float)$l['npreu'],
-        ];
+        if (!isset($artMap[$art])) { $out['reason']='ccodiart_no_mapea:'.$art; return $out; }
+        $qfacByPid[$artMap[$art]][] = ['cvar'=>$l['ccodival1'], 'qty'=>(int)round($l['quant']), 'npreu'=>(float)$l['npreu']];
     }
 
-    // 4. Tasa de IVA del pedido (lado web). Mixto solo bloquea si hay cambios reales.
     $webRates = [];
     foreach ($web['ops'] as $op) $webRates[(string)round($op['tax'],2)] = true;
     $orderRate = (count($webRates) === 1) ? (float)array_key_first($webRates) : null;
-
     $net_of = function(float $npreu, float $rate): float { return r4($npreu / (1 + $rate/100)); };
 
-    // 5. Web ops por pid
     $webByPid = [];
     foreach ($web['ops'] as $op) $webByPid[$op['pid']][] = $op;
 
-    // 6. Emparejar y diffear
-    $changes = [];                 // lista de operaciones
-    $finalLines = [];              // estado final para recomputar subtotal: ['price','qty']
+    $changes = []; $finalLines = [];
     $pids = array_unique(array_merge(array_keys($webByPid), array_keys($qfacByPid)));
     foreach ($pids as $pid) {
         $wl = $webByPid[$pid] ?? [];
         $ql = $qfacByPid[$pid] ?? [];
 
-        // Construir pares (web|null, qfac|null)
         $pairs = [];
         if (count($wl) <= 1 && count($ql) <= 1) {
             $pairs[] = [$wl[0] ?? null, $ql[0] ?? null];
         } else {
-            // multi-variante: emparejar por CCODIVAL1 normalizado
             $qByVar = [];
             foreach ($ql as $i => $q1) $qByVar[vnorm($q1['cvar'])][] = $i;
             $usedQ = [];
             foreach ($wl as $w1) {
                 $vn = vnorm($w1['cvar']);
-                if (!empty($qByVar[$vn])) {
-                    $idx = array_shift($qByVar[$vn]); $usedQ[$idx]=true;
-                    $pairs[] = [$w1, $ql[$idx]];
-                } else {
-                    $pairs[] = [$w1, null]; // web sin contrapartida -> baja
-                }
+                if (!empty($qByVar[$vn])) { $idx = array_shift($qByVar[$vn]); $usedQ[$idx]=true; $pairs[] = [$w1, $ql[$idx]]; }
+                else { $pairs[] = [$w1, null]; }
             }
-            foreach ($ql as $i => $q1) if (empty($usedQ[$i])) $pairs[] = [null, $q1]; // qfac extra -> alta
-            // si quedo ambiguo (alguna baja+alta del mismo pid simultanea por variante no casada) avisamos
+            foreach ($ql as $i => $q1) if (empty($usedQ[$i])) $pairs[] = [null, $q1];
         }
 
         foreach ($pairs as [$w1, $q1]) {
             if ($w1 && $q1) {
-                // neto QFac con el IVA propio de la linea web (historico, exacto)
                 $net = $net_of($q1['npreu'], (float)$w1['tax']);
                 $qtyChanged   = ($w1['qty'] !== $q1['qty']);
                 $priceChanged = (abs($w1['price'] - $net) > PRICE_EPS);
                 if ($qtyChanged || $priceChanged) {
-                    $changes[] = ['type'=>'update', 'op_id'=>$w1['op_id'], 'pid'=>$pid,
-                        'cost'=>$w1['cost'],
-                        'old'=>['qty'=>$w1['qty'],'price'=>$w1['price']],
-                        'new'=>['qty'=>$q1['qty'],'price'=>$net]];
+                    $changes[] = ['type'=>'update', 'op_id'=>$w1['op_id'], 'pid'=>$pid, 'cost'=>$w1['cost'],
+                        'old'=>['qty'=>$w1['qty'],'price'=>$w1['price']], 'new'=>['qty'=>$q1['qty'],'price'=>$net]];
                 }
                 $finalLines[] = ['price'=>$net, 'qty'=>$q1['qty']];
             } elseif ($w1 && !$q1) {
-                $changes[] = ['type'=>'remove', 'op_id'=>$w1['op_id'], 'pid'=>$pid,
-                    'old'=>['qty'=>$w1['qty'],'price'=>$w1['price']]];
-                // no aporta a finalLines
+                $changes[] = ['type'=>'remove', 'op_id'=>$w1['op_id'], 'pid'=>$pid, 'old'=>['qty'=>$w1['qty'],'price'=>$w1['price']]];
             } elseif (!$w1 && $q1) {
-                if ($q1['cvar'] !== '') { $res['reason']='alta_con_variante_no_soportada:pid'.$pid; return $res; }
-                if ($orderRate === null) { $res['reason']='alta_en_pedido_iva_mixto:pid'.$pid; return $res; }
+                if ($q1['cvar'] !== '') { $out['reason']='alta_con_variante_no_soportada:pid'.$pid; return $out; }
+                if ($orderRate === null) { $out['reason']='alta_en_pedido_iva_mixto:pid'.$pid; return $out; }
                 $net = $net_of($q1['npreu'], $orderRate);
-                $changes[] = ['type'=>'add', 'pid'=>$pid,
-                    'new'=>['qty'=>$q1['qty'],'price'=>$net,'rate'=>$orderRate]];
+                $changes[] = ['type'=>'add', 'pid'=>$pid, 'new'=>['qty'=>$q1['qty'],'price'=>$net,'rate'=>$orderRate]];
                 $finalLines[] = ['price'=>$net, 'qty'=>$q1['qty']];
             }
         }
     }
 
-    if (!$changes) { $res['action']='noop'; $res['reason']='sin_cambios'; return $res; }
+    if (!$changes) { return $out; }  // sin cambios de linea
 
-    // Hay cambios: el recalculo de ot_tax solo es seguro con IVA unico.
-    if ($orderRate === null) { $res['reason']='iva_mixto_con_cambios'; return $res; }
+    if ($orderRate === null) { $out['reason']='iva_mixto_con_cambios'; return $out; }
     $rate = $orderRate;
 
-    // 7. Recalcular totales
     $subtotal = 0.0;
     foreach ($finalLines as $fl) $subtotal += $fl['price'] * $fl['qty'];
     $subtotal = r4($subtotal);
@@ -279,18 +249,15 @@ function plan_order($link, int $oid, array $qfac): array {
     $hasTax    = isset($web['tot']['ot_tax']);
     $tax       = $hasTax ? r4(($subtotal + $shipping + $insurance) * $rate/100) : 0.0;
     $total     = r4($subtotal + $shipping + $insurance + $tax);
-    $res['new_total'] = $total;
+    $out['new_total'] = $total;
 
-    // 8. Cap de variacion
-    if ($res['old_total'] > 0 && abs($total - $res['old_total'])/$res['old_total'] > TOTAL_CAP_PCT) {
-        $res['reason'] = 'cap_excedido(' . round(($total-$res['old_total'])/$res['old_total']*100,1) . '%)';
-        return $res;
+    if ($out['old_total'] > 0 && abs($total - $out['old_total'])/$out['old_total'] > TOTAL_CAP_PCT) {
+        $out['reason'] = 'cap_excedido(' . round(($total-$out['old_total'])/$out['old_total']*100,1) . '%)';
+        return $out;
     }
 
-    $res['action']  = 'sync';
-    $res['reason']  = null;
-    $res['changes'] = $changes;
-    $res['totals']  = [
+    $out['changes'] = $changes;
+    $out['totals']  = [
         'subtotal'=>$subtotal, 'shipping'=>$shipping, 'insurance'=>$insurance,
         'tax'=>$tax, 'total'=>$total, 'rate'=>$rate,
         'ids'=>[
@@ -299,6 +266,57 @@ function plan_order($link, int $oid, array $qfac): array {
             'tot'=>$web['tot']['ot_total']['id'] ?? null,
         ],
     ];
+    return $out;
+}
+
+/** Procesa un pedido. Solo actua sobre pedidos NO servidos (CSERVIDA='N').
+ *  Combina: (a) cambio a "Enviado Parcialmente" si hay unidades servidas, y
+ *  (b) sync de lineas (con sus guardas). NO escribe (eso lo hace apply_changes). */
+function plan_order($link, int $oid, array $qfac): array {
+    $res = ['orders_id'=>$oid, 'action'=>'skip', 'reason'=>null, 'changes'=>[],
+            'old_total'=>null, 'new_total'=>null, 'status_change'=>null, 'cur_status'=>null, 'partial'=>false];
+
+    $header = $qfac['headers'][0];
+
+    // GATE: solo pedidos NO servidos en QFac (CSERVIDA = 'N'). Servidos = fuera de alcance.
+    $cservida = strtoupper(trim((string)($header['cservida'] ?? '')));
+    if ($cservida !== 'N') { $res['reason']='servido_cservida='.($cservida ?: 'vacio'); return $res; }
+
+    $web = load_web_order($link, $oid);
+    if (!$web['ops']) { $res['reason']='web_sin_lineas'; return $res; }
+    $res['old_total'] = $web['tot']['ot_total']['value'] ?? null;
+
+    // Estado web actual
+    $rowSt = mysqli_fetch_assoc(q($link, "SELECT orders_status FROM orders WHERE orders_id=".(int)$oid));
+    $curStatus = (int)($rowSt['orders_status'] ?? 0);
+    $res['cur_status'] = $curStatus;
+
+    // Lineas de producto QFac (CCODIART != NULL; pseudo envio/seguro fuera)
+    $prodLines = array_values(array_filter($qfac['lines'], fn($l)=>$l['ccodiart'] !== null && $l['ccodiart'] !== ''));
+    if (!$prodLines) { $res['reason']='qfac_sin_productos'; return $res; }
+
+    // (a) Parcial: pedido NO servido con unidades servidas (NSERVIT>0 en alguna linea) -> estado 7
+    $servedUnits = 0.0;
+    foreach ($prodLines as $l) $servedUnits += max(0.0, (float)($l['nservit'] ?? 0));
+    $partial = ($servedUnits > 0);
+    $res['partial'] = $partial;
+    $statusChange = ($partial && $curStatus !== PARTIAL_STATUS) ? PARTIAL_STATUS : null;
+    $res['status_change'] = $statusChange;
+
+    // (b) Sync de lineas (independiente del cambio de estado)
+    $lp = plan_lines($link, $web, $prodLines);
+    $res['old_total'] = $lp['old_total'];
+    $res['new_total'] = $lp['new_total'];
+    $res['changes']   = $lp['changes'];
+    $res['totals']    = $lp['totals'] ?? null;
+
+    if ($lp['changes'] || $statusChange !== null) {
+        $res['action'] = 'sync';
+        $res['reason'] = $lp['reason'];   // informativo: por que NO se sincronizaron lineas (si aplica)
+        return $res;
+    }
+    if ($lp['reason']) { $res['action']='skip'; $res['reason']=$lp['reason']; return $res; }
+    $res['action']='noop'; $res['reason']='sin_cambios';
     return $res;
 }
 
@@ -329,18 +347,35 @@ function apply_changes($link, array $res): void {
                 add_product_line($link, $oid, $c);
             }
         }
-        // totales
-        $t = $res['totals'];
-        if ($t['ids']['sub']) q($link, "UPDATE orders_total SET value=".(float)$t['subtotal']." WHERE orders_total_id=".(int)$t['ids']['sub']);
-        if ($t['ids']['tax']) q($link, "UPDATE orders_total SET value=".(float)$t['tax']." WHERE orders_total_id=".(int)$t['ids']['tax']);
-        if ($t['ids']['tot']) q($link, "UPDATE orders_total SET value=".(float)$t['total']." WHERE orders_total_id=".(int)$t['ids']['tot']);
+        // totales (solo si hubo cambios de linea)
+        $hasLineChanges = !empty($res['changes']);
+        if ($hasLineChanges && !empty($res['totals'])) {
+            $t = $res['totals'];
+            if ($t['ids']['sub']) q($link, "UPDATE orders_total SET value=".(float)$t['subtotal']." WHERE orders_total_id=".(int)$t['ids']['sub']);
+            if ($t['ids']['tax']) q($link, "UPDATE orders_total SET value=".(float)$t['tax']." WHERE orders_total_id=".(int)$t['ids']['tax']);
+            if ($t['ids']['tot']) q($link, "UPDATE orders_total SET value=".(float)$t['total']." WHERE orders_total_id=".(int)$t['ids']['tot']);
+        }
+
+        // cambio de estado a Enviado Parcialmente (si procede)
+        $statusChange = $res['status_change'] ?? null;
+        $curStatus    = (int)($res['cur_status'] ?? 0);
+        $newStatus    = $statusChange !== null ? (int)$statusChange : $curStatus;
+        if ($statusChange !== null) {
+            q($link, "UPDATE orders SET orders_status=".(int)$newStatus.", last_modified=NOW() WHERE orders_id=".(int)$oid);
+        }
 
         // historial visible (sin email)
-        $n = count($res['changes']);
-        $comment = "Pedido actualizado automaticamente desde QFacWin (sync de lineas): $n cambio(s). Total $".number_format($res['old_total'],2)." -> $".number_format($t['total'],2).".";
-        $cur = (int) (mysqli_fetch_assoc(q($link,"SELECT orders_status FROM orders WHERE orders_id=".(int)$oid))['orders_status'] ?? 2);
+        $parts = [];
+        if ($hasLineChanges) {
+            $n = count($res['changes']);
+            $parts[] = "sync de lineas: $n cambio(s), total $".number_format($res['old_total'],2)." -> $".number_format($res['totals']['total'],2);
+        }
+        if ($statusChange === PARTIAL_STATUS) {
+            $parts[] = "marcado Enviado Parcialmente (QFacWin: hay unidades ya servidas)";
+        }
+        $comment = "Pedido actualizado automaticamente desde QFacWin (".implode('; ', $parts).").";
         q($link, "INSERT INTO orders_status_history SET orders_id=".(int)$oid.
-            ", orders_status_id=".(int)$cur.", date_added=NOW(), customer_notified=0".
+            ", orders_status_id=".(int)$newStatus.", date_added=NOW(), customer_notified=0".
             ", comments='".esc($link,$comment)."'");
 
         q($link, "COMMIT");
@@ -375,9 +410,11 @@ function add_product_line($link, int $oid, array $c): void {
 
 function log_run($link, array $res, string $mode): void {
     $changes = json_encode($res['changes'] ?? [], JSON_UNESCAPED_UNICODE);
+    $reason = $res['reason'];
+    if (($res['status_change'] ?? null) === PARTIAL_STATUS) $reason = ($reason ? $reason.' + ' : '').'parcial->7';
     q($link, "INSERT INTO qfac_order_sync_log SET orders_id=".(int)$res['orders_id'].
         ", run_at=NOW(), mode='".esc($link,$mode)."', action='".esc($link,$res['action'])."'".
-        ", reason=".($res['reason']===null?'NULL':"'".esc($link,$res['reason'])."'").
+        ", reason=".($reason===null?'NULL':"'".esc($link,$reason)."'").
         ", old_total=".($res['old_total']===null?'NULL':(float)$res['old_total']).
         ", new_total=".($res['new_total']===null?'NULL':(float)$res['new_total']).
         ", changes_json='".esc($link,$changes)."'");
@@ -408,7 +445,10 @@ foreach ($eligible as $oid) {
     $stats[$res['action']]++;
     if ($res['action'] === 'sync') {
         $n = count($res['changes']);
-        echo "  #$oid SYNC: $n cambio(s)  total ".number_format($res['old_total'],2)." -> ".number_format($res['new_total'],2)."\n";
+        $tot = ($n && $res['new_total']!==null) ? "  total ".number_format($res['old_total'],2)." -> ".number_format($res['new_total'],2) : "";
+        echo "  #$oid SYNC: $n cambio(s) de linea$tot\n";
+        if ($res['status_change'] === PARTIAL_STATUS) echo "      * estado {$res['cur_status']} -> 7 (Enviado Parcialmente)\n";
+        if ($res['reason']) echo "      (lineas NO sincronizadas: {$res['reason']})\n";
         foreach ($res['changes'] as $c) {
             if ($c['type']==='update')      echo "      ~ pid {$c['pid']}: qty {$c['old']['qty']}->{$c['new']['qty']}  precio ".number_format($c['old']['price'],4)."->".number_format($c['new']['price'],4)."\n";
             elseif ($c['type']==='remove')  echo "      - pid {$c['pid']} (qty {$c['old']['qty']}) BAJA\n";

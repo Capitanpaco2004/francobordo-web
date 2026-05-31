@@ -65,10 +65,8 @@ foreach (readUtf16File($xtFile) as $r) {
 echo "  → " . count($xtMap) . " ítems con especificaciones\n\n";
 
 /* ---- 2) Candidatos ---- */
-$scope = "(manufacturers_id=259 OR products_import_origin LIKE 'osculati%') "
-       . "AND products_status=2 "
-       . "AND products_date_added >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)";
-$r = $m->query("SELECT products_id, products_model FROM products WHERE $scope ORDER BY products_id");
+$scope = "(p.manufacturers_id=259 OR p.products_import_origin LIKE 'osculati%')";
+$r = $m->query("SELECT DISTINCT p.products_id, p.products_model FROM products p INNER JOIN products_description pd ON pd.products_id=p.products_id WHERE $scope AND pd.products_description LIKE '%osc-spec-table%' ORDER BY p.products_id");
 $cands = [];
 while ($x = $r->fetch_assoc()) $cands[(int) $x['products_id']] = $x['products_model'];
 echo "Candidatos: " . count($cands) . "\n\n";
@@ -91,14 +89,16 @@ foreach ($cands as $pid => $model) {
     $rd = $m->query("SELECT language_id, products_description FROM products_description WHERE products_id=$pid AND language_id IN (" . LANG_ES . "," . LANG_EN . ")");
     while ($y = $rd->fetch_assoc()) $descs[(int) $y['language_id']] = $y['products_description'];
 
-    if ((isset($descs[LANG_ES]) && strpos($descs[LANG_ES], 'osc-spec-table') !== false)) {
-        $nSkipHas++; echo "  pid=$pid [$model] YA tiene tabla → skip\n"; continue;
-    }
+    // REGEN: quitar bloque de specs anterior (desde el encabezado) y re-anexar el nuevo formato
+    $stripEs = $descs[LANG_ES] ?? '';
+    $pEs = strpos($stripEs, '<p><strong>Especificaciones</strong></p>');
+    if ($pEs !== false) $stripEs = rtrim(substr($stripEs, 0, $pEs));
+    $stripEn = $descs[LANG_EN] ?? '';
+    $pEn = strpos($stripEn, '<p><strong>Specifications</strong></p>');
+    if ($pEn !== false) $stripEn = rtrim(substr($stripEn, 0, $pEn));
 
-    $newEs = ($descs[LANG_ES] ?? '');
-    $newEs = ($newEs !== '' ? $newEs . "\n" : '') . $specEs;
-    $newEn = ($descs[LANG_EN] ?? '');
-    $newEn = ($newEn !== '' ? $newEn . "\n" : '') . $specEn;
+    $newEs = ($stripEs !== '' ? $stripEs . "\n" : '') . $specEs;
+    $newEn = ($stripEn !== '' ? $stripEn . "\n" : '') . $specEn;
 
     $nCodes = count($codes);
     echo "  pid=$pid [$model] OK ($nCodes variantes) → tabla " . (substr_count($specEs, '<tr>') - 1) . " filas\n";

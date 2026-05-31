@@ -478,20 +478,21 @@ function oscRenderSpecTable(array $rows, array $cols, $multi, $translate, array 
 		if (!$translate || oscIsNumericish($s)) return $s;
 		return $tr[$s] ?? $s;
 	};
-	$tblOpen = '<table class="osc-spec-table" style="border-collapse:collapse;width:100%;margin-top:8px;font-size:13px;">';
-	$thS = ' style="border:1px solid #ccc;padding:4px 8px;text-align:left;background:#3598DB;color:#ffffff;font-weight:bold;"';
-	$tdS = ' style="border:1px solid #ccc;padding:4px 8px;text-align:left;"';
+	$FONT  = 'font-family: tahoma, arial, helvetica, sans-serif; font-size: 10pt;';
+	$open  = '<table class="osc-spec-table" style="border-collapse: collapse; border: 1px solid rgb(206, 212, 217);" border="1" cellspacing="3" cellpadding="3"><tbody>';
+	$hCell = fn($txt) => '<td style="background-color: #008cc6; text-align: center; padding: 2px;"><span style="' . $FONT . ' color: #ffffff;">' . htmlspecialchars($txt) . '</span></td>';
+	$dCell = fn($txt) => '<td style="text-align: center; padding: 2px;"><span style="' . $FONT . '">' . htmlspecialchars($txt) . '</span></td>';
+	$zebra = ' style="background-color: #e2f2f9;"';
 	if ($multi) {
-		$codeHdr = $translate ? 'Código' : 'Code';
-		$h = $tblOpen . '<thead><tr><th' . $thS . '>' . $codeHdr . '</th>';
-		foreach ($cols as $cap) $h .= '<th' . $thS . '>' . htmlspecialchars($T($cap)) . '</th>';
-		$h .= '</tr></thead><tbody>';
+		$codeHdr = $translate ? 'Referencia' : 'Reference';
+		$h = $open . '<tr>' . $hCell($codeHdr);
+		foreach ($cols as $cap) $h .= $hCell($T($cap));
+		$h .= '</tr>';
+		$i = 0;
 		foreach ($rows as $code => $byCap) {
-			$h .= '<tr><td' . $tdS . '>' . htmlspecialchars($code) . '</td>';
-			foreach ($cols as $cap) {
-				$v = $byCap[$cap] ?? '';
-				$h .= '<td' . $tdS . '>' . htmlspecialchars($T($v)) . '</td>';
-			}
+			$i++;
+			$h .= '<tr' . ($i % 2 === 0 ? $zebra : '') . '>' . $dCell($code);
+			foreach ($cols as $cap) $h .= $dCell($T($byCap[$cap] ?? ''));
 			$h .= '</tr>';
 		}
 		return $h . '</tbody></table>';
@@ -500,11 +501,13 @@ function oscRenderSpecTable(array $rows, array $cols, $multi, $translate, array 
 	$byCap = reset($rows) ?: [];
 	$hc = $translate ? 'Característica' : 'Feature';
 	$hv = $translate ? 'Valor' : 'Value';
-	$h = $tblOpen . '<thead><tr><th' . $thS . '>' . $hc . '</th><th' . $thS . '>' . $hv . '</th></tr></thead><tbody>';
+	$h = $open . '<tr>' . $hCell($hc) . $hCell($hv) . '</tr>';
+	$i = 0;
 	foreach ($cols as $cap) {
 		$v = $byCap[$cap] ?? '';
 		if ($v === '') continue;
-		$h .= '<tr><td' . $tdS . '>' . htmlspecialchars($T($cap)) . '</td><td' . $tdS . '>' . htmlspecialchars($T($v)) . '</td></tr>';
+		$i++;
+		$h .= '<tr' . ($i % 2 === 0 ? $zebra : '') . '>' . $dCell($T($cap)) . $dCell($T($v)) . '</tr>';
 	}
 	return $h . '</tbody></table>';
 }

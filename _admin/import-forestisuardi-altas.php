@@ -184,6 +184,192 @@ function fsBrowserUA() {
     return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 }
 
+const FS_AUX_SUBDIR = 'fs-content/';   // bajo /images/productos/
+const FS_AUX_URL    = '/images/productos/fs-content/';
+
+/** Extrae de la descripción fuente el bloque <table class="table-data-sheet"> (dibujo
+ *  técnico + iconos de certificación + texto cert) y la lista de URLs de imágenes
+ *  a las que apunta (típicamente newcat.forestiesuardi.it/...). Devuelve:
+ *    ['prose'   => html sin la tabla de specs (lo que va al LLM)
+ *     'media'   => HTML crudo de la tabla (con src= originales)
+ *     'imgUrls' => URLs únicas a descargar localmente] */
+function fsExtractMedia($html) {
+    $html = (string) $html;
+    // (1) Captura TODAS las tablas table-data-sheet (Starlight: dibujo + iconos cert).
+    $blocks = [];
+    if (preg_match_all('#<table[^>]*class=["\']?table-data-sheet[^>]*>.*?</table>#is', $html, $mm)) {
+        foreach ($mm[0] as $b) $blocks[] = $b;
+    }
+    $prose = preg_replace('#<table[^>]*class=["\']?table-data-sheet[^>]*>.*?</table>#is', '', $html);
+    // (2) Los productos Yachting/INOX traen el dibujo de cotas como <img> SUELTO en la prosa
+    //     (ej. 9105dwg.jpg, 9320DWG.jpg). Se extraen, se quitan de la prosa y se añaden al
+    //     bloque de medios para no perderlos (fsCleanHtmlToText quitaría todo el HTML).
+    if (preg_match_all('#<img\b[^>]*>#i', $prose, $mi)) {
+        foreach ($mi[0] as $imgTag) {
+            if (preg_match('#src=["\']([^"\']+)["\']#i', $imgTag, $ms)) {
+                $u = $ms[1];
+                if (stripos($u, 'forestiesuardi.it') !== false) {
+                    $blocks[] = '<p style="text-align:center;margin:8px 0;">' . $imgTag . '</p>';
+                    $prose = str_replace($imgTag, '', $prose);
+                }
+            }
+        }
+    }
+    $prose = preg_replace('#<hr\s*/?>#i', '', $prose);
+    $media = $blocks ? implode("\n<p>&nbsp;</p>\n", $blocks) : '';
+    $urls = [];
+    if (preg_match_all('#src=["\']([^"\']+)["\']#i', $media, $mu)) {
+        foreach ($mu[1] as $u) {
+            if (stripos($u, 'forestiesuardi.it') !== false) {
+                $urls[] = html_entity_decode($u, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            }
+        }
+        $urls = array_values(array_unique($urls));
+    }
+    return ['prose' => $prose, 'media' => $media, 'imgUrls' => $urls];
+}
+
+/** Descarga una imagen auxiliar (drawing/icono) a /images/productos/fs-content/<basename>.
+ *  Idempotente: si ya existe (>0 bytes) la reutiliza. Devuelve el filename relativo o ''. */
+function fsDownloadAuxImage($url) {
+    $base = basename((string) parse_url($url, PHP_URL_PATH));
+    if ($base === '' || !preg_match('/\.(jpg|jpeg|png|webp|gif)$/i', $base)) return '';
+    $dir = IMG_ABS_DIR . FS_AUX_SUBDIR;
+    if (!is_dir($dir)) @mkdir($dir, 0775, true);
+    $dest = $dir . $base;
+    if (file_exists($dest) && filesize($dest) > 200) return $base;
+    // descarga directa (sin el filtro IMG_MIN_BYTES de las fotos, los iconos miden ~2 KB)
+    $ch = curl_init($url);
+    $fp = fopen($dest, 'wb');
+    if (!$fp) return '';
+    curl_setopt_array($ch, [
+        CURLOPT_FILE => $fp, CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => IMG_HTTP_TIMEOUT, CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_USERAGENT => fsBrowserUA(), CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_HTTPHEADER => ['Referer: https://catalogue.forestiesuardi.it/'],
+    ]);
+    $ok = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    unset($ch);
+    fclose($fp);
+    if (!$ok || $code !== 200 || filesize($dest) < 200) { @unlink($dest); return ''; }
+    return $base;
+}
+
+/** Reescribe los src=URL del HTML para apuntar a /images/productos/fs-content/<basename>
+ *  según el mapa $urlMap (url_original => filename_local). Las URLs sin local se quitan
+ *  para no dejar imágenes rotas en la ficha. */
+function fsRewriteMedia($html, array $urlMap) {
+    foreach ($urlMap as $orig => $local) {
+        $newSrc = $local !== '' ? (FS_AUX_URL . $local) : '';
+        // src exact match (entidades posibles)
+        $variants = [$orig, htmlspecialchars($orig, ENT_QUOTES)];
+        foreach ($variants as $v) {
+            if ($newSrc !== '') {
+                $html = str_replace('src="' . $v . '"', 'src="' . $newSrc . '"', $html);
+                $html = str_replace("src='" . $v . "'", "src='" . $newSrc . "'", $html);
+            } else {
+                // imagen sin descarga válida: borrar el <img> entero
+                $html = preg_replace('#<img[^>]*src=["\']' . preg_quote($v, '#') . '["\'][^>]*>#i', '', $html);
+            }
+        }
+    }
+    return $html;
+}
+
+/** Tabla Osculati-style con las especificaciones de cada variante (1 fila por SKU). */
+function fsBuildVariantTable(array $items, $lang) {
+    if (count($items) < 1) return '';
+    $hdrMap = [
+        'es' => ['Input' => 'Entrada', 'Power' => 'Potencia', 'Altezza' => 'Altura',
+                 'Finitura' => 'Acabado', 'Temperatura Colore' => 'Temperatura color',
+                 'Colore LED' => 'Color LED', 'Tipologia' => 'Tipo', 'Volt' => 'Voltaje',
+                 'Larghezza' => 'Ancho', 'Lunghezza' => 'Largo', 'Diametro' => 'Diámetro',
+                 'Spessore' => 'Espesor', 'Base' => 'Base', 'Peso' => 'Peso',
+                 'Lampadina' => 'Bombilla', 'Portata' => 'Caudal'],
+        'en' => ['Input' => 'Input', 'Power' => 'Power', 'Altezza' => 'Height',
+                 'Finitura' => 'Finish', 'Temperatura Colore' => 'Colour Temp.',
+                 'Colore LED' => 'LED Colour', 'Tipologia' => 'Typology', 'Volt' => 'Voltage',
+                 'Larghezza' => 'Width', 'Lunghezza' => 'Length', 'Diametro' => 'Diameter',
+                 'Spessore' => 'Thickness', 'Base' => 'Base', 'Peso' => 'Weight',
+                 'Lampadina' => 'Bulb', 'Portata' => 'Flow'],
+    ];
+    $valMap = [
+        'es' => ['Cromato' => 'Cromado', 'Bianco' => 'Blanco', 'Alogena' => 'Halógena',
+                 'Nichel' => 'Níquel', 'Ottone' => 'Latón', 'Acciaio Inox' => 'Acero Inox',
+                 'Bianco caldo' => 'Blanco cálido', 'Bianco freddo' => 'Blanco frío',
+                 'Sì' => 'Sí', 'No' => 'No'],
+        'en' => ['Cromato' => 'Chromed', 'Bianco' => 'White', 'Alogena' => 'Halogen',
+                 'Nichel' => 'Nickel', 'Ottone' => 'Brass', 'Acciaio Inox' => 'Stainless Steel'],
+    ];
+    $hdrTr = $hdrMap[$lang] ?? [];
+    $valTr = $valMap[$lang] ?? [];
+    $parsed = []; $keysOrder = [];
+    foreach ($items as $code => $it) {
+        $pairs = [];
+        $vlabel = html_entity_decode((string) $it['vlabel'], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        foreach (preg_split('/,\s*(?=[^,:]+:)/u', $vlabel) as $seg) {
+            if (strpos($seg, ':') === false) continue;
+            [$k, $v] = explode(':', $seg, 2);
+            $k = trim($k);
+            $v = ltrim(trim($v), '.');
+            $v = str_replace("\xef\xbf\xbd", '', $v);
+            $v = trim(preg_replace('/\s+/u', ' ', $v));
+            // prefijo de 1-2 letras código + palabra real (ej "C Cromato" → "Cromato")
+            if (preg_match('/^[A-Z]{1,2}\s+(\p{Lu}\p{Ll}+.*)$/u', $v, $mm)) $v = $mm[1];
+            if ($k === '' || $v === '') continue;
+            // traducción exacta si la hay; si no, por palabras (substring word-boundary)
+            if (isset($valTr[$v])) {
+                $v = $valTr[$v];
+            } else {
+                foreach ($valTr as $it => $tr) {
+                    $v = preg_replace('/\b' . preg_quote($it, '/') . '\b/u', $tr, $v);
+                }
+            }
+            $pairs[$k] = $v;
+            if (!in_array($k, $keysOrder, true)) $keysOrder[] = $k;
+        }
+        $parsed[$code] = $pairs;
+    }
+    if (empty($keysOrder)) return '';
+    $skuHdr = ($lang === 'es') ? 'Referencia' : 'SKU';
+    $title  = ($lang === 'es') ? 'Tabla de especificaciones' : 'Specifications table';
+    $FONT = 'font-family: tahoma, arial, helvetica, sans-serif; font-size: 10pt;';
+    $open = '<table class="fs-spec-table" style="border-collapse: collapse; border: 1px solid rgb(206, 212, 217); margin: 10px 0;" border="1" cellspacing="3" cellpadding="3"><tbody>';
+    $hCell = fn($t) => '<td style="background-color: #008cc6; text-align: center; padding: 4px;"><span style="' . $FONT . ' color: #ffffff; font-weight: bold;">' . htmlspecialchars($t) . '</span></td>';
+    $dCell = fn($t) => '<td style="text-align: center; padding: 4px;"><span style="' . $FONT . '">' . htmlspecialchars($t) . '</span></td>';
+    $h = "\n<p>&nbsp;</p>\n<p><strong>" . htmlspecialchars($title) . "</strong></p>\n" . $open . '<tr>' . $hCell($skuHdr);
+    foreach ($keysOrder as $k) $h .= $hCell($hdrTr[$k] ?? $k);
+    $h .= '</tr>';
+    $i = 0;
+    foreach ($items as $code => $it) {
+        $i++;
+        $bg = ($i % 2 === 0) ? ' style="background-color: #e2f2f9;"' : '';
+        $h .= '<tr' . $bg . '>' . $dCell($code);
+        foreach ($keysOrder as $k) $h .= $dCell($parsed[$code][$k] ?? '');
+        $h .= '</tr>';
+    }
+    return $h . '</tbody></table>';
+}
+
+const LLM_CERT_PROMPT_ES = "Traduce este texto técnico de marcado de producto del italiano al español. Conserva números, normas (EN 62471), siglas (IP, LED). Devuelve SOLO la traducción, una línea, sin comillas.";
+
+/** Traduce el texto plano dentro de la table-data-sheet a ES. Caché por texto.
+ *  Reemplaza los nodos de texto traducibles (regex sobre los text nodes >5 chars). */
+function fsTranslateMediaTextEs($mediaHtml, &$cache) {
+    if (trim($mediaHtml) === '') return $mediaHtml;
+    // Captura nodos de texto entre tags (excluye atributos)
+    return preg_replace_callback('#>([^<>]{6,})<#u', function ($m) use (&$cache) {
+        $t = trim($m[1]);
+        if ($t === '' || preg_match('#^[\s\d.,\-/&;]+$#u', $t)) return $m[0];
+        if (!isset($cache[$t])) {
+            $tr = fsLlmLine(LLM_CERT_PROMPT_ES, $t);
+            $cache[$t] = ($tr !== '') ? $tr : $t;
+        }
+        return '>' . str_replace($t, $cache[$t], $m[1]) . '<';
+    }, $mediaHtml);
+}
+
 function downloadImage($url, $destAbs) {
     if (empty($url)) return false;
     $url = trim($url);
@@ -284,8 +470,9 @@ function fsVariantLabels(array $items) {
     $parsed = [];   // code => [key=>value]
     foreach ($items as $code => $it) {
         $pairs = [];
+        $vlabel = html_entity_decode((string) $it['vlabel'], ENT_QUOTES | ENT_HTML5, 'UTF-8');
         // separar por comas que preceden a "Clave:" (no por la coma decimal de "2,5 Watt")
-        foreach (preg_split('/,\s*(?=[^,:]+:)/u', (string) $it['vlabel']) as $seg) {
+        foreach (preg_split('/,\s*(?=[^,:]+:)/u', $vlabel) as $seg) {
             if (strpos($seg, ':') === false) continue;
             [$k, $v] = explode(':', $seg, 2);
             $k = trim($k);
@@ -492,6 +679,7 @@ if ($codesParam !== '') {
 }
 $catCache = $catCache ?? [];
 $labelTransCache = [];
+$mediaTransCache = [];
 
 $nInserted = $nVarFamilies = $nSingles = $nVariants = $skipExist = $skipNoImg = $errors = $formatFail = 0;
 $ts0 = microtime(true);
@@ -530,8 +718,17 @@ foreach ($groups as $pk => $g) {
     // nombre + descripción. EN = inglés REAL del catálogo web (solo maquetar); ES = LLM IT→ES.
     $nameItalian = $g['name'];
     $nameWebEn   = trim((string) $g['name_en']);                 // inglés de la web (si existe)
-    $descIt      = fsCleanHtmlToText($g['desc']);
-    $descWebEn   = fsCleanHtmlToText($g['desc_en']);             // descripción inglesa de la web
+    // Extracción media+prose por idioma (preserva tabla de specs e imágenes embebidas)
+    $extIt = fsExtractMedia((string) $g['desc']);
+    $extEn = fsExtractMedia((string) $g['desc_en']);
+    $descIt    = fsCleanHtmlToText($extIt['prose']);
+    $descWebEn = fsCleanHtmlToText($extEn['prose']);
+    // Descarga única (deduplicada) de imágenes auxiliares de AMBOS idiomas
+    $allAuxUrls = array_values(array_unique(array_merge($extIt['imgUrls'], $extEn['imgUrls'])));
+    $auxMap = [];
+    foreach ($allAuxUrls as $u) $auxMap[$u] = fsDownloadAuxImage($u);
+    $mediaEs = fsRewriteMedia($extIt['media'] !== '' ? $extIt['media'] : $extEn['media'], $auxMap);
+    $mediaEn = fsRewriteMedia($extEn['media'] !== '' ? $extEn['media'] : $extIt['media'], $auxMap);
     if ($skipTranslation || $dryRun) {
         $nameEs = fsApplySuffix($nameItalian);
         $nameEn = fsApplySuffix($nameWebEn !== '' ? $nameWebEn : $nameItalian);
@@ -573,6 +770,25 @@ foreach ($groups as $pk => $g) {
     }
     $descEs = mbReformatDescription($descEs);
     $descEn = mbReformatDescription($descEn);
+
+    // Apéndices (DESPUÉS del LLM, como Bluewave, para que no los toque). Orden FIJO:
+    //  1) tabla de especificaciones de variantes (Osculati-style)
+    //  2) bloque de medios = table-data-sheet con dibujos técnicos + iconos de certificación
+    //     (imágenes ya descargadas localmente y src reescrito) — SIEMPRE debajo de la tabla
+    // Tabla de especificaciones SIEMPRE (sueltos incluidos: Foresti publica la tabla
+    // de cotas SKU|Acabado|A|B|C|D también para productos de una sola referencia).
+    $tblEs = fsBuildVariantTable($items, 'es');
+    $tblEn = fsBuildVariantTable($items, 'en');
+    if ($tblEs !== '') $descEs = trim($descEs) . $tblEs;
+    if ($tblEn !== '') $descEn = trim($descEn) . $tblEn;
+    if ($mediaEs !== '') {
+        $needTranslate = ($extIt['media'] !== '');   // mediaEs vino del italiano → traducir texto cert
+        if ($needTranslate && !$skipTranslation && !$dryRun) {
+            $mediaEs = fsTranslateMediaTextEs($mediaEs, $mediaTransCache);
+        }
+        $descEs = trim($descEs) . "\n<p>&nbsp;</p>\n" . $mediaEs;
+    }
+    if ($mediaEn !== '') $descEn = trim($descEn) . "\n<p>&nbsp;</p>\n" . $mediaEn;
 
     // categorías: raíz > familia > subcat (traducidas)
     $familyEs = $subcatEs[$g['family']] ?? $g['family'];
