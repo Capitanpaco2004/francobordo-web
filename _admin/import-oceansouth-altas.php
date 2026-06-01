@@ -224,10 +224,23 @@ function osCleanHtmlToText($html) {
     $out = []; $empty = 0;
     foreach ($lines as $l) {
         $l = trim(preg_replace('/[ \t\x{A0}]+/u', ' ', $l));
+        if (osIsTagline($l)) continue;   // eslogan de marketing → no importar
         if ($l === '') { if ($empty < 1 && !empty($out)) $out[] = ''; $empty++; continue; }
         $out[] = $l; $empty = 0;
     }
     return trim(implode("\n", $out));
+}
+
+/** Eslóganes de marketing de Oceansouth que NO queremos en la descripción. */
+function osIsTagline($s) {
+    return (bool) preg_match('/through your lens|a trav[eé]s de su lente/iu', (string) $s);
+}
+/** Quita el párrafo del eslogan ("…through your lens" / "…a través de su lente") del HTML ya maquetado.
+ *  Cubre el <p> cerrado y el <p> SIN cerrar al final (el body_html de Oceansouth lo deja abierto). */
+function osStripTagline($html) {
+    if (!is_string($html) || $html === '') return $html;
+    $html = preg_replace_callback('#<p\b[^>]*>.*?(?:</p>|$)#isu', fn($m) => osIsTagline($m[0]) ? '' : $m[0], $html);
+    return trim($html);
 }
 
 function osBrowserUA() {
@@ -475,6 +488,15 @@ function osBuildGroups($catalog, $skuMap, $noGroup = false) {
     foreach ($catalog as $p) {
         $images = [];
         foreach (($p['images'] ?? []) as $im) if (!empty($im['src'])) $images[] = $im['src'];
+        // nombres de las opciones (option1/2/3) y detección de estructura Modelo+Longitud de eje
+        $optNames = [];
+        foreach (($p['options'] ?? []) as $o) $optNames[] = (string) ($o['name'] ?? '');
+        $hasShaft = false; $isMotor = false;
+        foreach ($optNames as $on) {
+            if (stripos($on, 'shaft') !== false) $hasShaft = true;
+            if (stripos($on, 'shaft') !== false || stripos($on, 'engine') !== false || stripos($on, 'trolling motor') !== false) $isMotor = true;
+        }
+        $shaftImg = $hasShaft ? osExtractBodyImage($p['body_html'] ?? '') : '';
         $items = [];
         foreach (($p['variants'] ?? []) as $v) {
             $sku = trim((string) ($v['sku'] ?? ''));
@@ -487,27 +509,26 @@ function osBuildGroups($catalog, $skuMap, $noGroup = false) {
             $g1    = roundToNickel(calcG1Price($price, $cost));
             $label = trim((string) ($v['title'] ?? ''));
             if (strcasecmp($label, 'Default Title') === 0) $label = '';
+            // mapa nombre-opción → valor de esta variante
+            $opts = [];
+            foreach ($optNames as $i => $on) { $ov = trim((string) ($v['option' . ($i + 1)] ?? '')); if ($on !== '' && $ov !== '') $opts[$on] = $ov; }
             $items[$sku] = [
                 'sku' => $sku, '_COST' => round($cost, 4), '_PRICE' => $price, '_G1' => $g1,
-                'ean' => $skuMap[$sku]['ean'], 'label' => $label,
+                'ean' => $skuMap[$sku]['ean'], 'label' => $label, 'opts' => $opts,
             ];
         }
         if (empty($items)) continue;                                     // ningún variante priceable
         $pidWeb = (string) $p['id'];
+        $common = ['name' => $p['title'] ?? '', 'desc' => $p['body_html'] ?? '', 'pid_web' => $pidWeb,
+                   'handle' => $p['handle'] ?? '', 'images' => $images, 'is_motor' => $isMotor, 'shaft_img' => $shaftImg];
         if ($noGroup) {
             // separa cada variante como producto suelto (1 item por grupo)
             $i = 0;
             foreach ($items as $sku => $it) {
-                $groups['__' . $pidWeb . '_' . (++$i)] = [
-                    'name' => $p['title'] ?? '', 'desc' => $p['body_html'] ?? '', 'pid_web' => $pidWeb,
-                    'handle' => $p['handle'] ?? '', 'images' => $images, 'items' => [$sku => $it],
-                ];
+                $groups['__' . $pidWeb . '_' . (++$i)] = $common + ['items' => [$sku => $it]];
             }
         } else {
-            $groups[$pidWeb] = [
-                'name' => $p['title'] ?? '', 'desc' => $p['body_html'] ?? '', 'pid_web' => $pidWeb,
-                'handle' => $p['handle'] ?? '', 'images' => $images, 'items' => $items,
-            ];
+            $groups[$pidWeb] = $common + ['items' => $items];
         }
     }
     return $groups;
@@ -537,6 +558,9 @@ function buildExistingMap($mysqli, $mfgId) {
         $r = $mysqli->query($sql);
         if ($r) while ($row = $r->fetch_assoc()) $existing[$row['m']] = true;
     }
+    // Lista negra de reimportación: trata como "ya existentes" los códigos/EAN de productos borrados a propósito.
+    require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+    $existing += fb_blacklist_keys();
     return $existing;
 }
 
@@ -611,6 +635,156 @@ function osTranslateLabel($labelEn, $skipTranslation, &$cache) {
         }
     }
     return implode(' / ', $segs);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * Fundas de motor (outboard/trolling): variantes con estructura Modelo + Longitud
+ * de eje (+ a veces Color/Tipo de agua). El variant.title es larguísimo → en su
+ * lugar generamos (a) un nombre de variante CORTO y traducido y (b) una tabla de
+ * especificaciones en la descripción (Referencia | Modelo | Longitud del Eje …)
+ * + la imagen del diagrama de longitud de eje.
+ * Traducción ES por reglas deterministas (HP→CV, 4STR→4T, 4CYL→4CIL, onwards→…).
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** Traduce una cadena de modelo de motor EN→ES (reglas fijas). Para la TABLA (texto completo). */
+function osTranslateModelEs($s) {
+    $s = (string) $s;
+    $s = preg_replace('/\bup to mid\b/i', 'hasta mediados de', $s);
+    $s = preg_replace('/\bup to\b/i', 'hasta', $s);
+    $s = preg_replace('/\bmid\s+(\d{4})/i', 'mediados de $1', $s);
+    $s = preg_replace('/\bonwards\b/i', 'en adelante', $s);
+    $s = preg_replace('/\bto\b/i', 'a', $s);                 // rangos "75HP a 115HP"
+    $s = preg_replace('/(\d)\s*STR\b/i', '${1}T', $s);       // 4STR → 4T
+    $s = preg_replace('/(\d)\s*CYL\b/i', '${1}CIL', $s);     // 4CYL / 1 CYL → 4CIL
+    $s = str_ireplace('HP', 'CV', $s);
+    $s = str_ireplace('Thrust', 'Empuje', $s);
+    $s = str_ireplace('Fresh Water', 'Agua Dulce', $s);
+    $s = str_ireplace('Salt Water', 'Agua Salada', $s);
+    return trim(preg_replace('/\s+/u', ' ', $s));
+}
+/** Versión CORTA para el nombre de la variante (era abreviada). */
+function osTranslateModelEsShort($s) {
+    $s = osTranslateModelEs($s);
+    $s = preg_replace('/\(\s*(\d{4})\s*en adelante\s*\)/u', '($1 +)', $s);
+    $s = preg_replace('/\(\s*mediados de (\d{4}) en adelante\s*\)/u', '(med. $1 +)', $s);
+    return $s;
+}
+/** Longitud de eje compacta: "635mm (25\")" → "635mm". */
+function osShaftShort($s) {
+    $s = (string) $s;
+    if (preg_match('/([\d.,]+\s*mm)/u', $s, $m)) return trim($m[1]);
+    return trim(explode('(', $s)[0]);
+}
+/** Imagen del diagrama de longitud de eje incrustada en el body_html del producto. */
+function osExtractBodyImage($bodyHtml) {
+    if (!is_string($bodyHtml) || $bodyHtml === '') return '';
+    if (preg_match('/<img[^>]+src=["\']([^"\']+)["\']/i', $bodyHtml, $m)) return trim($m[1]);
+    return '';
+}
+/** Descarga una imagen compartida (mismo diagrama para todos) a images/productos/, dedup por URL. */
+function osDownloadSharedImage($url) {
+    $url = trim((string) $url);
+    if ($url === '' || !preg_match('#^https?://#i', $url)) return '';
+    $ext = 'jpg';
+    if (preg_match('/\.(jpe?g|png|webp|gif)(\?|$)/i', $url, $m)) $ext = strtolower($m[1]);
+    $name = 'os-shaft-' . substr(md5($url), 0, 12) . '.' . $ext;
+    $abs = IMG_ABS_DIR . $name;
+    if (file_exists($abs) && filesize($abs) >= IMG_MIN_BYTES) return $name;   // ya descargada
+    if (downloadImage($url, $abs)) return $name;
+    return '';
+}
+
+/** Clasifica las opciones de una variante en modelo / eje / extras (color, tipo de agua). */
+function osClassifyOpts(array $opts) {
+    $model = ''; $shaft = ''; $extras = [];
+    foreach ($opts as $name => $val) {
+        $val = trim((string) $val);
+        if ($val === '' || strcasecmp($val, 'Default Title') === 0) continue;
+        $n = mb_strtolower($name, 'UTF-8');
+        if (strpos($n, 'shaft') !== false) {
+            // a veces el valor del eje lleva color pegado: "914mm (36″) | Grey"
+            if (strpos($val, '|') !== false) { $parts = array_map('trim', explode('|', $val, 2)); $shaft = $parts[0]; if (!empty($parts[1])) $extras[] = $parts[1]; }
+            else $shaft = $val;
+        } elseif (strpos($n, 'color') !== false || strpos($n, 'colour') !== false || strpos($n, 'water') !== false) {
+            $extras[] = $val;
+        } else {
+            $model = ($model === '') ? $val : ($model . ' ' . $val);
+        }
+    }
+    return ['model' => $model, 'shaft' => $shaft, 'extras' => $extras];
+}
+
+/** Versión EN corta del modelo: abrevia la era "(2014 onwards)" → "(2014 +)" (mantiene inglés). */
+function osModelEnShort($s) {
+    $s = (string) $s;
+    $s = preg_replace('/\(\s*mid\s+(\d{4})\s*onwards\s*\)/i', '(mid $1 +)', $s);
+    $s = preg_replace('/\(\s*(\d{4})\s*onwards\s*\)/i', '($1 +)', $s);
+    return trim(preg_replace('/\s+/u', ' ', $s));
+}
+/** Etiqueta corta de variante para fundas de motor: modelo traducido + eje [+ extras]. */
+function osShaftVariantName($meta, $lang) {
+    $model = $lang === 'es' ? osTranslateModelEsShort($meta['model']) : osModelEnShort($meta['model']);
+    $parts = [];
+    if ($model !== '') $parts[] = $model;
+    if (!empty($meta['shaft'])) $parts[] = osShaftShort($meta['shaft']);
+    foreach ($meta['extras'] as $e) $parts[] = ($lang === 'es' ? osTranslateModelEs($e) : $e);
+    $out = implode(' / ', $parts);
+    return mb_substr(trim($out), 0, 64, 'UTF-8');
+}
+
+/** Tabla de especificaciones (Referencia | Modelo [| Longitud del Eje] [| Color]) — columnas dinámicas.
+ *  Estilo idéntico al importador Osculati (clase osc-spec-table: cabecera #008cc6, zebra #e2f2f9). */
+function osBuildSpecTable(array $rows, $lang) {
+    // $rows: [ ['sku'=>, 'meta'=>['model'=>,'shaft'=>,'extras'=>]] , ... ]  ya ordenadas
+    $hasShaftCol = false; $hasExtra = false;
+    foreach ($rows as $r) { if (!empty($r['meta']['shaft'])) $hasShaftCol = true; if (!empty($r['meta']['extras'])) $hasExtra = true; }
+    $L = $lang === 'es'
+        ? ['ref' => 'Referencia', 'model' => 'Modelo', 'shaft' => 'Longitud del Eje', 'extra' => 'Color']
+        : ['ref' => 'Reference', 'model' => 'Model', 'shaft' => 'Shaft Length', 'extra' => 'Colour'];
+    $title = $lang === 'es' ? 'Tabla de referencia (elige según tu motor)' : 'Reference table (choose by your engine)';
+    $cols = ['ref', 'model']; if ($hasShaftCol) $cols[] = 'shaft'; if ($hasExtra) $cols[] = 'extra';
+    $FONT  = 'font-family: tahoma, arial, helvetica, sans-serif; font-size: 10pt;';
+    $open  = '<table class="osc-spec-table" style="border-collapse: collapse; border: 1px solid rgb(206, 212, 217);" border="1" cellspacing="3" cellpadding="3"><tbody>';
+    $hCell = fn($t) => '<td style="background-color: #008cc6; text-align: center; padding: 2px;"><span style="' . $FONT . ' color: #ffffff;">' . htmlspecialchars($t) . '</span></td>';
+    $dCell = fn($t) => '<td style="text-align: center; padding: 2px;"><span style="' . $FONT . '">' . htmlspecialchars($t) . '</span></td>';
+    $zebra = ' style="background-color: #e2f2f9;"';
+    $html = '<p><strong>' . htmlspecialchars($title) . '</strong></p>' . $open . '<tr>';
+    foreach ($cols as $c) $html .= $hCell($L[$c]);
+    $html .= '</tr>';
+    $i = 0;
+    foreach ($rows as $r) {
+        $i++;
+        $m = $r['meta'];
+        $cell = [
+            'ref'   => $r['sku'],
+            'model' => $lang === 'es' ? osTranslateModelEs($m['model']) : $m['model'],
+            'shaft' => $m['shaft'] !== '' ? $m['shaft'] : '—',
+            'extra' => !empty($m['extras']) ? implode(', ', array_map(fn($e) => $lang === 'es' ? osTranslateModelEs($e) : $e, $m['extras'])) : '',
+        ];
+        $html .= '<tr' . ($i % 2 === 0 ? $zebra : '') . '>';
+        foreach ($cols as $c) $html .= $dCell($cell[$c]);
+        $html .= '</tr>';
+    }
+    return $html . '</tbody></table>';
+}
+
+const OS_SHAFT_MARK_START = '<!--OS_SHAFT_START-->';
+const OS_SHAFT_MARK_END   = '<!--OS_SHAFT_END-->';
+/** Quita un bloque de eje previamente insertado (para reconstruir sin duplicar). */
+function osStripShaftBlock($html) {
+    return trim(preg_replace('/' . preg_quote(OS_SHAFT_MARK_START, '/') . '.*?' . preg_quote(OS_SHAFT_MARK_END, '/') . '/s', '', (string) $html));
+}
+/** Bloque de descripción para fundas de motor: imagen del eje + tabla de specs (con marcadores). */
+function osShaftDescBlock($shaftImgFile, array $rows, $lang) {
+    $block = OS_SHAFT_MARK_START;
+    if ($shaftImgFile !== '') {
+        $cap = $lang === 'es' ? 'Elige la longitud de eje correcta para la funda' : 'Choose the correct shaft length for the cover';
+        $block .= '<p>&nbsp;</p><p style="text-align:center;"><img src="https://www.francobordo.com/images/productos/' . htmlspecialchars($shaftImgFile) . '" alt="' . htmlspecialchars($cap) . '" style="max-width:420px;height:auto;"></p>';
+        $block .= '<p style="text-align:center;font-size:12px;color:#666;">' . htmlspecialchars($cap) . '</p>';
+    }
+    $block .= osBuildSpecTable($rows, $lang);
+    $block .= OS_SHAFT_MARK_END;
+    return $block;
 }
 
 function loadJson($path) {
@@ -741,8 +915,18 @@ foreach ($groups as $gid => $g) {
             if (!osFormatLooksValid($fEs, $inLen)) $formatFail++;
         }
     }
-    $descEs = mbReformatDescription($descEs);
-    $descEn = mbReformatDescription($descEn);
+    $descEs = osStripTagline(mbReformatDescription($descEs));
+    $descEn = osStripTagline(mbReformatDescription($descEn));
+
+    // Fundas de motor (Modelo [+ Longitud de eje]): añade imagen del eje + tabla de specs a la descripción.
+    // (Los nombres de variante cortos/traducidos se generan en el loop de variantes más abajo.)
+    if (!empty($g['is_motor'])) {
+        $shaftRows = [];
+        foreach ($g['items'] as $sku => $it) $shaftRows[] = ['sku' => $sku, 'meta' => osClassifyOpts($it['opts'] ?? [])];
+        $shaftImgFile = (!$dryRun && !empty($g['shaft_img'])) ? osDownloadSharedImage($g['shaft_img']) : '';
+        $descEs .= osShaftDescBlock($shaftImgFile, $shaftRows, 'es');
+        $descEn .= osShaftDescBlock($shaftImgFile, $shaftRows, 'en');
+    }
 
     // categoría: raíz > familia (si está clasificado). Sin familia → cuelga de la raíz.
     if ($family !== '') {
@@ -809,13 +993,25 @@ foreach ($groups as $gid => $g) {
         }
 
         if ($isFamily) {
-            // etiquetas: variante.title; desambiguar con SKU si se repiten o están vacías
+            $isShaft = !empty($g['is_motor']);
+            // etiquetas: para fundas de motor → nombre corto traducido (modelo+eje);
+            // resto → variante.title. Desambiguar con SKU si se repiten o están vacías.
             $rawLabels = []; $counts = [];
-            foreach ($items as $sku => $it) { $rawLabels[$sku] = $it['label']; $counts[$it['label']] = ($counts[$it['label']] ?? 0) + 1; }
             foreach ($items as $sku => $it) {
-                $labEn = $rawLabels[$sku];
+                $lab = $isShaft ? osShaftVariantName(osClassifyOpts($it['opts'] ?? []), 'en') : $it['label'];
+                $rawLabels[$sku] = $lab;
+                $counts[$lab] = ($counts[$lab] ?? 0) + 1;
+            }
+            foreach ($items as $sku => $it) {
+                if ($isShaft) {
+                    $meta   = osClassifyOpts($it['opts'] ?? []);
+                    $labEn  = osShaftVariantName($meta, 'en');
+                    $labEs  = osShaftVariantName($meta, 'es');
+                } else {
+                    $labEn = $rawLabels[$sku];
+                    $labEs = osTranslateLabel($labEn, $skipTranslation, $labelTransCache);
+                }
                 $needsSku = ($labEn === '' || ($counts[$labEn] ?? 0) > 1);
-                $labEs = osTranslateLabel($labEn, $skipTranslation, $labelTransCache);
                 $finalEn = mb_substr(($labEn === '' ? $sku : ($needsSku ? $labEn . ' · ' . $sku : $labEn)), 0, 64, 'UTF-8');
                 $finalEs = mb_substr(($labEs === '' ? $sku : ($needsSku ? $labEs . ' · ' . $sku : $labEs)), 0, 64, 'UTF-8');
 

@@ -208,12 +208,17 @@ $sWhere .= ' p.products_status = 1';
 
 // Si ya lo hemos encontrado por su ID no hacemos nada
 if ($bBuscarId === false) {
+    // Sanear $sSearch para FULLTEXT BOOLEAN MODE: si contiene `"` o `)` rompe la query
+    // con "unexpected ')'" (visto en producción). Quitamos también caracteres con
+    // significado en BOOLEAN MODE que el usuario no suele querer pasar literalmente.
+    $sSearchSafe = str_replace(['"', '(', ')'], ' ', $sSearch);
+
     // Buscamos por nombre
-    $sWhere .= ' AND (MATCH(pd.products_name) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE)';
+    $sWhere .= ' AND (MATCH(pd.products_name) AGAINST ("' . $sSearchSafe . '" IN BOOLEAN MODE)';
 
     // Buscar por descripción (no se evalúa en autocomplete: añade tiempo y ruido a 3 chars)
     if ($bSearchDescription) {
-        $sWhere .= ' OR MATCH(products_description) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE)';
+        $sWhere .= ' OR MATCH(products_description) AGAINST ("' . $sSearchSafe . '" IN BOOLEAN MODE)';
     }
 
     // Cerramos parentesis
@@ -224,16 +229,13 @@ if ($bBuscarId === false) {
 if ($sCategories !== false && $sCategories != '') {
     // Obtenemos las categorias hijo
     $aCategories = getIdCategoriasHijasRecursivoByIdCategoriaPadre($sCategories);
-    $aCategories = array_filter(array_map('trim', explode(',', $aCategories)));
-    $aCategories[] = $sCategories;
+    $aCategories = array_filter(array_map('intval', explode(',', $aCategories)));
+    $aCategories[] = (int) $sCategories;
+    $aCategories = array_filter(array_unique($aCategories)); // sin 0s, sin duplicados
 
-    // Añadimos al WHERE
-    $sWhere .= ' AND (';
-    foreach ($aCategories as $aCategory) {
-        $sWhere .= 'p2c.categories_id = ' . $aCategory . ' OR ';
+    if (!empty($aCategories)) {
+        $sWhere .= ' AND p2c.categories_id IN (' . implode(',', $aCategories) . ') ';
     }
-
-    $sWhere = substr($sWhere, 0, -4) . ') ';
 }
 
 // Fabricante

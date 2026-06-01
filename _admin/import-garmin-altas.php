@@ -545,6 +545,9 @@ function buildExistingMap($mysqli) {
 	// EAN existentes — globales (GS1)
 	$r = $mysqli->query("SELECT product_ean FROM products WHERE product_ean<>'' AND product_ean IS NOT NULL AND LENGTH(product_ean)=13");
 	while ($row = $r->fetch_assoc()) $existing['ean:' . $row['product_ean']] = true;
+	// Lista negra de reimportación: trata como "ya existentes" los códigos/EAN de productos borrados a propósito.
+	require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+	$existing += fb_blacklist_keys();
 	return $existing;
 }
 

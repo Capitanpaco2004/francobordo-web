@@ -223,6 +223,9 @@ function getExistingBaseCodes() {
 	$q = tep_db_query("SELECT LOWER(reference_prov) AS m FROM products_attributes WHERE reference_prov IS NOT NULL AND reference_prov<>'' AND reference_prov RLIKE $oscBcRegex");
 	while ($row = tep_db_fetch_array($q)) $existing[$row['m']] = true;
 
+	// Lista negra de reimportación: trata como "ya existentes" los códigos/EAN de productos borrados a propósito.
+	require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+	$existing += fb_blacklist_keys();
 	return $existing;
 }
 

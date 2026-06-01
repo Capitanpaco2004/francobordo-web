@@ -806,7 +806,18 @@
                     $product_categories = tep_db_fetch_array( $product_categories_query );
 
                     if( $product_categories['total'] == '0' )
+                    {
+                        // Lista negra de reimportación: registra el producto antes de borrarlo
+                        // para que los importadores de proveedor no lo vuelvan a dar de alta.
+                        if( !empty( $_POST['blacklist_reimport'] ) )
+                        {
+                            require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+                            $bl_by = isset($_SESSION['login_email_address']) ? $_SESSION['login_email_address']
+                                   : (isset($_SESSION['login_id']) ? 'admin#' . $_SESSION['login_id'] : 'admin');
+                            fb_blacklist_add_product( $product_id, 'Borrado manual (no reimportar)', $bl_by );
+                        }
                         tep_remove_product($product_id);
+                    }
 
                     /* Optional Related Products (ORP) */
                     tep_db_query( "delete from " . TABLE_PRODUCTS_RELATED_PRODUCTS . " where pop_products_id_master = '" . (int)$product_id . "'" );
@@ -915,6 +926,40 @@
                 }
 
                 tep_redirect( tep_href_link( FILENAME_CATEGORIES, 'cPath=' . $new_parent_id ) );
+            break;
+
+            // Borrado MÚLTIPLE de productos (confirmado). Mismo patrón que el borrado individual,
+            // recorriendo todos los IDs marcados. Registra en la lista negra si el check va activo.
+            case 'delete_products_bulk_confirm':
+                $bulk_ids = ( isset( $_POST['products_id'] ) && is_array( $_POST['products_id'] ) ) ? $_POST['products_id'] : array();
+                $do_blacklist = !empty( $_POST['blacklist_reimport'] );
+                if( $do_blacklist ) require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+                $bl_by = isset($_SESSION['login_email_address']) ? $_SESSION['login_email_address']
+                       : (isset($_SESSION['login_id']) ? 'admin#' . $_SESSION['login_id'] : 'admin');
+
+                foreach( $bulk_ids as $bpid )
+                {
+                    $bpid = (int)$bpid;
+                    if( $bpid <= 0 ) continue;
+
+                    if( $do_blacklist ) fb_blacklist_add_product( $bpid, 'Borrado múltiple (no reimportar)', $bl_by );
+
+                    // Limpieza equivalente al borrado individual
+                    tep_db_query( "delete from " . TABLE_PRODUCTS_GROUPS . " where products_id = '" . $bpid . "'" );
+                    tep_db_query( "delete from " . TABLE_PRODUCTS_PRICE_BREAK . " where products_id = '" . $bpid . "'" );
+                    tep_db_query( "delete from " . TABLE_PRODUCTS_RELATED_PRODUCTS . " where pop_products_id_master = '" . $bpid . "'" );
+                    tep_db_query( "delete from " . TABLE_PRODUCTS_RELATED_PRODUCTS . " where pop_products_id_slave = '" . $bpid . "'" );
+                    tep_db_query( "delete from " . TABLE_PRODUCTS_SPECIFICATIONS . " where products_id = '" . $bpid . "'" );
+                    tep_remove_product( $bpid );
+                }
+
+                if( USE_CACHE == 'true' )
+                {
+                    tep_reset_cache_block( 'categories' );
+                    tep_reset_cache_block( 'also_purchased' );
+                }
+
+                tep_redirect( tep_href_link( FILENAME_CATEGORIES, 'cPath=' . $cPath ) );
             break;
 
             case 'insert_product':
@@ -4484,7 +4529,7 @@
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=new_product">' . tep_image(DIR_WS_ICONS . 'edit.png', ICON_EDIT) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=copy_to">' . tep_image(DIR_WS_ICONS . 'duplicate.png', ICON_DUPLICATE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=move_product">' . tep_image(DIR_WS_ICONS . 'move.png', ICON_MOVE) . '</a>'; ?>
-													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=delete_product">' . tep_image(DIR_WS_ICONS . 'delete.png', ICON_DELETE) . '</a>'; ?>
+													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=delete_product" class="js-row-delete" data-pid="' . (int)$products['products_id'] . '">' . tep_image(DIR_WS_ICONS . 'delete.png', ICON_DELETE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link('stats_products_orders.php', 'reference_selected=' . rawurlencode($products['products_model'])) . '&month=ALL&year=ALL&no_status=&status=">' . tep_image(DIR_WS_ICONS . 'icon_stats_sold.png', 'Ver quien ha comprado este producto') . '</a>'; ?>
                                                 </td>
                                             </tr>
@@ -4525,7 +4570,7 @@
                                                                         else echo '<br><a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath) . '" style="' . $btnBase . 'background:#888;">Ocultar ' . $hiddenOffCount . ' desactivados</a>';
                                                                     }
                                                                 ?></td>
-                                                                <td style="vertical-align: middle;" align="right" class="smallText"><?php if (isset($cPath_array) && sizeof($cPath_array) > 0) echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, $cPath_back . 'cID=' . $current_category_id) . '">' . tep_image_button('button_back.png', IMAGE_BACK) . '</a>&nbsp;'; if (!isset($_GET['search'])) echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&action=new_category') . '">' . tep_image_button('button_new_category.png', IMAGE_NEW_CATEGORY) . '</a>&nbsp;<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&action=new_product') . '">' . tep_image_button('button_new_product.png', IMAGE_NEW_PRODUCT) . '</a>'; ?>&nbsp;</td>
+                                                                <td style="vertical-align: middle;" align="right" class="smallText"><?php if (isset($cPath_array) && sizeof($cPath_array) > 0) echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, $cPath_back . 'cID=' . $current_category_id) . '">' . tep_image_button('button_back.png', IMAGE_BACK) . '</a>&nbsp;'; if (!isset($_GET['search'])) echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&action=new_category') . '">' . tep_image_button('button_new_category.png', IMAGE_NEW_CATEGORY) . '</a>&nbsp;<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&action=new_product') . '">' . tep_image_button('button_new_product.png', IMAGE_NEW_PRODUCT) . '</a>'; if(!isset($_GET['search'])) echo ' <a href="#" onclick="fbBulkDelete(event)" title="Eliminar los productos marcados con el check" style="display:inline-block;padding:5px 12px;margin-left:4px;background:#d9342b;color:#fff;border-radius:4px;text-decoration:none;font-weight:bold;cursor:pointer;vertical-align:middle;">🗑 Eliminar seleccionados</a>'; ?>&nbsp;</td>
                                                                 <?php
                                                             }
                                                             else
@@ -4536,7 +4581,8 @@
                                                                     <?php
                                                                         if (!empty($cPath_array) && sizeof($cPath_array) > 0) echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, $cPath_back . 'cID=' . $current_category_id) . '">' . tep_image_button('button_back.png', IMAGE_BACK) . '</a>&nbsp;';
                                                                         if (!isset($_GET['search']) && strstr($admin_right_access,"CNEW")) echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&action=new_category') . '">' . tep_image_button('button_new_category.png', IMAGE_NEW_CATEGORY) . '</a>&nbsp;';
-                                                                        if (!isset($_GET['search']) && strstr($admin_right_access,"PNEW") && $cInfo->parent_id !='0') echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&action=new_product') . '">' . tep_image_button('button_new_product.png', IMAGE_NEW_PRODUCT) . '</a>'; ?>&nbsp;
+                                                                        if (!isset($_GET['search']) && strstr($admin_right_access,"PNEW") && $cInfo->parent_id !='0') echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&action=new_product') . '">' . tep_image_button('button_new_product.png', IMAGE_NEW_PRODUCT) . '</a>';
+                                                                        if (!isset($_GET['search']) && strstr($admin_right_access,"PDELETE")) echo ' <a href="#" onclick="fbBulkDelete(event)" title="Eliminar los productos marcados con el check" style="display:inline-block;padding:5px 12px;margin-left:4px;background:#d9342b;color:#fff;border-radius:4px;text-decoration:none;font-weight:bold;cursor:pointer;vertical-align:middle;">🗑 Eliminar seleccionados</a>'; ?>&nbsp;
                                                                 </td>
                                                         <?php } // EOF: KategorienAdmin / OLISWISS ?>
                                                     </tr>
@@ -4555,6 +4601,27 @@
                                             });
                                         }
                                     });
+                                    /* Borrado múltiple: recoge los productos marcados y abre el diálogo de confirmación */
+                                    function fbBulkDelete(e){
+                                        if(e) e.preventDefault();
+                                        var ids = Array.prototype.slice.call(document.querySelectorAll('.js-bulk-cb:checked')).map(function(c){ return c.value; });
+                                        if(ids.length === 0){ alert('Marca al menos un producto de la lista.'); return; }
+                                        var cp = '<?php echo htmlspecialchars($cPath, ENT_QUOTES); ?>';
+                                        window.location.href = 'categories.php?action=delete_products_bulk&cPath=' + encodeURIComponent(cp) + '&bulk_ids=' + ids.join(',');
+                                    }
+                                    /* Si hay productos marcados, la papelera de CUALQUIER fila borra TODOS los marcados
+                                       (incluida esa fila). Si no hay nada marcado, borra solo esa fila (comportamiento normal). */
+                                    document.addEventListener('click', function(e){
+                                        var a = e.target.closest ? e.target.closest('a.js-row-delete') : null;
+                                        if(!a) return;
+                                        var checked = Array.prototype.slice.call(document.querySelectorAll('.js-bulk-cb:checked')).map(function(c){ return c.value; });
+                                        if(checked.length === 0) return; // sin selección → borrado individual normal
+                                        e.preventDefault();
+                                        var rowPid = a.getAttribute('data-pid');
+                                        if(rowPid && checked.indexOf(rowPid) === -1) checked.push(rowPid); // incluir la fila pulsada
+                                        var cp = '<?php echo htmlspecialchars($cPath, ENT_QUOTES); ?>';
+                                        window.location.href = 'categories.php?action=delete_products_bulk&cPath=' + encodeURIComponent(cp) + '&bulk_ids=' + checked.join(',');
+                                    }, true);
                                     </script>
                                 </td>
                                 <?php
@@ -4794,6 +4861,9 @@
 
                                             $product_categories_string = substr($product_categories_string, 0, -4);
                                             $contents[] = array('text' => '<br>' . $product_categories_string);
+                                            // Lista negra de reimportación: marcado por defecto para que los importadores
+                                            // de proveedor no vuelvan a dar de alta este producto tras borrarlo.
+                                            $contents[] = array('text' => '<br>' . tep_draw_checkbox_field('blacklist_reimport', '1', true) . ' <b>No volver a importar</b> (añadir a la lista negra de reimportación)');
                                             $contents[] = array('align' => 'center', 'text' => '<br>' . tep_image_submit('button_delete.png', IMAGE_DELETE) . ' <a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $pInfo->products_id) . '">' . tep_image_button('button_cancel.png', IMAGE_CANCEL) . '</a>');
                                         break;
 
@@ -4866,6 +4936,38 @@
                                                 });
                                             })();
                                             </script>');
+                                        break;
+
+                                        // Diálogo de confirmación del borrado MÚLTIPLE. Recibe los IDs por GET (bulk_ids=1,2,3).
+                                        case 'delete_products_bulk':
+                                            $heading[] = array('text' => '<b>Eliminar productos seleccionados</b>');
+
+                                            $raw = isset($_GET['bulk_ids']) ? $_GET['bulk_ids'] : '';
+                                            $ids = array();
+                                            foreach (explode(',', $raw) as $x) { $x = (int)$x; if ($x > 0) $ids[$x] = $x; }
+
+                                            $contents = array('form' => tep_draw_form('products', FILENAME_CATEGORIES, 'action=delete_products_bulk_confirm&cPath=' . $cPath, 'post'));
+
+                                            if (empty($ids)) {
+                                                $contents[] = array('text' => 'No hay productos seleccionados.');
+                                                $contents[] = array('align' => 'center', 'text' => '<br><a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath) . '">' . tep_image_button('button_back.png', IMAGE_BACK) . '</a>');
+                                                break;
+                                            }
+
+                                            $names = array();
+                                            $qn = tep_db_query("SELECT p.products_id, pd.products_name FROM " . TABLE_PRODUCTS . " p LEFT JOIN " . TABLE_PRODUCTS_DESCRIPTION . " pd ON pd.products_id = p.products_id AND pd.language_id = '" . (int)$languages_id . "' WHERE p.products_id IN (" . implode(',', array_map('intval', $ids)) . ")");
+                                            while ($rn = tep_db_fetch_array($qn)) $names[(int)$rn['products_id']] = $rn['products_name'];
+
+                                            $listHtml = ''; $hidden = '';
+                                            foreach ($ids as $id) {
+                                                $listHtml .= '&bull; <b>' . htmlspecialchars($names[$id] ?? ('#' . $id)) . '</b> <span style="color:#888;">(ID ' . $id . ')</span><br>';
+                                                $hidden .= tep_draw_hidden_field('products_id[]', $id);
+                                            }
+
+                                            $contents[] = array('text' => 'Vas a eliminar <b>' . count($ids) . '</b> producto(s) de forma <b>permanente</b>:');
+                                            $contents[] = array('text' => '<br>' . $listHtml . $hidden);
+                                            $contents[] = array('text' => '<br>' . tep_draw_checkbox_field('blacklist_reimport', '1', true) . ' <b>No volver a importar</b> (añadir a la lista negra de reimportación)');
+                                            $contents[] = array('align' => 'center', 'text' => '<br>' . tep_image_submit('button_delete.png', IMAGE_DELETE) . ' <a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath) . '">' . tep_image_button('button_cancel.png', IMAGE_CANCEL) . '</a>');
                                         break;
 
                                         case 'copy_to':
@@ -5007,7 +5109,8 @@
                                                     if ($admin_groups_id == 1)
                                                     {
                                                         $contents[] = array('align' => 'center', 'text' => '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $category_path_string . '&pID=' . $pInfo->products_id . '&action=new_product') . '">' . tep_image_button('button_edit.png', IMAGE_EDIT) . '</a> <a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $category_path_string . '&pID=' . $pInfo->products_id . '&action=delete_product') . '">' . tep_image_button('button_delete.png', IMAGE_DELETE) . '</a> <a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $category_path_string . '&pID=' . $pInfo->products_id . '&action=move_product') . '">' . tep_image_button('button_move.png', IMAGE_MOVE) . '</a>
-                                                            <a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $category_path_string . '&pID=' . $pInfo->products_id . '&action=copy_to') . '">' . tep_image_button('button_copy_to.png', IMAGE_COPY_TO) . '</a> <a href="' . tep_href_link(FILENAME_RELATED_PRODUCTS, 'products_id_view=' . $pInfo->products_id) . '" target="_new">' . tep_image_button('button_related_products.png', 'Relacionar') . '</a> <a href="' . tep_href_link(FILENAME_STOCK, 'product_id=' . $pInfo->products_id) . '" target="_new">' . tep_image_button('button_stock.png', 'Stock') . '</a>');
+                                                            <a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $category_path_string . '&pID=' . $pInfo->products_id . '&action=copy_to') . '">' . tep_image_button('button_copy_to.png', IMAGE_COPY_TO) . '</a> <a href="' . tep_href_link(FILENAME_RELATED_PRODUCTS, 'products_id_view=' . $pInfo->products_id) . '" target="_new">' . tep_image_button('button_related_products.png', 'Relacionar') . '</a> <a href="' . tep_href_link(FILENAME_STOCK, 'product_id=' . $pInfo->products_id) . '" target="_new">' . tep_image_button('button_stock.png', 'Stock') . '</a>'
+                                                            . '<br><br><a href="#" onclick="fbBulkDelete(event)" title="Eliminar los productos marcados con el check en la lista" style="display:inline-block;padding:6px 14px;background:#d9342b;color:#fff;border-radius:4px;text-decoration:none;font-weight:bold;cursor:pointer;">🗑 Eliminar seleccionados</a>');
                                                     }
                                                     else
                                                     {

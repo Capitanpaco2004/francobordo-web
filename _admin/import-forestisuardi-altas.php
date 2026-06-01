@@ -53,7 +53,7 @@ const DEFAULT_WEIGHT  = 1.0;
 const LLM_URL   = 'http://217.127.199.171:28001/v1/chat/completions';
 const LLM_MODEL = 'qwen36-sakamaki-nvfp4';
 
-const LLM_NAME_PROMPT_ES = "Traduce este nombre de producto náutico del italiano al ESPAÑOL. Conserva nombres propios de modelo/línea (ASTERION, SEXTANS, PROMETEO, etc.), marcas, códigos y unidades. Responde SOLO con el nombre traducido, una línea, sin comillas.";
+const LLM_NAME_PROMPT_ES = "Traduce este nombre de producto náutico del italiano al ESPAÑOL. Conserva nombres propios de modelo/línea (ASTERION, SEXTANS, PROMETEO, etc.), marcas, códigos y unidades. Glosario náutico OBLIGATORIO: Bitta a scomparsa=Bita escamoteable, Bitta=Bita, Galloccia=Cornamusa, Alzapagliolo/Alzapaglioli=Cierre de payol, Pagliolo=Payol, Boccola di scarico=Desagüe, Scarico=Desagüe (NO escape), Presa a mare=Toma de mar, Passacavo=Pasacables, Oblò=Portillo, Tappo=Tapón, Golfare=Cáncamo, Ottone=Latón, Acciaio inox=Acero inoxidable, Portacanna=Portacañas, Corrimano=Pasamanos. Responde SOLO con el nombre traducido, una línea, sin comillas.";
 const LLM_NAME_PROMPT_EN = "Translate this nautical product name from Italian to ENGLISH. Keep proper model/line names (ASTERION, SEXTANS, PROMETEO, etc.), brands, codes and units. Reply with ONLY the translated name, one line, no quotes.";
 
 const LLM_TRANSLATE_ES = "Traduce el siguiente texto descriptivo de producto náutico del ITALIANO al ESPAÑOL. Conserva ÍNTEGRAMENTE toda la información, números, medidas, unidades (Watt, V, VDC, mm, °K), voltajes, acrónimos (LED, IP, AISI) y nombres propios. Glosario náutico: ottone=latón, acciaio inox=acero inox, oblò=portillo, passo d'uomo=registro de cubierta, passacavo=pasacables, bitta=bita, tappo=tapón, golfare=cáncamo, plafoniera=plafón, faretto=foco, ghiera=aro, scarico a mare=desagüe al mar, presa a mare=toma de mar, corrimano=pasamanos, cerniera=bisagra, maniglia=manilla, fanale=luz de navegación. NO resumas ni inventes. Devuelve SOLO la traducción en español, sin comentarios.";
@@ -529,6 +529,9 @@ function buildExistingMap($mysqli, $mfgId) {
         $r = $mysqli->query($sql);
         if ($r) while ($row = $r->fetch_assoc()) $existing[$row['m']] = true;
     }
+    // Lista negra de reimportación: trata como "ya existentes" los códigos/EAN de productos borrados a propósito.
+    require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+    $existing += fb_blacklist_keys();
     return $existing;
 }
 

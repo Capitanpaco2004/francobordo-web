@@ -490,6 +490,9 @@ function buildExistingMap($mysqli) {
         $r = $mysqli->query($sql);
         if ($r) while ($row = $r->fetch_assoc()) $existing[$row['m']] = true;
     }
+    // Lista negra de reimportación: trata como "ya existentes" los códigos/EAN de productos borrados a propósito.
+    require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+    $existing += fb_blacklist_keys();
     return $existing;
 }
 

@@ -166,6 +166,9 @@ function buildExistingMap($mysqli) {
               "SELECT LOWER(products_attributes_ean) m FROM products_attributes WHERE products_attributes_ean<>'' AND products_attributes_ean IS NOT NULL"] as $sql) {
         $r = $mysqli->query($sql); while ($row = $r->fetch_assoc()) $existing[$row['m']] = true;
     }
+    // Lista negra de reimportación: trata como "ya existentes" los códigos/EAN de productos borrados a propósito.
+    require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+    $existing += fb_blacklist_keys();
     return $existing;
 }
 

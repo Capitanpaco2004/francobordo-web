@@ -460,6 +460,9 @@ function getExistingKeys() {
 	while ($r = tep_db_fetch_array($q)) $existing[$r['m']] = true;
 	$q = tep_db_query("SELECT LOWER(products_attributes_ean) m FROM products_attributes WHERE products_attributes_ean<>''");
 	while ($r = tep_db_fetch_array($q)) $existing[$r['m']] = true;
+	// Lista negra de reimportación: trata como "ya existentes" los códigos/EAN de productos borrados a propósito.
+	require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+	$existing += fb_blacklist_keys();
 	return $existing;
 }
 

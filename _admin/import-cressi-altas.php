@@ -156,6 +156,9 @@ function cleanCressiSizeMarker($s) {
  *  origin cressi%. Un mismo SKU en otra marca distinta NO bloquea el alta.
  *  EAN sigue siendo GLOBAL (identificador único GS1). */
 function findExistingProductId($mysqli, $sku, $ean) {
+	// Lista negra de reimportación: si el SKU/ref o el EAN está vetado, trátalo como duplicado (saltar el alta).
+	require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+	if (fb_blacklist_has($sku) || fb_blacklist_has($ean)) return -1;
 	$skuRaw = trim($sku);
 	$variants = array_unique(array_filter([$skuRaw, str_replace(' ', '', $skuRaw)]));
 	$esc = array_map(fn($v) => '"' . $mysqli->real_escape_string($v) . '"', $variants);

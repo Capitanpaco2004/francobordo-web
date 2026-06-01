@@ -1863,9 +1863,9 @@ function tep_banner_image_extension() {
 function tep_round($value, $precision) {
 	if (PHP_VERSION < 4) {
 		$exp = pow(10, $precision);
-		return round($value * $exp) / $exp;
+		return round((float)$value * $exp) / $exp;
 	} else {
-		return round($value, $precision);
+		return round((float)$value, $precision);
 	}
 }
 

@@ -175,6 +175,9 @@ function resolveManufacturer($mysqli, $rawName, &$cache, &$createdLog, $dryRun) 
  *  origin azimut%. Un mismo SKU en otra marca distinta NO bloquea el alta.
  *  EAN sigue siendo GLOBAL (identificador único GS1). */
 function findExistingProductId($mysqli, $productCode, $ean) {
+	// Lista negra de reimportación: si el código/ref o el EAN está vetado, trátalo como duplicado (saltar el alta).
+	require_once dirname(__FILE__) . '/includes/import_blacklist.php';
+	if (fb_blacklist_has($productCode) || fb_blacklist_has($ean)) return -1;
 	$pcRaw = trim($productCode);
 	$pcNoSpace = str_replace(' ', '', $pcRaw);
 	$variants = array_unique(array_filter([$pcRaw, $pcNoSpace]));

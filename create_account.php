@@ -208,7 +208,7 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
 		if ($zone_id == 0) {
 			// -Country-State Selector
 
-			if (strlen($state) < ENTRY_STATE_MIN_LENGTH) {
+			if (strlen((string)$state) < ENTRY_STATE_MIN_LENGTH) {
 				$error = true;
 
 				$messageStack->add('create_account', ENTRY_STATE_ERROR);

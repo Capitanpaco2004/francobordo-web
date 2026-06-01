@@ -141,5 +141,33 @@
 				<?php echo tep_admin_files_boxes('Actualizador_precios_forestisuardi.php', '<i class="bullet"></i> Actualizador precios'); ?>
 			</div>
 		</div>
+		<div>
+			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Oceansouth <i class="fa fa-angle-right"></i></a>
+			<div class="sbmn">
+				<?php echo tep_admin_files_boxes('import-oceansouth-altas.php', '<i class="bullet"></i> Importador'); ?>
+				<?php echo tep_admin_files_boxes('Actualizador_precios_oceansouth.php', '<i class="bullet"></i> Actualizador precios'); ?>
+			</div>
+		</div>
+		<div>
+			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Dometic <i class="fa fa-angle-right"></i></a>
+			<div class="sbmn">
+				<?php echo tep_admin_files_boxes('import-dometic-altas.php', '<i class="bullet"></i> Importador'); ?>
+				<?php echo tep_admin_files_boxes('Actualizador_precios_dometic.php', '<i class="bullet"></i> Actualizador precios'); ?>
+			</div>
+		</div>
+		<div>
+			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Bluewave <i class="fa fa-angle-right"></i></a>
+			<div class="sbmn">
+				<?php echo tep_admin_files_boxes('import-bluewave-altas.php', '<i class="bullet"></i> Importador'); ?>
+				<?php echo tep_admin_files_boxes('Actualizador_precios_bluewave.php', '<i class="bullet"></i> Actualizador precios'); ?>
+			</div>
+		</div>
+		<div>
+			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Jobe <i class="fa fa-angle-right"></i></a>
+			<div class="sbmn">
+				<?php echo tep_admin_files_boxes('import-jobe-altas.php', '<i class="bullet"></i> Importador'); ?>
+				<?php echo tep_admin_files_boxes('Actualizador_precios_jobe.php', '<i class="bullet"></i> Actualizador precios'); ?>
+			</div>
+		</div>
 	</div>
 </div>
