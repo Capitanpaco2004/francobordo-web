@@ -267,7 +267,7 @@ class shoppingCart {
 		// BOF QPBPP for SPPC
 		$discount_category_quantity = []; // calculates no of items per discount category in shopping basket
 		foreach ($this->contents as $products_id => $contents_array) {
-			if (tep_not_null($contents_array['discount_categories_id'])) {
+			if (tep_not_null($contents_array['discount_categories_id'] ?? '')) {
 				if (!isset($discount_category_quantity[$contents_array['discount_categories_id']])) {
 					$discount_category_quantity[$contents_array['discount_categories_id']] = $contents_array['qty'];
 				} else {
@@ -282,7 +282,7 @@ class shoppingCart {
 			$qty = $this->contents[$products_id]['qty'];
 
 			// BOF QPBPP for SPPC
-			if (tep_not_null($this->contents[$products_id]['discount_categories_id'])) {
+			if (tep_not_null($this->contents[$products_id]['discount_categories_id'] ?? '')) {
 				$nof_items_in_cart_same_cat       = $discount_category_quantity[$this->contents[$products_id]['discount_categories_id']];
 				$nof_other_items_in_cart_same_cat = $nof_items_in_cart_same_cat - $qty;
 			} else {
@@ -404,7 +404,7 @@ class shoppingCart {
 		// BOF QPBPP for SPPC
 		$discount_category_quantity = [];
 		foreach ($this->contents as $products_id => $contents_array) {
-			if (tep_not_null($contents_array['discount_categories_id'])) {
+			if (tep_not_null($contents_array['discount_categories_id'] ?? '')) {
 				if (!isset($discount_category_quantity[$contents_array['discount_categories_id']])) {
 					$discount_category_quantity[$contents_array['discount_categories_id']] = $contents_array['qty'];
 				} else {
@@ -423,7 +423,7 @@ class shoppingCart {
 			$pf->loadProduct($products_id, $languages_id); // does query if necessary and adds to
 			// PriceFormatterStore or gets info from it next
 			if ($products = $pfs->getPriceFormatterData($products_id)) {
-				if (tep_not_null($this->contents[$products_id]['discount_categories_id'])) {
+				if (tep_not_null($this->contents[$products_id]['discount_categories_id'] ?? '')) {
 					$nof_items_in_cart_same_cat       = $discount_category_quantity[$this->contents[$products_id]['discount_categories_id']];
 					$nof_other_items_in_cart_same_cat = $nof_items_in_cart_same_cat - $this->contents[$products_id]['qty'];
 				} else {
@@ -519,7 +519,7 @@ class shoppingCart {
 									 'name'                   => $products['products_name'],
 									 'model'                  => $products['products_model'],
 									 'image'                  => $products['products_image'],
-									 'discount_categories_id' => $this->contents[$products_id]['discount_categories_id'],
+									 'discount_categories_id' => $this->contents[$products_id]['discount_categories_id'] ?? '',
 									 'price'                  => $products_price,
 									 'price_org'              => $products['products_price'] + $this->attributes_price($products_id),
 									 'cost'                   => $products['products_cost'],
@@ -579,6 +579,7 @@ function attributes_price($products_id) {
 				} // end if (tep_not_null($list_of_prdcts_attributes_id) && $customer_group_id != '0')
 				// now loop through array $attribute_price to add up/substract attribute prices
 
+				$attributes_price = 0; // init: evita "Undefined variable" en PHP 8 (se acumula en el bucle)
 				for ($n = 0; $n < count($attribute_price); $n++) {
 					if ($attribute_price[$n]['price_prefix'] == '-') {
 						$attributes_price -= abs($attribute_price[$n]['options_values_price']);

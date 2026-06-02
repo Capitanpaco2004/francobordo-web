@@ -1344,16 +1344,32 @@ if( tep_not_null($action) )
 			// cada 5 min). Se muestra una columna "Almacén" sólo si hay datos para
 			// el pedido (orders en preparación). Para cada producto cruzamos por
 			// products.CCODIART = orders_warehouse_status.sku.
-			$aWarehouseStatus = []; // sku => ['status' => ..., 'arrival_date' => ...]
-			$qWh = tep_db_query("SELECT sku, status, arrival_date FROM orders_warehouse_status WHERE orders_id = " . (int)$oID);
+			// Clave compuesta sku|variante (variante = concat CCODIVAL de orders_products_attributes,
+			// igual formato que el sync; permite distinguir variantes que comparten CCODIART)
+			$aWarehouseStatus = []; // 'sku|variante' => ['status'=>..., 'arrival_date'=>...]
+			$qWh = tep_db_query("SELECT sku, variante, status, arrival_date FROM orders_warehouse_status WHERE orders_id = " . (int)$oID);
 			while ($rWh = tep_db_fetch_array($qWh)) {
-				$aWarehouseStatus[$rWh['sku']] = [
+				$aWarehouseStatus[$rWh['sku'] . '|' . $rWh['variante']] = [
 					'status' => $rWh['status'],
 					'arrival_date' => $rWh['arrival_date'],
 				];
 			}
 			$bShowWarehouseColumn = ! empty($aWarehouseStatus);
 			$aProductSkuCache = []; // products_id => CCODIART
+			// Variante por orders_products_id (CCODIVAL concatenados, mismo formato que sync)
+			$aLineVariante = [];
+			$qLv = tep_db_query(
+				'SELECT op.orders_products_id, '
+				. "COALESCE(GROUP_CONCAT(DISTINCT pov.CCODIVAL ORDER BY opa.products_options_id SEPARATOR ' / '), '') AS variante "
+				. 'FROM ' . TABLE_ORDERS_PRODUCTS . ' op '
+				. 'LEFT JOIN orders_products_attributes opa ON opa.orders_products_id = op.orders_products_id '
+				. 'LEFT JOIN products_options_values pov ON pov.products_options_values_id = opa.products_options_values_id '
+				. 'WHERE op.orders_id = ' . (int)$oID . ' '
+				. 'GROUP BY op.orders_products_id'
+			);
+			while ($rLv = tep_db_fetch_array($qLv)) {
+				$aLineVariante[(int)$rLv['orders_products_id']] = (string)$rLv['variante'];
+			}
 			?>
 			<table cellpadding="0" cellspacing="0" width="100%" class="tAlt wGeneral">
 				<thead>
@@ -1440,7 +1456,10 @@ if( tep_not_null($action) )
 								$aProductSkuCache[$pid] = $rSku ? (string)$rSku['CCODIART'] : '';
 							}
 							$skuLine = $aProductSkuCache[$pid];
-							$wh = ($skuLine !== '' && isset($aWarehouseStatus[$skuLine])) ? $aWarehouseStatus[$skuLine] : null;
+							$opid = (int)$order->products[$i]['id'];
+							$varLine = $aLineVariante[$opid] ?? '';
+							$keyWh = $skuLine . '|' . $varLine;
+							$wh = ($skuLine !== '' && isset($aWarehouseStatus[$keyWh])) ? $aWarehouseStatus[$keyWh] : null;
 							$cellHtml = '';
 							if ($wh === null) {
 								$cellHtml = '<span style="color:#aaa;">—</span>';

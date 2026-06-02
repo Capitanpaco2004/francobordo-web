@@ -50,6 +50,7 @@
 		<?php echo tep_admin_files_boxes('importador_better_together.php', '<i class="bullet"></i> Importador Better Together'); ?>
 		<?php echo tep_admin_files_boxes('importador_stock_aributo.php', '<i class="bullet"></i> Importador Stock Atributos'); ?>
 		<?php echo tep_admin_files_boxes('backfill_ean_internos.php', '<i class="bullet"></i> Backfill EAN internos'); ?>
+		<?php echo tep_admin_files_boxes('import_blacklist_admin.php', '<i class="bullet"></i> Lista negra de reimportación'); ?>
 		<div>
 			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Osculati <i class="fa fa-angle-right"></i></a>
 			<div class="sbmn">
@@ -167,6 +168,13 @@
 			<div class="sbmn">
 				<?php echo tep_admin_files_boxes('import-jobe-altas.php', '<i class="bullet"></i> Importador'); ?>
 				<?php echo tep_admin_files_boxes('Actualizador_precios_jobe.php', '<i class="bullet"></i> Actualizador precios'); ?>
+			</div>
+		</div>
+		<div>
+			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> RAM Mounts <i class="fa fa-angle-right"></i></a>
+			<div class="sbmn">
+				<?php echo tep_admin_files_boxes('import-ram-altas.php', '<i class="bullet"></i> Importador'); ?>
+				<?php echo tep_admin_files_boxes('Actualizador_precios_ram.php', '<i class="bullet"></i> Actualizador precios'); ?>
 			</div>
 		</div>
 	</div>

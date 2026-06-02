@@ -134,8 +134,20 @@ class paypal_applepay {
         (function(){
             function $(id){return document.getElementById(id);}
             function hideDefaultSubmit(){var b=$('checkoutShippingButton');if(b)b.style.display='none';}
-            function showError(m){var e=$('paypal-applepay-error');if(e){e.textContent=m;e.style.display='block';}}
+            function showError(m){var e=$('paypal-applepay-error');if(e){e.textContent=m;e.style.display='block';} pplog('error_shown', m);}
             function getForm(){return document.querySelector('form[action*="checkout_process"]')||(document.querySelector('input[name="paypal_rest_order_id"]')||{}).form;}
+            // Beacon de depuracion → paypal_rest.log (para ver el flujo en iPhone sin consola)
+            function pplog(step, detail){
+                try {
+                    var body = JSON.stringify({step:'applepay/'+step, detail: detail ? String(detail).slice(0,500) : ''});
+                    if (navigator.sendBeacon) {
+                        navigator.sendBeacon('ext/modules/payment/paypal_rest/js-log.php', new Blob([body], {type:'application/json'}));
+                    } else {
+                        fetch('ext/modules/payment/paypal_rest/js-log.php', {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:body, keepalive:true});
+                    }
+                } catch(e){}
+            }
+            pplog('script_init', 'hasApplePaySession='+(!!window.ApplePaySession));
 
             // Apple Pay solo funciona en Safari con ApplePaySession
             if (!window.ApplePaySession || !window.ApplePaySession.canMakePayments()) {
@@ -156,6 +168,7 @@ class paypal_applepay {
                 try {
                     var applepay = window.paypal_applepay_sdk.Applepay();
                     var config   = await applepay.config();
+                    pplog('config', 'isEligible='+(config&&config.isEligible)+' country='+(config&&config.countryCode)+' networks='+(config&&config.supportedNetworks?config.supportedNetworks.join(','):'-'));
                     if (!config || !config.isEligible) {
                         showError('Apple Pay no esta disponible para esta cuenta PayPal o este dominio no esta verificado.');
                         return;
@@ -165,8 +178,10 @@ class paypal_applepay {
                     var container = $('paypal-applepay-button-container');
                     container.innerHTML = '<apple-pay-button buttonstyle="black" type="buy" locale="es-ES"></apple-pay-button>';
                     container.querySelector('apple-pay-button').addEventListener('click', onApplePayClick);
+                    pplog('button_rendered');
 
                     async function onApplePayClick(){
+                        pplog('click');
                         try {
                             var createResp = await fetch('ext/modules/payment/paypal_rest/create-order.php',{
                                 method:'POST',credentials:'same-origin',
@@ -176,6 +191,7 @@ class paypal_applepay {
                                 showError('Error creando orden: '+(createResp&&createResp.error?createResp.error:'sin id'));return;
                             }
                             var orderId = createResp.id;
+                            pplog('order_created', orderId+' amount='+createResp.amount);
 
                             var paymentRequest = {
                                 countryCode: config.countryCode || 'ES',
@@ -190,16 +206,20 @@ class paypal_applepay {
                             var session = new ApplePaySession(4, paymentRequest);
 
                             session.onvalidatemerchant = async function(evt){
+                                pplog('validatemerchant_start', evt.validationURL);
                                 try {
                                     var ms = await applepay.validateMerchant({validationUrl: evt.validationURL});
+                                    pplog('validatemerchant_ok');
                                     session.completeMerchantValidation(ms.merchantSession);
                                 } catch (e) {
+                                    pplog('validatemerchant_fail', (e&&e.message?e.message:e));
                                     showError('Error validando comercio Apple Pay: '+(e&&e.message?e.message:e));
                                     session.abort();
                                 }
                             };
 
                             session.onpaymentauthorized = async function(evt){
+                                pplog('paymentauthorized');
                                 try {
                                     await applepay.confirmOrder({
                                         orderId: orderId,
@@ -207,33 +227,41 @@ class paypal_applepay {
                                         billingContact: evt.payment.billingContact,
                                         shippingContact: evt.payment.shippingContact
                                     });
+                                    pplog('confirmorder_ok');
                                     var cap = await fetch('ext/modules/payment/paypal_rest/capture-order.php',{
                                         method:'POST',credentials:'same-origin',
                                         headers:{'Content-Type':'application/json'},
                                         body:JSON.stringify({order_id:orderId})
                                     }).then(function(r){return r.json();});
                                     if (!cap || !cap.ok) {
+                                        pplog('capture_fail', (cap&&cap.error?cap.error:'')+' '+(cap&&cap.detail?cap.detail:''));
                                         session.completePayment(ApplePaySession.STATUS_FAILURE);
                                         showError('Error capturando: '+(cap&&cap.error?cap.error:''));return;
                                     }
+                                    pplog('capture_ok', cap.capture_id);
                                     session.completePayment(ApplePaySession.STATUS_SUCCESS);
 
                                     document.querySelector('input[name="paypal_rest_order_id"]').value   = cap.order_id;
                                     document.querySelector('input[name="paypal_rest_capture_id"]').value = cap.capture_id;
                                     var f = getForm();
+                                    pplog('submitting', f ? 'form_found' : 'no_form_fallback_redirect');
                                     if (f) f.submit(); else window.location.href='checkout_process.php';
                                 } catch (e) {
+                                    pplog('confirmorder_fail', (e&&e.message?e.message:e));
                                     session.completePayment(ApplePaySession.STATUS_FAILURE);
                                     showError('Apple Pay onauthorized error: '+(e&&e.message?e.message:e));
                                 }
                             };
 
-                            session.oncancel = function(){
+                            session.oncancel = function(evt){
+                                pplog('session_cancel', evt && evt.errorCode ? ('code='+evt.errorCode) : '');
                                 showError('Has cancelado el pago con Apple Pay.');
                             };
 
+                            pplog('session_begin');
                             session.begin();
                         } catch (err) {
+                            pplog('click_error', (err&&err.message?err.message:err));
                             showError('Apple Pay click error: '+(err&&err.message?err.message:err));
                         }
                     }

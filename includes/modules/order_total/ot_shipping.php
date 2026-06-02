@@ -238,7 +238,10 @@ class ot_shipping
             
             $shipping_tax = 0;
 
-            if ($GLOBALS[$module]->tax_class > 0) {
+            // Guard PHP 8: 'freeamount' (envio gratis) no declara tax_class, y en algunos
+            // flujos $GLOBALS[$module] puede no existir aun. Sin envio con coste no hay IVA
+            // de envio, asi que evaluar a 0 es correcto; ademas silencia el notice.
+            if (is_object($GLOBALS[$module] ?? null) && ($GLOBALS[$module]->tax_class ?? 0) > 0) {
                 $shipping_tax = tep_get_tax_rate($GLOBALS[$module]->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id']);
 
 

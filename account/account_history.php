@@ -214,7 +214,14 @@
 						. ' from ' . TABLE_ORDERS_PRODUCTS . ' op'
 						. ' left join orders_products_attributes opa on opa.orders_products_id = op.orders_products_id'
 						. ' left join ' . TABLE_PRODUCTS . ' p on p.products_id = op.products_id'
-						. ' left join orders_warehouse_status ws on ws.orders_id = op.orders_id and ws.sku = p.CCODIART'
+						. ' left join orders_warehouse_status ws on ws.orders_id = op.orders_id'
+						. '   and ws.sku = p.CCODIART'
+						. "   and ws.variante = ("
+						. "     select coalesce(group_concat(distinct pov2.CCODIVAL order by opa2.products_options_id separator ' / '),'')"
+						. '     from orders_products_attributes opa2'
+						. '     left join products_options_values pov2 on pov2.products_options_values_id = opa2.products_options_values_id'
+						. '     where opa2.orders_products_id = op.orders_products_id'
+						. '   )'
 						. ' where op.orders_id = "' . $oID . '"'
 						. ' group by op.orders_products_id, op.products_id, op.products_name, ws.status'
 					);

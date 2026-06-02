@@ -104,8 +104,8 @@ try {
     $stmtResolveProductId = $db->prepare("SELECT products_id FROM products WHERE CCODIART = ? LIMIT 1");
     $stmtInsert = $db->prepare(
         "INSERT INTO orders_warehouse_status "
-        . "(orders_id, products_id, sku, status, qty, arrival_date, last_updated) "
-        . "VALUES (?, ?, ?, ?, ?, ?, ?) "
+        . "(orders_id, products_id, sku, variante, status, qty, arrival_date, last_updated) "
+        . "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
         . "ON DUPLICATE KEY UPDATE products_id=VALUES(products_id), status=VALUES(status), "
         . "qty=VALUES(qty), arrival_date=VALUES(arrival_date), last_updated=VALUES(last_updated)"
     );
@@ -175,7 +175,8 @@ try {
                 $productsId = (int)$r['products_id'];
             }
 
-            $stmtInsert->bind_param('iissdss', $oid, $productsId, $sku, $status, $qty, $arrival, $nowSql);
+            $variante = isset($line['variante']) ? (string)$line['variante'] : '';
+            $stmtInsert->bind_param('iisssdss', $oid, $productsId, $sku, $variante, $status, $qty, $arrival, $nowSql);
             $stmtInsert->execute();
             $linesUpserted++;
 

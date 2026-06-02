@@ -239,7 +239,7 @@ $scopeFilter = $scope === 'no_stock' ? " AND p.products_quantity <= 0" : "";
 
 logMsg("Leyendo productos Garmin (filtro de seguridad" . ($scope === 'no_stock' ? ' + scope sin stock' : '') . ")…");
 $prods = [];
-$r = $mysqli->query("SELECT p.products_id, p.products_model, p.reference_prov, p.products_price, p.products_cost, p.products_quantity FROM products p WHERE $securityFilter $scopeFilter AND p.products_model<>''");
+$r = $mysqli->query("SELECT p.products_id, p.products_model, p.reference_prov, p.products_price, p.products_cost, p.products_quantity, pd.products_name FROM products p LEFT JOIN products_description pd ON pd.products_id=p.products_id AND pd.language_id=3 WHERE $securityFilter $scopeFilter AND p.products_model<>''");
 while ($row = $r->fetch_assoc()) $prods[(int) $row['products_id']] = $row;
 logMsg("Productos en scope: " . count($prods));
 if (empty($prods)) { logMsg("Nada que hacer."); goto end_action; }
@@ -287,15 +287,20 @@ foreach ($prods as $pid => $p) {
 	$priceChanged = $deltaPrice > PRICE_THRESHOLD;
 	$costChanged  = $deltaCost  > PRICE_THRESHOLD;
 	$priceExtreme = $maxChangeRatio > 0 && $deltaPrice > $maxChangeRatio;
-	$costExtreme  = $maxChangeRatio > 0 && $deltaCost  > $maxChangeRatio;
+	// Coste 0 en BD (dato ausente): NO dividir por ~0 para decidir "extremo" (daría +XXXXX% falso).
+	// Asumimos que el coste antiguo daba un margen del 25% sobre venta (coste = curPrice × 0.75)
+	// y medimos la variación del coste nuevo contra esa referencia. El coste igual se actualiza
+	// al valor real del feed; esto solo afecta a si se EXCLUYE por el tope.
+	$deltaCostExtreme = ($curCost > 0 || $curPrice <= 0) ? $deltaCost : priceDeltaPct($curPrice * 0.75, $newCost);
+	$costExtreme  = $maxChangeRatio > 0 && $deltaCostExtreme > $maxChangeRatio;
 
 	if ($priceChanged) {
-		$row = ['pid' => $pid, 'model' => $p['products_model'], 'old' => $curPrice, 'new' => $newPrice];
+		$row = ['pid' => $pid, 'model' => $p['products_model'], 'name' => $p['products_name'] ?? '', 'old' => $curPrice, 'new' => $newPrice];
 		if ($priceExtreme && !$applyExtremes) { $extremesPrice[] = $row; $extremesPids[$pid] = true; }
 		else $updPrice[] = $row;
 	}
 	if ($costChanged) {
-		$row = ['pid' => $pid, 'model' => $p['products_model'], 'old' => $curCost, 'new' => $newCost];
+		$row = ['pid' => $pid, 'model' => $p['products_model'], 'name' => $p['products_name'] ?? '', 'old' => $curCost, 'new' => $newCost];
 		if ($costExtreme && !$applyExtremes) { $extremesCost[] = $row; $extremesPids[$pid] = true; }
 		else $updCost[] = $row;
 	}
@@ -360,6 +365,7 @@ logMsg("Sin cambios significativos     : $noChange");
 logMsg("Sin match en CSV               : " . count($noMatch));
 
 $showLimit = 25; if (!empty($onlyExtremes)) $showLimit = 1000000;
+if (isset($_GET["show_limit"]) || isset($_POST["show_limit"])) $showLimit = max(1, (int)($_GET["show_limit"] ?? $_POST["show_limit"]));
 if (!empty($updPrice)) {
 	logMsg("--- UPDATE products_price (top $showLimit) ---");
 	foreach (array_slice($updPrice, 0, $showLimit) as $u) {
@@ -413,7 +419,7 @@ if (!empty($extremesPrice)) {
 	logMsg("--- ⚠️ EXTREMOS price (excluidos, top $showLimit) — probablemente pack-vs-unidad o error de feed ---");
 	foreach (array_slice($extremesPrice, 0, $showLimit) as $u) {
 		$pct = priceDeltaPct($u['old'], $u['new']) * 100;
-		logMsg(sprintf("  pid=%d sku=%s : %.4f → %.4f (%s%.1f%%)", $u['pid'], $u['model'], $u['old'], $u['new'], $u['new']>=$u['old']?'+':'-', $pct));
+		logMsg(sprintf("  pid=%d sku=%s «%s» : %.4f → %.4f (%s%.1f%%)", $u['pid'], $u['model'], mb_substr($u['name'] ?? '', 0, 60, 'UTF-8'), $u['old'], $u['new'], $u['new']>=$u['old']?'+':'-', $pct));
 	}
 	if (count($extremesPrice) > $showLimit) logMsg("  …y " . (count($extremesPrice) - $showLimit) . " más");
 }
@@ -421,7 +427,7 @@ if (!empty($extremesCost)) {
 	logMsg("--- ⚠️ EXTREMOS cost (excluidos, top $showLimit) ---");
 	foreach (array_slice($extremesCost, 0, $showLimit) as $u) {
 		$pct = priceDeltaPct($u['old'], $u['new']) * 100;
-		logMsg(sprintf("  pid=%d sku=%s : cost %.4f → %.4f (%s%.1f%%)", $u['pid'], $u['model'], $u['old'], $u['new'], $u['new']>=$u['old']?'+':'-', $pct));
+		logMsg(sprintf("  pid=%d sku=%s «%s» : cost %.4f → %.4f (%s%.1f%%)", $u['pid'], $u['model'], mb_substr($u['name'] ?? '', 0, 60, 'UTF-8'), $u['old'], $u['new'], $u['new']>=$u['old']?'+':'-', $pct));
 	}
 	if (count($extremesCost) > $showLimit) logMsg("  …y " . (count($extremesCost) - $showLimit) . " más");
 }
