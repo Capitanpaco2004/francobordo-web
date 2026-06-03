@@ -15,11 +15,14 @@
 
 	function DOMinnerHtml($node)
 	{
+		// Si el xpath no encontró el nodo (HTML vacío o sin el id buscado) devolvemos ''
+		if (!($node instanceof DOMNode) || $node->childNodes === null) return '';
 		return implode('', array_map([$node->ownerDocument,"saveHTML"], iterator_to_array($node->childNodes)));
 	}
 
 	function DOMclearHtml($node)
 	{
+		if (!($node instanceof DOMNode)) return '';
 		return preg_replace('@<(\w+)\b.*?>.*?</\1>@si', '', (string) DOMinnerHTML( $node ) );
 	}
 

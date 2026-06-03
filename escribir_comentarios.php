@@ -21,7 +21,7 @@
 	// Funcion que limpia las cadenas enviadas por post
 	function getCleanerString( $sString )
 	{
-		$sString = strip_tags( $sString );
+		$sString = strip_tags( (string)$sString );
 
 		return tep_db_prepare_input( $sString );
 	}

@@ -1,8 +1,14 @@
 <?php
 	// Variables
 	$sImagen        = $_GET['img'] ?? '';
-	$nWidth         = $_GET['w'] ?? '';
-	$nHeight        = $_GET['h'] ?? '';
+	$nWidth         = (int)($_GET['w'] ?? 0);
+	$nHeight        = (int)($_GET['h'] ?? 0);
+
+	// Sin dimensiones válidas no podemos escalar (evita TypeError en scaleSize)
+	if ($nWidth <= 0 || $nHeight <= 0) {
+		header('HTTP/1.1 400 Bad Request');
+		exit;
+	}
 	$gdImage        = null;
 	$gdThumb        = null;
 	$aImageInfo     = null;

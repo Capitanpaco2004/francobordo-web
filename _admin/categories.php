@@ -4530,7 +4530,7 @@
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=copy_to">' . tep_image(DIR_WS_ICONS . 'duplicate.png', ICON_DUPLICATE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=move_product">' . tep_image(DIR_WS_ICONS . 'move.png', ICON_MOVE) . '</a>'; ?>
 													<?php echo '<a href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&action=delete_product" class="js-row-delete" data-pid="' . (int)$products['products_id'] . '">' . tep_image(DIR_WS_ICONS . 'delete.png', ICON_DELETE) . '</a>'; ?>
-													<?php echo '<a href="' . tep_href_link('stats_products_orders.php', 'reference_selected=' . rawurlencode($products['products_model'])) . '&month=ALL&year=ALL&no_status=&status=">' . tep_image(DIR_WS_ICONS . 'icon_stats_sold.png', 'Ver quien ha comprado este producto') . '</a>'; ?>
+													<?php echo '<a href="' . tep_href_link('stats_products_orders.php', 'reference_selected=' . rawurlencode($products['products_model'] ?? '')) . '&month=ALL&year=ALL&no_status=&status=">' . tep_image(DIR_WS_ICONS . 'icon_stats_sold.png', 'Ver quien ha comprado este producto') . '</a>'; ?>
                                                 </td>
                                             </tr>
                                         <?php

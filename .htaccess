@@ -398,6 +398,10 @@ RewriteCond %{REMOTE_HOST} ^.*\.compute-1\.amazonaws\.com$ [NC,OR]
 RewriteCond %{REMOTE_HOST} ^.*\.compute\.amazonaws\.com$ [NC,OR]
 RewriteCond %{HTTP_REFERER} ^http://.*amazonaws\.com\.cn [NC,OR]
 RewriteCond %{HTTP_REFERER} ^.*\.eu [NC]
+# Exclude public product feeds (/fm-feeds/) from the bad-bot redirect so
+# automated fetchers (SalesManago, Google, Doofinder) using wget/curl UAs
+# can download the XML/TXT feeds. Added 2026-06-02 for SalesManago.
+RewriteCond %{REQUEST_URI} !^/fm-feeds/ [NC]
 RewriteRule ^.*$ https://www.google.com [R,L]
 RewriteCond %{HTTP_HOST} ^francobordo\.net$ [OR]
 RewriteCond %{HTTP_HOST} ^www\.francobordo\.net$

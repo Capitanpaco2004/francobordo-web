@@ -1799,7 +1799,10 @@ function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $fro
 		}
 		$mail->SMTPDebug = 0; // Nivel de debug (0 = off, 1 = client messages, 2 = client and server messages)
 		$mail->setFrom(($bSmtp ? $sEmail : STORE_OWNER_EMAIL_ADDRESS), $from_email_name);
-		$mail->AddReplyTo($from_email_address);
+		// PHPMailer lanza Invalid address si el email está vacío (form sin email del usuario)
+		if (filter_var((string)$from_email_address, FILTER_VALIDATE_EMAIL)) {
+			$mail->AddReplyTo($from_email_address);
+		}
 		$mail->FromName = $from_email_name;
 	} else {
 		$mail->Host = "localhost";

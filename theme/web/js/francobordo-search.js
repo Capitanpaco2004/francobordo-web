@@ -240,6 +240,7 @@
     if (opts.sort)   body.sort   = [opts.sort];
     const r = await fetch(PROXY_URL, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      signal: opts.signal,
     });
     if (!r.ok) throw new Error('proxy ' + r.status);
     return r.json();
@@ -394,8 +395,18 @@
   // Estado del scroll infinito
   let infinite = { loaded: 0, total: 0, loading: false, exhausted: false, sentinelObs: null };
 
+  // Guarda anti-carrera: cada nueva búsqueda incrementa searchGen; las respuestas
+  // que vuelven con un gen viejo (peticiones en vuelo de teclas anteriores) se
+  // descartan en vez de pintarse. inflightCtrl cancela la petición previa.
+  // Sin esto, teclear rápido sobre red lenta mezcla resultados de queries distintas
+  // (contador de una, tarjetas de otra) — bug observado en móvil vs desktop.
+  let searchGen = 0;
+  let inflightCtrl = null;
+
   async function refreshModal() {
     if (!modalEl) return;
+    searchGen++;                              // nueva generación de búsqueda
+    if (inflightCtrl) inflightCtrl.abort();   // cancela cualquier petición en vuelo
     // Reset estado del scroll infinito al hacer una nueva búsqueda/filtro
     state.page = 0;
     cardPositionCounter = 0;   // re-numerar posiciones desde 1
@@ -409,6 +420,9 @@
   async function loadNextPage(includeFacets) {
     if (infinite.loading || infinite.exhausted) return;
     infinite.loading = true;
+    const myGen = searchGen;                  // generación de ESTA petición
+    const ctrl = new AbortController();
+    inflightCtrl = ctrl;
     const offset = state.page * PAGE_SIZE;
     const t0 = performance.now();
     let data;
@@ -419,13 +433,20 @@
         filter: buildFilter(),
         facets: includeFacets ? ['brand', 'category_lvl0', 'availability'] : undefined,
         sort: state.sort,
+        signal: ctrl.signal,
       });
     } catch (e) {
+      // Abortada o de una búsqueda ya superada: el flag loading lo posee la
+      // búsqueda nueva, así que no lo tocamos ni pintamos error.
+      if (myGen !== searchGen || e.name === 'AbortError') return;
       infinite.loading = false;
       $('.fb-results', modalEl).insertAdjacentHTML('beforeend',
         `<div class="fb-empty">${T.error}</div>`);
       return;
     }
+    // Llegó tarde: ya hay una búsqueda más nueva en curso -> descartar sin pintar
+    // (no tocar infinite.loading, lo gestiona la búsqueda vigente).
+    if (myGen !== searchGen) return;
     const dt = Math.round(performance.now() - t0);
     const hits = data.hits || [];
     infinite.total  = data.estimatedTotalHits ?? 0;
@@ -477,10 +498,12 @@
   // append=true → añadir tras los pocos resultados existentes; false → reemplazar empty.
   async function showDidYouMean(q, append) {
     if (!q) return;
+    const myGen = searchGen;                  // generación al lanzar la sugerencia
     let alt;
     try {
       alt = await meiliSearch({ q, limit: 8, semanticRatio: 1.0 });
     } catch (e) { return; }
+    if (myGen !== searchGen) return;          // búsqueda superada: no inyectar sugerencias viejas
     const hits = (alt.hits || []).filter(h => h);
     if (!hits.length) return;
     const header =
