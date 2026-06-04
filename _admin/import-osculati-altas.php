@@ -400,6 +400,8 @@ function oscIsNumericish($s) {
 function oscCleanCap($c) {
 	$c = trim((string) $c);
 	if (preg_match('/\s{2,}/u', $c)) { $p = preg_split('/\s{2,}/u', $c); $c = trim(end($p)); }
+	// Meta-tokens de Osculati con guiones bajos (ej. "bobina_bianca_m") → espacios
+	$c = trim(preg_replace('/\s{2,}/u', ' ', str_replace('_', ' ', $c)));
 	return $c;
 }
 
@@ -434,7 +436,7 @@ function oscImageCodeFromXml($xml) {
 /** Traduce un lote de términos EN→ES vía LLM (JSON in/out). Devuelve mapa original→es. */
 function oscLlmTranslateSpecTerms(array $terms) {
 	if (!$terms) return [];
-	$sys = 'Eres traductor técnico náutico EN→ES (España). Recibes un array JSON de términos cortos de especificaciones de producto náutico (etiquetas de columna y valores). Devuelve SOLO un objeto JSON {"original":"traducción"} con la traducción al español de CADA término del array. Usa terminología náutica. MANTÉN intactos números, códigos (ej. 14.200.00), dimensiones (192x65) y unidades (mm, V, W, kg). Ejemplos: "Light colour"->"Color de la luz", "Body"->"Cuerpo", "white"->"blanco", "Black"->"negro", "Bulb included"->"Bombilla incluida", "outside mm"->"medidas exteriores mm", "left"->"izquierda", "right"->"derecha", "Breaking load kg"->"Carga de rotura kg", "Material"->"Material", "Thread"->"Rosca", "Length mm"->"Longitud mm". Responde SOLO el JSON, sin comentarios ni ```.';
+	$sys = 'Eres traductor técnico náutico IT/EN → ES (España). Recibes un array JSON de términos cortos de especificaciones de producto náutico (etiquetas de columna y valores) que pueden venir en INGLÉS o en ITALIANO. Devuelve SOLO un objeto JSON {"original":"traducción"} con la traducción al español de CADA término (la clave debe ser EXACTAMENTE el término original recibido, sin alterar). Traduce SIEMPRE aunque el término esté en italiano. Usa terminología náutica. MANTÉN intactos números, códigos (ej. 14.200.00), dimensiones (192x65) y unidades (mm, V, W, kg). Ejemplos EN: "Light colour"->"Color de la luz", "Body"->"Cuerpo", "white"->"blanco", "Black"->"negro", "Bulb included"->"Bombilla incluida", "outside mm"->"medidas exteriores mm", "left"->"izquierda", "right"->"derecha", "Breaking load kg"->"Carga de rotura kg", "Material"->"Material", "Thread"->"Rosca", "Length mm"->"Longitud mm". Ejemplos IT: "giallo-grigio"->"amarillo-gris", "bianco"->"blanco", "nero"->"negro", "rosso"->"rojo", "blu"->"azul", "verde"->"verde", "grigio"->"gris", "giallo"->"amarillo", "arancione"->"naranja", "bobina bianca m"->"bobina blanca (m)", "Variante"->"Variante", "lunghezza"->"longitud", "altezza"->"altura", "larghezza"->"anchura", "filettatura"->"rosca", "lunghezza m"->"longitud (m)". Responde SOLO el JSON, sin comentarios ni ```.';
 	$payload = json_encode([
 		'model' => LLM_MODEL,
 		'messages' => [
@@ -475,19 +477,63 @@ function oscTranslateTerms(array $terms) {
 	return $cache;
 }
 
+/** Traducción IT/EN → EN de términos de specs (para la tabla en idioma inglés). */
+function oscLlmTranslateSpecTermsEn(array $terms) {
+	if (!$terms) return [];
+	$sys = 'You are a nautical technical translator IT/EN -> EN. You receive a JSON array of short product-spec terms (column labels and values) that may be in ITALIAN or already in English. Return ONLY a JSON object {"original":"english"} translating EACH term to English (the key MUST be exactly the original term received). If a term is already English, keep it. KEEP numbers, codes (e.g. 14.200.00), dimensions (192x65) and units (mm, V, W, kg) intact. Italian examples: "giallo-grigio"->"yellow-grey", "bianco"->"white", "nero"->"black", "rosso"->"red", "blu"->"blue", "verde"->"green", "grigio"->"grey", "giallo"->"yellow", "arancione"->"orange", "bobina bianca m"->"white coil (m)", "Variante"->"Variant", "lunghezza"->"length", "altezza"->"height", "larghezza"->"width", "filettatura"->"thread". Reply ONLY the JSON, no comments, no code fences.';
+	$payload = json_encode([
+		'model' => LLM_MODEL,
+		'messages' => [
+			['role' => 'system', 'content' => $sys],
+			['role' => 'user',   'content' => json_encode(array_values($terms), JSON_UNESCAPED_UNICODE)],
+		],
+		'chat_template_kwargs' => ['enable_thinking' => false],
+		'max_tokens' => 2000, 'temperature' => 0.1,
+	], JSON_UNESCAPED_UNICODE);
+	for ($i = 0; $i <= 2; $i++) {
+		$ch = curl_init(LLM_URL);
+		curl_setopt_array($ch, [CURLOPT_POST=>true, CURLOPT_POSTFIELDS=>$payload, CURLOPT_HTTPHEADER=>['Content-Type: application/json'], CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>90]);
+		$resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); unset($ch);
+		if ($code === 200 && $resp !== false) {
+			$d = json_decode($resp, true);
+			$txt = trim((string) ($d['choices'][0]['message']['content'] ?? ''));
+			$txt = preg_replace('/^```[a-z]*\s*|\s*```$/i', '', $txt);
+			$map = json_decode($txt, true);
+			if (is_array($map)) return $map;
+		}
+		usleep(400000);
+	}
+	return [];
+}
+
+/** Traduce términos a EN con cache de ejecución (números/unidades sin tocar). */
+function oscTranslateTermsEn(array $terms) {
+	static $cache = [];
+	$need = [];
+	foreach ($terms as $t) {
+		if ($t === '' || oscIsNumericish($t)) continue;
+		if (!array_key_exists($t, $cache)) $need[$t] = true;
+	}
+	if ($need) {
+		$map = oscLlmTranslateSpecTermsEn(array_keys($need));
+		foreach (array_keys($need) as $t) $cache[$t] = $map[$t] ?? $t;
+	}
+	return $cache;
+}
+
 /** Renderiza la tabla. $multi=true → matriz variantes×captions; false → 2 columnas. */
-function oscRenderSpecTable(array $rows, array $cols, $multi, $translate, array $tr) {
-	$T = function($s) use ($translate, $tr) {
-		if (!$translate || oscIsNumericish($s)) return $s;
+function oscRenderSpecTable(array $rows, array $cols, $multi, $lang, array $tr) {
+	$T = function($s) use ($tr) {
+		if (oscIsNumericish($s)) return $s;
 		return $tr[$s] ?? $s;
 	};
 	$FONT  = 'font-family: tahoma, arial, helvetica, sans-serif; font-size: 10pt;';
-	$open  = '<table class="osc-spec-table" style="border-collapse: collapse; border: 1px solid rgb(206, 212, 217);" border="1" cellspacing="3" cellpadding="3"><tbody>';
-	$hCell = fn($txt) => '<td style="background-color: #008cc6; text-align: center; padding: 2px;"><span style="' . $FONT . ' color: #ffffff;">' . htmlspecialchars($txt) . '</span></td>';
-	$dCell = fn($txt) => '<td style="text-align: center; padding: 2px;"><span style="' . $FONT . '">' . htmlspecialchars($txt) . '</span></td>';
+	$open  = '<table class="osc-spec-table" style="border-collapse: collapse; border: 1px solid rgb(206, 212, 217); margin-top: 6px;" border="1" cellspacing="3" cellpadding="3"><tbody>';
+	$hCell = fn($txt) => '<td style="background-color: #008cc6; text-align: center; padding: 4px 12px;"><span style="' . $FONT . ' color: #ffffff;">' . htmlspecialchars($txt) . '</span></td>';
+	$dCell = fn($txt) => '<td style="text-align: center; padding: 4px 12px;"><span style="' . $FONT . '">' . htmlspecialchars($txt) . '</span></td>';
 	$zebra = ' style="background-color: #e2f2f9;"';
 	if ($multi) {
-		$codeHdr = $translate ? 'Referencia' : 'Reference';
+		$codeHdr = ($lang === 'es') ? 'Referencia' : 'Reference';
 		$h = $open . '<tr>' . $hCell($codeHdr);
 		foreach ($cols as $cap) $h .= $hCell($T($cap));
 		$h .= '</tr>';
@@ -502,8 +548,8 @@ function oscRenderSpecTable(array $rows, array $cols, $multi, $translate, array 
 	}
 	// 2 columnas (suelto): característica | valor del único code
 	$byCap = reset($rows) ?: [];
-	$hc = $translate ? 'Característica' : 'Feature';
-	$hv = $translate ? 'Valor' : 'Value';
+	$hc = ($lang === 'es') ? 'Característica' : 'Feature';
+	$hv = ($lang === 'es') ? 'Valor' : 'Value';
 	$h = $open . '<tr>' . $hCell($hc) . $hCell($hv) . '</tr>';
 	$i = 0;
 	foreach ($cols as $cap) {
@@ -539,11 +585,12 @@ function oscSpecBlock(array $orderCodes, array $xtMap) {
 	$terms = [];
 	foreach ($cols as $c) $terms[$c] = true;
 	foreach ($rows as $byCap) foreach ($byCap as $v) if ($v !== '') $terms[$v] = true;
-	$tr = oscTranslateTerms(array_keys($terms));
+	$tr   = oscTranslateTerms(array_keys($terms));
+	$trEn = oscTranslateTermsEn(array_keys($terms));
 
 	$multi = count($orderCodes) > 1;
-	$es = '<p><strong>Especificaciones</strong></p>' . oscRenderSpecTable($rows, $cols, $multi, true, $tr);
-	$en = '<p><strong>Specifications</strong></p>' . oscRenderSpecTable($rows, $cols, $multi, false, $tr);
+	$es = '<p><strong>Especificaciones</strong></p>' . oscRenderSpecTable($rows, $cols, $multi, 'es', $tr);
+	$en = '<p><strong>Specifications</strong></p>' . oscRenderSpecTable($rows, $cols, $multi, 'en', $trEn);
 	return [$es, $en];
 }
 

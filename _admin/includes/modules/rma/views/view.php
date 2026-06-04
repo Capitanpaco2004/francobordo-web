@@ -224,20 +224,35 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
                         <p><strong>Comentarios del cliente</strong>: <?php echo $rmaDetail['comments']; ?></p>
 
                         <?php
-                        // Adjuntos del cliente (fotos / PDFs subidos al crear el RMA)
-                        $attQ = tep_db_query("SELECT id, filename_original, filename_stored, mime_type, size_bytes, date_added FROM rma_attachments WHERE id_rma = " . (int) $rmaDetail['id_rma'] . " ORDER BY id ASC");
-                        $nAtt = tep_db_num_rows($attQ);
-                        ?>
-                        <?php if ($nAtt > 0): ?>
-                            <p style="margin-top:10px"><strong>Adjuntos del cliente</strong> (<?php echo $nAtt; ?>):</p>
-                            <div style="display:flex;flex-wrap:wrap;gap:8px">
-                            <?php while ($a = tep_db_fetch_array($attQ)):
-                                $url = '/images/rma/' . (int) $rmaDetail['id_rma'] . '/' . rawurlencode($a['filename_stored']);
-                                $isImg = (strpos($a['mime_type'], 'image/') === 0);
-                                $kb = round($a['size_bytes'] / 1024);
+                        // Adjuntos del RMA: separamos los del cliente (source='client') de
+                        // los añadidos por un operador desde el admin (source='staff').
+                        $idRmaInt = (int) $rmaDetail['id_rma'];
+                        $attQ = tep_db_query("SELECT id, filename_original, filename_stored, mime_type, size_bytes, date_added, source FROM rma_attachments WHERE id_rma = " . $idRmaInt . " ORDER BY id ASC");
+                        $aClientAtt = array();
+                        $aStaffAtt  = array();
+                        while ($a = tep_db_fetch_array($attQ)) {
+                            if (($a['source'] ?? 'client') === 'staff') $aStaffAtt[] = $a; else $aClientAtt[] = $a;
+                        }
+
+                        // Pinta una miniatura/enlace de un adjunto. $allowDelete añade el botón ✕ (solo staff).
+                        $renderAtt = function($a, $idRmaInt, $allowDelete) {
+                            $url   = '/images/rma/' . $idRmaInt . '/' . rawurlencode($a['filename_stored']);
+                            $isImg = (strpos($a['mime_type'], 'image/') === 0);
+                            $kb    = round($a['size_bytes'] / 1024);
                             ?>
+                            <div style="position:relative;width:90px">
+                                <?php if ($allowDelete): ?>
+                                <form method="post" action="<?php echo tep_href_link('rma.php', 'action=remove-attachment'); ?>"
+                                      onsubmit="return confirm('¿Eliminar este adjunto del operador?');"
+                                      style="position:absolute;top:2px;right:2px;z-index:2;margin:0">
+                                    <input type="hidden" name="id" value="<?php echo $idRmaInt; ?>" />
+                                    <input type="hidden" name="att_id" value="<?php echo (int) $a['id']; ?>" />
+                                    <button type="submit" title="Eliminar adjunto"
+                                            style="border:none;background:rgba(200,0,0,.85);color:#fff;width:18px;height:18px;line-height:16px;border-radius:9px;cursor:pointer;font-size:12px;padding:0">&times;</button>
+                                </form>
+                                <?php endif; ?>
                                 <a href="<?php echo $url; ?>" target="_blank" title="<?php echo htmlspecialchars($a['filename_original']); ?> (<?php echo $kb; ?> KB)"
-                                   style="display:inline-block;width:90px;text-align:center;text-decoration:none;color:#333;border:1px solid #ddd;border-radius:4px;padding:4px;background:#fff">
+                                   style="display:block;width:90px;text-align:center;text-decoration:none;color:#333;border:1px solid #ddd;border-radius:4px;padding:4px;background:#fff;box-sizing:border-box">
                                     <?php if ($isImg): ?>
                                         <img src="<?php echo $url; ?>" alt="" style="max-width:80px;max-height:80px;object-fit:cover;border-radius:3px" />
                                     <?php else: ?>
@@ -246,9 +261,33 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
                                     <div style="font-size:10px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php echo htmlspecialchars($a['filename_original']); ?></div>
                                     <div style="font-size:9px;color:#888"><?php echo $kb; ?> KB</div>
                                 </a>
-                            <?php endwhile; ?>
+                            </div>
+                            <?php
+                        };
+                        ?>
+
+                        <?php if (count($aClientAtt) > 0): ?>
+                            <p style="margin-top:10px"><strong>Adjuntos del cliente</strong> (<?php echo count($aClientAtt); ?>):</p>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px">
+                            <?php foreach ($aClientAtt as $a) $renderAtt($a, $idRmaInt, false); ?>
                             </div>
                         <?php endif; ?>
+
+                        <?php if (count($aStaffAtt) > 0): ?>
+                            <p style="margin-top:10px"><strong>Adjuntos del operador</strong> (<?php echo count($aStaffAtt); ?>):</p>
+                            <div style="display:flex;flex-wrap:wrap;gap:8px">
+                            <?php foreach ($aStaffAtt as $a) $renderAtt($a, $idRmaInt, true); ?>
+                            </div>
+                        <?php endif; ?>
+
+                        <form method="post" action="<?php echo tep_href_link('rma.php', 'action=add-attachments'); ?>" enctype="multipart/form-data"
+                              style="margin-top:12px;padding:8px;background:#f4f4f4;border:1px solid #ddd;border-radius:4px">
+                            <input type="hidden" name="id" value="<?php echo $idRmaInt; ?>" />
+                            <label style="display:block;font-size:12px;margin-bottom:4px"><strong>Añadir imágenes / documentos</strong> (operador)</label>
+                            <input type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.pdf,image/*,application/pdf" />
+                            <div style="font-size:10px;color:#888;margin:4px 0 6px">Formatos: JPG, PNG, GIF, WEBP, HEIC, PDF (sin límite de tamaño ni de número)</div>
+                            <button class="xbutton verde" type="submit">Subir adjuntos</button>
+                        </form>
                     </div>
                 </div>
             </div>

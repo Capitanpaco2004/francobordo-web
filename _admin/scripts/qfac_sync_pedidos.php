@@ -59,6 +59,12 @@ function q($link, $sql) {
 function esc($link, $v) { return mysqli_real_escape_string($link, (string)$v); }
 function vnorm($v) { return strtoupper(preg_replace('/\s+/', '', (string)$v)); }
 function r4($x) { return round((float)$x, 4); }
+/** Formato de la columna orders_total.text tal cual lo muestra la web: "1.186,59&euro;".
+ *  ot_total va envuelto en <strong>. (miles '.', decimal ',', simbolo &euro;). */
+function ot_text($v, bool $bold = false) {
+    $s = number_format((float)$v, 2, ',', '.') . '&euro;';
+    return $bold ? '<strong>'.$s.'</strong>' : $s;
+}
 
 function ensure_log_table($link) {
     q($link, "CREATE TABLE IF NOT EXISTS qfac_order_sync_log (
@@ -119,9 +125,11 @@ function load_web_order($link, $oid): array {
     $ops = [];
     // OJO: el precio neto realmente cobrado (y que alimenta ot_subtotal) es final_price,
     // NO products_price (que es el precio base de catalogo). QFac NPREU/(1+IVA) == final_price.
-    $r = q($link, "SELECT orders_products_id, products_id, products_price, final_price, products_cost,
-                          products_quantity, products_tax, CCODIVAL1
-                   FROM orders_products WHERE orders_id=".(int)$oid);
+    // JOIN a products para traer el CCODIART de cada linea (para detectar composicion).
+    $r = q($link, "SELECT op.orders_products_id, op.products_id, op.products_price, op.final_price, op.products_cost,
+                          op.products_quantity, op.products_tax, op.CCODIVAL1, p.CCODIART
+                   FROM orders_products op LEFT JOIN products p ON p.products_id=op.products_id
+                   WHERE op.orders_id=".(int)$oid);
     while ($row = mysqli_fetch_assoc($r)) {
         $ops[] = [
             'op_id'   => (int)$row['orders_products_id'],
@@ -132,6 +140,7 @@ function load_web_order($link, $oid): array {
             'qty'     => (int)$row['products_quantity'],
             'tax'     => (float)$row['products_tax'],
             'cvar'    => (string)$row['CCODIVAL1'],
+            'ccodiart'=> (string)($row['CCODIART'] ?? ''),
         ];
     }
     $tot = [];
@@ -174,6 +183,23 @@ function plan_lines($link, array $web, array $prodLines): array {
         if (!in_array($class, ALLOWED_TOTALS, true)) { $out['reason']='extras:'.$class; return $out; }
     }
     if (!isset($web['tot']['ot_total'])) { $out['reason']='sin_ot_total'; return $out; }
+
+    // GUARD COMPOSICION (kits/escandallos): si el pedido contiene un producto CON COMPOSICION
+    // (CCODIART padre en EA15_COMPOA), QFac lo explota en componentes y el mapeo 1-linea del web
+    // se rompe. Sacamos esos pedidos de la ecuacion -> NO tocar lineas (revision manual).
+    global $COMPOSITE;
+    foreach ($web['ops'] as $op) {
+        if (!empty($op['ccodiart']) && isset($COMPOSITE[$op['ccodiart']])) { $out['reason']='producto_con_composicion'; return $out; }
+    }
+    foreach ($prodLines as $l) {
+        if (isset($COMPOSITE[$l['ccodiart']])) { $out['reason']='producto_con_composicion'; return $out; }
+    }
+
+    // GUARD secundario anti-kit: si alguna linea de producto trae NPREU=0 (componente de kit o
+    // regalo) -> NO tocar lineas. (Red por si un compuesto no estuviera en EA15_COMPOA.)
+    foreach ($prodLines as $l) {
+        if ((float)$l['npreu'] < PRICE_EPS) { $out['reason']='kit_o_linea_precio_0'; return $out; }
+    }
 
     // Resolver articulos -> products_id. NPREU crudo (IVA inc); el neto se calcula con el
     // IVA del PROPIO web (products_tax), no con NTIPIVA de QFac (codigo interno, no fiable).
@@ -347,13 +373,15 @@ function apply_changes($link, array $res): void {
                 add_product_line($link, $oid, $c);
             }
         }
-        // totales (solo si hubo cambios de linea)
+        // totales (solo si hubo cambios de linea). OJO: orders_total tiene 'value' (numerico)
+        // y 'text' (cadena formateada que es la que MUESTRA la web). Hay que actualizar AMBAS,
+        // o el total visible queda stale (formato: "1.186,59&euro;", ot_total en <strong>).
         $hasLineChanges = !empty($res['changes']);
         if ($hasLineChanges && !empty($res['totals'])) {
             $t = $res['totals'];
-            if ($t['ids']['sub']) q($link, "UPDATE orders_total SET value=".(float)$t['subtotal']." WHERE orders_total_id=".(int)$t['ids']['sub']);
-            if ($t['ids']['tax']) q($link, "UPDATE orders_total SET value=".(float)$t['tax']." WHERE orders_total_id=".(int)$t['ids']['tax']);
-            if ($t['ids']['tot']) q($link, "UPDATE orders_total SET value=".(float)$t['total']." WHERE orders_total_id=".(int)$t['ids']['tot']);
+            if ($t['ids']['sub']) q($link, "UPDATE orders_total SET value=".(float)$t['subtotal'].", text='".esc($link,ot_text($t['subtotal']))."' WHERE orders_total_id=".(int)$t['ids']['sub']);
+            if ($t['ids']['tax']) q($link, "UPDATE orders_total SET value=".(float)$t['tax'].", text='".esc($link,ot_text($t['tax']))."' WHERE orders_total_id=".(int)$t['ids']['tax']);
+            if ($t['ids']['tot']) q($link, "UPDATE orders_total SET value=".(float)$t['total'].", text='".esc($link,ot_text($t['total'], true))."' WHERE orders_total_id=".(int)$t['ids']['tot']);
         }
 
         // cambio de estado a Enviado Parcialmente (si procede)
@@ -397,11 +425,12 @@ function add_product_line($link, int $oid, array $c): void {
     $base = (float)$p['base'];          // precio base de catalogo
     $profit = r4(($price - $cost) * $qty);
     $name = substr((string)$p['pname'], 0, 80);
-    $ean  = (int)$p['product_ean'];
+    // orders_products.product_ean es INT de 4 bytes (no cabe un EAN-13) y la tienda lo deja a 0
+    // en todas las lineas; ponerlo a 0 para respetar esa convencion (y evitar el cap a 2147483647).
     q($link, "INSERT INTO orders_products SET
         orders_id=".(int)$oid.", products_id=$pid,
         products_model='".esc($link,$p['products_model'])."',
-        product_ean=$ean, products_name='".esc($link,$name)."',
+        product_ean=0, products_name='".esc($link,$name)."',
         products_price=$base, products_cost=$cost, final_price=$price,
         products_tax=".(float)$rate.", products_quantity=$qty, profit=$profit,
         CCODIVAL1='', CCODIVAL2='', CCODIPROP1='', CCODIPROP2='', CPROP1='', CPROP2='',
@@ -429,7 +458,9 @@ if (!$eligible) { echo "Nada que hacer.\n"; exit(0); }
 $pull = helper_pull($eligible);
 if (empty($pull['ok'])) { fwrite(STDERR, "Helper error: ".($pull['error']??'?')."\n"); exit(2); }
 $qfacOrders = $pull['orders'] ?? [];
-echo "QFac devolvio ".count($qfacOrders)." pedidos con datos.\n";
+// Set de articulos CON COMPOSICION (kits) para excluirlos del sync de lineas. global.
+$COMPOSITE = array_fill_keys($pull['composite_arts'] ?? [], true);
+echo "QFac devolvio ".count($qfacOrders)." pedidos con datos. Articulos con composicion: ".count($COMPOSITE).".\n";
 
 $stats = ['sync'=>0,'noop'=>0,'skip'=>0,'applied'=>0,'errors'=>0];
 $skips = [];

@@ -55,6 +55,16 @@ function rmaSection() {
             tep_db_perform(TABLE_RMA, $aFields, 'update', 'id_rma = '. intval($_POST['id']));
             tep_redirect(tep_href_link('rma.php', 'action=view&id=' . intval($_POST['id'])));
             break;
+        case 'add-attachments':
+            // Subida de imágenes/documentos por parte de un operador (lado admin).
+            rmaAddAttachments();
+            tep_redirect(tep_href_link('rma.php', 'action=view&id=' . intval($_POST['id'])));
+            break;
+        case 'remove-attachment':
+            // Borra un adjunto AÑADIDO POR EL OPERADOR (source='staff'); nunca evidencia del cliente.
+            rmaRemoveAttachment();
+            tep_redirect(tep_href_link('rma.php', 'action=view&id=' . intval($_POST['id'])));
+            break;
         case 'save-types-return':
             rmaSaveTypesReturn();
             tep_redirect(tep_href_link('rma.php', 'action=types-return'));
@@ -933,4 +943,77 @@ function rmaGetDateRecibied($id_rma) {
     }
 
     return $aData;
+}
+
+
+/**
+ * Subida de adjuntos (imágenes / PDFs) a un RMA existente desde el admin.
+ * El RMA ya existe (id conocido), así que escribe directo en images/rma/{id_rma}/
+ * y registra en rma_attachments con source='staff'. Mismas reglas de validación
+ * que la subida del cliente (ver rma::processUploads en includes/classes/rma.php):
+ * máx 5 archivos, 5 MB c/u, extensiones permitidas y MIME real verificado.
+ */
+function rmaAddAttachments() {
+    $idRma = intval($_POST['id'] ?? 0);
+    if ($idRma <= 0) return;
+    // El RMA debe existir
+    $chk = tep_db_query("SELECT id_rma FROM " . TABLE_RMA . " WHERE id_rma = " . $idRma);
+    if (!tep_db_num_rows($chk)) return;
+    if (empty($_FILES['attachments']) || empty($_FILES['attachments']['name'][0])) return;
+
+    // Subida del operador: SIN límite de nº de archivos ni de tamaño (a diferencia
+    // del cliente). Solo se valida tipo/MIME por seguridad. Nota: a nivel servidor
+    // PHP aún capa por request (max_file_uploads=20, upload_max_filesize=500M).
+    $allowedExt  = array('jpg','jpeg','png','gif','webp','heic','heif','pdf');
+    $allowedMime = array('image/jpeg','image/png','image/gif','image/webp','image/heic','image/heif','application/pdf');
+
+    $files  = $_FILES['attachments'];
+    $count  = count($files['name']);
+    $dstDir = DIR_FS_CATALOG . 'images/rma/' . $idRma;
+    if (!is_dir($dstDir)) @mkdir($dstDir, 0755, true);
+
+    for ($i = 0; $i < $count; $i++) {
+        if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
+        $size = (int) $files['size'][$i];
+        if ($size <= 0) continue;
+        $orig = basename($files['name'][$i]);
+        $ext  = strtolower(pathinfo($orig, PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowedExt, true)) continue;
+        // MIME real (no solo el reportado por el navegador)
+        $realMime = @mime_content_type($files['tmp_name'][$i]) ?: $files['type'][$i];
+        if (!in_array($realMime, $allowedMime, true)) continue;
+
+        // Prefijo "st" para distinguir visualmente del naming del cliente (NN_hex)
+        $stored = sprintf('st%02d_%s.%s', $i, bin2hex(random_bytes(8)), $ext);
+        $target = $dstDir . '/' . $stored;
+        if (move_uploaded_file($files['tmp_name'][$i], $target)) {
+            @chmod($target, 0644);
+            tep_db_perform('rma_attachments', array(
+                'id_rma'            => $idRma,
+                'filename_original' => substr($orig, 0, 255),
+                'filename_stored'   => substr($stored, 0, 96),
+                'mime_type'         => substr((string) $realMime, 0, 64),
+                'size_bytes'        => $size,
+                'date_added'        => 'now()',
+                'source'            => 'staff',
+            ));
+        }
+    }
+}
+
+/**
+ * Borra un adjunto del RMA. SOLO se permite borrar los añadidos por el operador
+ * (source='staff'); la evidencia subida por el cliente es intocable desde aquí.
+ */
+function rmaRemoveAttachment() {
+    $idAtt = intval($_POST['att_id'] ?? 0);
+    $idRma = intval($_POST['id'] ?? 0);
+    if ($idAtt <= 0 || $idRma <= 0) return;
+    $q = tep_db_query("SELECT filename_stored, source FROM rma_attachments WHERE id = " . $idAtt . " AND id_rma = " . $idRma);
+    if (!tep_db_num_rows($q)) return;
+    $row = tep_db_fetch_array($q);
+    if (($row['source'] ?? 'client') !== 'staff') return;   // no tocar adjuntos del cliente
+    $path = DIR_FS_CATALOG . 'images/rma/' . $idRma . '/' . basename($row['filename_stored']);
+    if (is_file($path)) @unlink($path);
+    tep_db_query("DELETE FROM rma_attachments WHERE id = " . $idAtt . " AND id_rma = " . $idRma);
 }
