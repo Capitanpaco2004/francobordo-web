@@ -251,8 +251,31 @@ class Process
             }
         }
 
-        // Isertamos orders
-        tep_db_perform(TABLE_ORDERS, $sql_data_array);
+        // Isertamos orders — con reintento ante carrera de orders_id.
+        // El id se genera con MAX(orders_id)+1 (línea ~168); si dos checkouts entran a
+        // la vez leen el mismo MAX y colisionan en la PRIMARY KEY (Duplicate entry).
+        // Regeneramos el id y reintentamos: es seguro porque el nº de pedido del banco
+        // (Ds_Order de Redsys, etc.) es independiente del orders_id interno, y $insert_id
+        // es global → los pasos posteriores y el after_process de la pasarela ven el nuevo.
+        $nOrderRetries = 0;
+        while (true) {
+            try {
+                tep_db_perform(TABLE_ORDERS, $sql_data_array);
+                break;
+            } catch (\PDOException $e) {
+                $bDup = ($e->getCode() == '23000' && stripos($e->getMessage(), 'Duplicate entry') !== false);
+                if ($bDup && $nOrderRetries < 5) {
+                    $nOrderRetries++;
+                    $_oders_max_query = tep_db_query("select max(orders_id) as max_id from " . TABLE_ORDERS . "");
+                    $_oders_max = tep_db_fetch_array($_oders_max_query);
+                    $insert_id = (int) $_oders_max["max_id"] + 1;          // $insert_id es global
+                    $sql_data_array['orders_id'] = $insert_id;
+                    @error_log('checkout: colisión orders_id, reintento ' . $nOrderRetries . ' -> nuevo id ' . $insert_id);
+                    continue;
+                }
+                throw $e;
+            }
+        }
 
         /**
          * XCC-313-91043

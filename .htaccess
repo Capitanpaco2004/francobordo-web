@@ -470,6 +470,11 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
         SecRuleEngine Off
     </IfModule>
 </Files>
+# denox-block-md  (bloquea acceso HTTP a ficheros markdown - gestionado por denox, no tocar)
+<FilesMatch "\.(md|markdown|mdown|mkd)$">
+    Require all denied
+</FilesMatch>
+# end denox-block-md
 
 # php -- BEGIN cPanel-generated handler, do not edit
 # Set the “ea-php85” package as the default “PHP” programming language.

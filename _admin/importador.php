@@ -1,20 +1,22 @@
 <?php
 require('includes/application_top.php');
 function opp($paID) {
-	$sql_pre = "select products_id from products_attributes where products_attributes_id = $paID";
+	$sql_pre = "select products_id from products_attributes where products_attributes_id = " . (int)$paID;
 	$act_pre = tep_db_query($sql_pre) or die($sql_pre);
 	$pID = tep_db_fetch_array($act_pre);
-	$pID = $pID['products_id'];
+	$pID = (int)($pID['products_id'] ?? 0);
+	if ($pID === 0) return 0;
 	$sql = "select products_price from products where products_id = $pID";
 	$act = tep_db_query($sql) or die($sql);
 	$val = tep_db_fetch_array($act);
-	return $val['products_price'];
+	return $val['products_price'] ?? 0;
 }
 function opp_2($paIDG2) {
 	$sql_preG2 = "select products_id from products_attributes_groups where products_attributes_id = $paIDG2 and customers_group_id = 1";
 	$act_preG2 = tep_db_query($sql_preG2) or die($sql_preG2);
 	$pIDG2 = tep_db_fetch_array($act_preG2);
 	$pIDG2 = $pIDG2['products_id'];
+	if (empty($pIDG2)) return 0;
 	$sqlG2 = "select customers_group_price from products_groups where products_id = $pIDG2 and customers_group_id=1";
 	$actG2 = tep_db_query($sqlG2) or die($sqlG2);
 	$valG2= tep_db_fetch_array($actG2);
@@ -25,6 +27,7 @@ function opp_3($paIDG3) {
 	$act_preG3 = tep_db_query($sql_preG3) or die($sql_preG3);
 	$pIDG3 = tep_db_fetch_array($act_preG3);
 	$pIDG3 = $pIDG3['products_id'];
+	if (empty($pIDG3)) return 0;
 	$sqlG3 = "select customers_group_price from products_groups where products_id = $pIDG3 and customers_group_id=2";
 	$actG3 = tep_db_query($sqlG3) or die($sqlG3);
 	$valG3 = tep_db_fetch_array($actG3);
@@ -36,6 +39,7 @@ function opp_4($paIDG4) {
 	$act_preG4 = tep_db_query($sql_preG4) or die($sql_preG4);
 	$pIDG4 = tep_db_fetch_array($act_preG4);
 	$pIDG4 = $pIDG4['products_id'];
+	if (empty($pIDG4)) return 0;
 	$sqlG4 = "select customers_group_price from products_groups where products_id = $pIDG4 and customers_group_id=3";
 	$actG4 = tep_db_query($sqlG4) or die($sqlG4);
 	$valG4 = tep_db_fetch_array($actG4);
@@ -178,6 +182,13 @@ define('HEADING_TITLE', 'Importador productos en CSV');
 				$act_28 = tep_db_query($sql_28) or die($sql_28);
 			}
 			if ($campo[0] == 'A') {
+				// El atributo puede haber sido borrado de la web pero seguir en el CSV de QFac.
+				// Si ya no existe, lo saltamos para no romper opp()/opp_2/3/4 con un products_id vacio.
+				$aChk = tep_db_query("select products_attributes_id from products_attributes where products_attributes_id = ".(int)$campo[2]);
+				if (tep_db_num_rows($aChk) == 0) {
+					echo 'Atributo '. (int)$campo[2] .' - '. $campo[3] .' - ya no existe en la web - saltado<br>';
+					continue;
+				}
 				// Comprobamos si el atributo se ha modificado
 				//$aAux = tep_db_query( 'select products_attributes_id from products_attributes where products_attributes_id = "' . $campo[2] . '" and (attributes_last_modified is null or attributes_last_modified > "' . $aDate . '")' );
 

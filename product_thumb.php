@@ -31,15 +31,22 @@
 	// escala las dimensiones si sobrepasan el maximo permitido
 	function scaleSize($nWidth, $nHeight, $nWidthMax, $nHeightMax)
 	{
+		// Casts defensivos: si los máximos llegan vacíos (''), PHP 8 lanza
+		// "Unsupported operand types: string / int". 0 = sin límite en ese eje.
+		$nWidth     = (int)$nWidth;
+		$nHeight    = (int)$nHeight;
+		$nWidthMax  = (int)$nWidthMax;
+		$nHeightMax = (int)$nHeightMax;
+
 		// Si el alto supera lo permitido reducimos
-		if( $nHeight > $nHeightMax )
+		if( $nHeightMax > 0 && $nHeight > $nHeightMax )
 		{
 			$nWidth  = (int)( ( $nHeightMax / $nHeight ) * $nWidth );
 			$nHeight = $nHeightMax;
 		}
 
 		// Si el ancho supera lo permitido reducimos
-		if( $nWidth > $nWidthMax )
+		if( $nWidthMax > 0 && $nWidth > $nWidthMax )
 		{
 			$nHeight = (int)( ( $nWidthMax / $nWidth ) * $nHeight);
 			$nWidth  = $nWidthMax;

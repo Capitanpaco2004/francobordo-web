@@ -126,11 +126,19 @@ function load_web_order($link, $oid): array {
     // OJO: el precio neto realmente cobrado (y que alimenta ot_subtotal) es final_price,
     // NO products_price (que es el precio base de catalogo). QFac NPREU/(1+IVA) == final_price.
     // JOIN a products para traer el CCODIART de cada linea (para detectar composicion).
+    // vcode = CCODIVAL AUTORITATIVO de la variante de la linea (via opa->products_options_values),
+    // porque orders_products.CCODIVAL1 a menudo viene vacio. Es la clave de emparejado con QFac.
     $r = q($link, "SELECT op.orders_products_id, op.products_id, op.products_price, op.final_price, op.products_cost,
-                          op.products_quantity, op.products_tax, op.CCODIVAL1, p.CCODIART
+                          op.products_quantity, op.products_tax, op.CCODIVAL1, p.CCODIART,
+                          (SELECT pov.CCODIVAL FROM orders_products_attributes opa
+                             JOIN products_options_values pov ON pov.products_options_values_id=opa.products_options_values_id AND pov.language_id=".NAME_LANG."
+                             WHERE opa.orders_products_id=op.orders_products_id
+                             ORDER BY opa.orders_products_attributes_id LIMIT 1) AS vcode
                    FROM orders_products op LEFT JOIN products p ON p.products_id=op.products_id
                    WHERE op.orders_id=".(int)$oid);
     while ($row = mysqli_fetch_assoc($r)) {
+        $vcode = (string)($row['vcode'] ?? '');
+        if ($vcode === '') $vcode = (string)$row['CCODIVAL1']; // fallback al de la linea
         $ops[] = [
             'op_id'   => (int)$row['orders_products_id'],
             'pid'     => (int)$row['products_id'],
@@ -139,7 +147,7 @@ function load_web_order($link, $oid): array {
             'cost'    => (float)$row['products_cost'],
             'qty'     => (int)$row['products_quantity'],
             'tax'     => (float)$row['products_tax'],
-            'cvar'    => (string)$row['CCODIVAL1'],
+            'cvar'    => $vcode,
             'ccodiart'=> (string)($row['CCODIART'] ?? ''),
         ];
     }
@@ -160,6 +168,20 @@ function resolve_articles($link, array $arts): array {
     $r = q($link, "SELECT products_id, CCODIART FROM products WHERE CCODIART IN ($in)");
     while ($row = mysqli_fetch_assoc($r)) $map[(string)$row['CCODIART']] = (int)$row['products_id'];
     return $map;
+}
+
+/** Resuelve (pid, CCODIVAL de QFac) -> atributo del catalogo. NULL si no casa.
+ *  products_options_values.CCODIVAL guarda el codigo de variante de QFac tal cual. */
+function resolve_variant_attr($link, int $pid, string $ccodival): ?array {
+    $r = q($link, "SELECT pa.products_attributes_id, pa.options_id, pa.options_values_id,
+                          pa.options_values_price, pa.price_prefix, pa.options_values_weight, pa.weight_prefix, pa.reference,
+                          pov.products_options_values_name AS vname, po.products_options_name AS oname
+                   FROM products_attributes pa
+                   JOIN products_options_values pov ON pov.products_options_values_id=pa.options_values_id AND pov.language_id=".NAME_LANG."
+                   JOIN products_options po ON po.products_options_id=pa.options_id AND po.language_id=".NAME_LANG."
+                   WHERE pa.products_id=".(int)$pid." AND pov.CCODIVAL='".esc($link,$ccodival)."' LIMIT 1");
+    $row = mysqli_fetch_assoc($r);
+    return $row ?: null;
 }
 
 function line_rate(array $line, array $header): ?float {
@@ -253,10 +275,16 @@ function plan_lines($link, array $web, array $prodLines): array {
             } elseif ($w1 && !$q1) {
                 $changes[] = ['type'=>'remove', 'op_id'=>$w1['op_id'], 'pid'=>$pid, 'old'=>['qty'=>$w1['qty'],'price'=>$w1['price']]];
             } elseif (!$w1 && $q1) {
-                if ($q1['cvar'] !== '') { $out['reason']='alta_con_variante_no_soportada:pid'.$pid; return $out; }
                 if ($orderRate === null) { $out['reason']='alta_en_pedido_iva_mixto:pid'.$pid; return $out; }
                 $net = $net_of($q1['npreu'], $orderRate);
-                $changes[] = ['type'=>'add', 'pid'=>$pid, 'new'=>['qty'=>$q1['qty'],'price'=>$net,'rate'=>$orderRate]];
+                $variant = null;
+                if ($q1['cvar'] !== '') {
+                    // Alta CON variante: resolver CCODIVAL -> atributo del catalogo (products_attributes).
+                    $variant = resolve_variant_attr($link, $pid, $q1['cvar']);
+                    if ($variant === null) { $out['reason']='alta_variante_no_mapea:pid'.$pid.':'.$q1['cvar']; return $out; }
+                }
+                $changes[] = ['type'=>'add', 'pid'=>$pid, 'cvar'=>$q1['cvar'],
+                    'new'=>['qty'=>$q1['qty'],'price'=>$net,'rate'=>$orderRate], 'variant'=>$variant];
                 $finalLines[] = ['price'=>$net, 'qty'=>$q1['qty']];
             }
         }
@@ -277,9 +305,14 @@ function plan_lines($link, array $web, array $prodLines): array {
     $total     = r4($subtotal + $shipping + $insurance + $tax);
     $out['new_total'] = $total;
 
-    if ($out['old_total'] > 0 && abs($total - $out['old_total'])/$out['old_total'] > TOTAL_CAP_PCT) {
-        $out['reason'] = 'cap_excedido(' . round(($total-$out['old_total'])/$out['old_total']*100,1) . '%)';
-        return $out;
+    // Cap DIRECCIONAL: solo bloquea BAJADAS > 30% del total (la direccion peligrosa: kit no
+    // detectado, baja erronea). Las SUBIDAS se permiten (altas legitimas de producto desde QFac).
+    if ($out['old_total'] > 0) {
+        $delta = ($total - $out['old_total']) / $out['old_total'];
+        if ($delta < -TOTAL_CAP_PCT) {
+            $out['reason'] = 'cap_bajada(' . round($delta*100,1) . '%)';
+            return $out;
+        }
     }
 
     $out['changes'] = $changes;
@@ -425,6 +458,8 @@ function add_product_line($link, int $oid, array $c): void {
     $base = (float)$p['base'];          // precio base de catalogo
     $profit = r4(($price - $cost) * $qty);
     $name = substr((string)$p['pname'], 0, 80);
+    $variant = $c['variant'] ?? null;
+    $cvar = (string)($c['cvar'] ?? '');
     // orders_products.product_ean es INT de 4 bytes (no cabe un EAN-13) y la tienda lo deja a 0
     // en todas las lineas; ponerlo a 0 para respetar esa convencion (y evitar el cap a 2147483647).
     q($link, "INSERT INTO orders_products SET
@@ -433,8 +468,25 @@ function add_product_line($link, int $oid, array $c): void {
         product_ean=0, products_name='".esc($link,$name)."',
         products_price=$base, products_cost=$cost, final_price=$price,
         products_tax=".(float)$rate.", products_quantity=$qty, profit=$profit,
-        CCODIVAL1='', CCODIVAL2='', CCODIPROP1='', CCODIPROP2='', CPROP1='', CPROP2='',
+        CCODIVAL1='".esc($link,$cvar)."', CCODIVAL2='', CCODIPROP1='', CCODIPROP2='', CPROP1='', CPROP2='',
         qfac_sync_note='alta desde QFac (cant $qty)', qfac_sync_at=NOW()");
+    if ($variant !== null) {
+        $opid = (int)mysqli_insert_id($link);
+        // Fila de atributo (variante). products_attributes_ean en opa es INT -> 0. NIDATRIB = id catalogo.
+        q($link, "INSERT INTO orders_products_attributes SET
+            orders_id=".(int)$oid.", orders_products_id=$opid,
+            products_options='".esc($link,$variant['oname'])."',
+            products_options_values='".esc($link,$variant['vname'])."',
+            options_values_price=".(float)$variant['options_values_price'].",
+            price_prefix='".esc($link,$variant['price_prefix'] ?: '+')."',
+            reference='".esc($link,(string)$variant['reference'])."',
+            products_attributes_ean=0,
+            NIDATRIB=".(int)$variant['products_attributes_id'].",
+            products_options_id=".(int)$variant['options_id'].",
+            products_options_values_id=".(int)$variant['options_values_id'].",
+            options_values_weight=".(float)$variant['options_values_weight'].",
+            weight_prefix='".esc($link,(string)($variant['weight_prefix'] ?: ''))."'");
+    }
 }
 
 function log_run($link, array $res, string $mode): void {
@@ -483,7 +535,7 @@ foreach ($eligible as $oid) {
         foreach ($res['changes'] as $c) {
             if ($c['type']==='update')      echo "      ~ pid {$c['pid']}: qty {$c['old']['qty']}->{$c['new']['qty']}  precio ".number_format($c['old']['price'],4)."->".number_format($c['new']['price'],4)."\n";
             elseif ($c['type']==='remove')  echo "      - pid {$c['pid']} (qty {$c['old']['qty']}) BAJA\n";
-            elseif ($c['type']==='add')     echo "      + pid {$c['pid']} (qty {$c['new']['qty']} @ ".number_format($c['new']['price'],4).") ALTA\n";
+            elseif ($c['type']==='add')     echo "      + pid {$c['pid']}".(!empty($c['cvar'])?" [var ".$c['cvar']."]":"")." (qty {$c['new']['qty']} @ ".number_format($c['new']['price'],4).") ALTA".(!empty($c['variant'])?" -> ".$c['variant']['oname'].": ".$c['variant']['vname']:"")."\n";
         }
         if ($APPLY) {
             try { apply_changes($link, $res); $stats['applied']++; echo "      => APLICADO\n"; }
