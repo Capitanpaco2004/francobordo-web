@@ -1684,7 +1684,7 @@
 									case 'top':
 									case 'bottom':
 										$sSize -= 29;
-										$gdImageLine = @imagecreate( 1, $sSize );
+										$gdImageLine = @imagecreate( 1, max(1, (int)$sSize) );
 
 										/**
 										 * Compruebo para que no de errores
@@ -1693,8 +1693,8 @@
 										 */
 										if ($gdImageLine) {
 											$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
-											imagefilledrectangle( $gdImageLine, 0, 0, 1, $sSize, $imRelleno );
-											imagecopyresampled( $gdImage, $gdImageLine, $sX + 14.5, ($sPosicion == 'bottom' ? $sY : $sY + 28), 0, 0, 1, $sSize, 1, $sSize );
+											imagefilledrectangle( $gdImageLine, 0, 0, 1, (int)$sSize, $imRelleno );
+											imagecopyresampled( $gdImage, $gdImageLine, (int)($sX + 14.5), (int)($sPosicion == 'bottom' ? $sY : $sY + 28), 0, 0, 1, (int)$sSize, 1, (int)$sSize );
 										}
 
 									break;
@@ -1704,10 +1704,10 @@
 										$sSize -= 14.5;
 										$sY += 14.5;
 
-										$gdImageLine = @ImageCreateTrueColor( $sSize, $sSize );
+										$gdImageLine = @ImageCreateTrueColor( max(1, (int)$sSize), max(1, (int)$sSize) );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
-										ImageFilledRectangle($gdImageLine, 0, 0, $sSize, $sSize, $imRelleno);
-										ImageLine($gdImage, $sX, $sY + $sSize, $sX + $sSize, $sY, $imRelleno);
+										ImageFilledRectangle($gdImageLine, 0, 0, (int)$sSize, (int)$sSize, $imRelleno);
+										ImageLine($gdImage, (int)$sX, (int)($sY + $sSize), (int)($sX + $sSize), (int)$sY, $imRelleno);
 
 										// Restauramos tamaños
 										$sSize += 14.5;
@@ -1719,10 +1719,10 @@
 										$sSize -= 14.5;
 										$sX -= 14.5;
 
-										$gdImageLine = @imagecreate( $sSize, 1 );
+										$gdImageLine = @imagecreate( max(1, (int)$sSize), 1 );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
-										imagefilledrectangle( $gdImageLine, 0, 0, $sSize, 1, $imRelleno );
-										imagecopyresampled( $gdImage, $gdImageLine, $sX + 14.5, $sY + 14.5, 0, 0, $sSize, 1, $sSize, 1 );
+										imagefilledrectangle( $gdImageLine, 0, 0, (int)$sSize, 1, $imRelleno );
+										imagecopyresampled( $gdImage, $gdImageLine, (int)($sX + 14.5), (int)($sY + 14.5), 0, 0, (int)$sSize, 1, (int)$sSize, 1 );
 
 										// Restauramos tamaños
 										$sX += $sSize;
@@ -1730,10 +1730,10 @@
 
 									case 'dia_inf_drch':
 										$sSize -= 14.5;
-										$gdImageLine = @ImageCreateTrueColor( $sSize, $sSize );
+										$gdImageLine = @ImageCreateTrueColor( max(1, (int)$sSize), max(1, (int)$sSize) );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
-										ImageFilledRectangle($gdImageLine, 0, 0, $sSize, $sSize, $imRelleno);
-										ImageLine($gdImage, $sX, $sY, $sX + $sSize, $sY + $sSize, $imRelleno);
+										ImageFilledRectangle($gdImageLine, 0, 0, (int)$sSize, (int)$sSize, $imRelleno);
+										ImageLine($gdImage, (int)$sX, (int)$sY, (int)($sX + $sSize), (int)($sY + $sSize), $imRelleno);
 
 										// Restauramos tamaños
 										$sSize += 14.5;
@@ -1746,10 +1746,10 @@
 										$sSize -= 14.5;
 										$sX += 14.5;
 
-										$gdImageLine = @ImageCreateTrueColor( $sSize, $sSize );
+										$gdImageLine = @ImageCreateTrueColor( max(1, (int)$sSize), max(1, (int)$sSize) );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
-										ImageFilledRectangle($gdImageLine, 0, 0, $sSize, $sSize, $imRelleno);
-										ImageLine($gdImage, $sX, $sY + $sSize, $sX + $sSize, $sY, $imRelleno);
+										ImageFilledRectangle($gdImageLine, 0, 0, (int)$sSize, (int)$sSize, $imRelleno);
+										ImageLine($gdImage, (int)$sX, (int)($sY + $sSize), (int)($sX + $sSize), (int)$sY, $imRelleno);
 
 										// Restauramos tamaños
 										$sSize += 14.5;
@@ -1758,10 +1758,10 @@
 									break;
 
 									case 'izquierda':
-										$gdImageLine = @imagecreate( $sSize, 1 );
+										$gdImageLine = @imagecreate( max(1, (int)$sSize), 1 );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
-										imagefilledrectangle( $gdImageLine, 0, 0, $sSize, 1, $imRelleno );
-										imagecopyresampled( $gdImage, $gdImageLine, $sX + 14.5, $sY + 14.5, 0, 0, $sSize, 1, $sSize, 1 );
+										imagefilledrectangle( $gdImageLine, 0, 0, (int)$sSize, 1, $imRelleno );
+										imagecopyresampled( $gdImage, $gdImageLine, (int)($sX + 14.5), (int)($sY + 14.5), 0, 0, (int)$sSize, 1, (int)$sSize, 1 );
 									break;
 
 									case 'dia_sup_izqd':
@@ -1770,10 +1770,10 @@
 										$sX += 14.5;
 										$sY += 14.5;
 
-										$gdImageLine = @ImageCreateTrueColor( $sSize, $sSize );
+										$gdImageLine = @ImageCreateTrueColor( max(1, (int)$sSize), max(1, (int)$sSize) );
 										$imRelleno = imagecolorallocate( $gdImageLine, 183, 183, 183 );
-										ImageFilledRectangle($gdImageLine, 0, 0, $sSize, $sSize, $imRelleno);
-										ImageLine($gdImage, $sX, $sY, $sX + $sSize, $sY + $sSize, $imRelleno);
+										ImageFilledRectangle($gdImageLine, 0, 0, (int)$sSize, (int)$sSize, $imRelleno);
+										ImageLine($gdImage, (int)$sX, (int)$sY, (int)($sX + $sSize), (int)($sY + $sSize), $imRelleno);
 
 										// Restauramos tamaños
 										$sSize += 14.5;
@@ -1783,13 +1783,13 @@
 								}
 
 								// Creamos el circulo
-								imagecopyresampled( $gdImage, $gdCircle, $sX, ($sPosicion == 'bottom' ? ($sY + $sSize - 1) : $sY), 0, 0, 29, 29, 29, 29 );
-								imagettftextbox( $gdImage, 15, 0, $sX, ($sY - 15) + ($sPosicion == 'bottom' ? $sSize : 0), array( 255, 255, 255 ), $sFontPath, $sAlias, 29, 'center', 0, 29 );
+								imagecopyresampled( $gdImage, $gdCircle, (int)$sX, (int)($sPosicion == 'bottom' ? ($sY + $sSize - 1) : $sY), 0, 0, 29, 29, 29, 29 );
+								imagettftextbox( $gdImage, 15, 0, (int)$sX, (int)(($sY - 15) + ($sPosicion == 'bottom' ? $sSize : 0)), array( 255, 255, 255 ), $sFontPath, $sAlias, 29, 'center', 0, 29 );
 							}
 
 							// Guardamos la imagen
 							imagejpeg($gdImage, getcwd() . '/../images/repuestos/' . $products_id . '-imagen-gd.jpg', 100);
-							imagedestroy($gdImage);
+							// imagedestroy() es no-op desde PHP 8.0 y está deprecado en 8.5; el GC libera el GdImage al salir de scope.
 						}
 						// Fin, repuestos
 

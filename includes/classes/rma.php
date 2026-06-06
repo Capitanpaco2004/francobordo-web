@@ -19,7 +19,9 @@ class rma {
     public $typesReturn = array();
     public $paymentMethodDefault;
     public $paymentMethods;
-    private $validFields = array('option_return', 'quantity','comments', 'type_return', 'address', 'address_return', 'date_return', 'schedule_return', 'payment_method', 'payment_method_default');
+    private $validFields = array('option_return', 'quantity','comments', 'type_return', 'address', 'address_return', 'date_return', 'schedule_return', 'payment_method', 'payment_method_default', 'cex_metodo');
+    // type_return que activa las opciones de recogida Correos Express ("Envío a cargo de Francobordo")
+    const CEX_TYPE_RETURN_ID = 2;
     public $idRma;
     public $idRmaInt = 0;
     private $orderStatus;
@@ -332,6 +334,18 @@ class rma {
     *
     */
 
+    /** CP de entrega del pedido (para buscar oficinas Correos Express cercanas). */
+    public function getDeliveryPostcode() {
+        $q = tep_db_query("SELECT delivery_postcode, customers_postcode FROM " . TABLE_ORDERS .
+            " WHERE orders_id = '" . (int) $this->ordersID . "' AND customers_id = '" . (int) $this->customerID . "'");
+        if (tep_db_num_rows($q)) {
+            $r = tep_db_fetch_array($q);
+            $cp = trim($r['delivery_postcode']) !== '' ? trim($r['delivery_postcode']) : trim($r['customers_postcode']);
+            return preg_replace('/\s+/', '', $cp);
+        }
+        return '';
+    }
+
     public function getFieldsForm($aFields = array()) {
         $excludeFields = array('step');
         foreach($aFields as $key => $value):
@@ -406,6 +420,16 @@ class rma {
         $aDatos['languages_id'] = $this->languagesID;
         if (intval($aFields['payment_method']) > 0) {
             $aDatos['payment_method_default'] = $this->paymentMethodDefault;
+        }
+
+        // Correos Express: si eligió "Envío a cargo de Francobordo" + recogida a
+        // domicilio, trasladamos su fecha/franja a los campos estándar date_return /
+        // schedule_return (el operador los verá precargados en el admin). El operador
+        // confirma y genera la recogida/etiqueta real; aquí solo se registra la elección.
+        if (intval($aFields['type_return'] ?? 0) === self::CEX_TYPE_RETURN_ID
+            && ($aFields['cex_metodo'] ?? '') === 'domicilio') {
+            if (!empty($aFields['cex_fecha']))  $aFields['date_return']     = $aFields['cex_fecha'];
+            if (!empty($aFields['cex_franja'])) $aFields['schedule_return'] = intval($aFields['cex_franja']);
         }
 
         foreach ($aFields as $key => $value) {

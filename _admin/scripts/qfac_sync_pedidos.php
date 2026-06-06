@@ -29,7 +29,8 @@ const ELIGIBLE_STATUS = [1, 2, 7, 13];       // Pendiente / Proceso / Enviado Pa
 const PARTIAL_STATUS  = 7;                    // Enviado Parcialmente
 const WINDOW_DAYS     = 30;
 const ALLOWED_TOTALS  = ['ot_subtotal', 'ot_shipping', 'ot_insurance', 'ot_tax', 'ot_total'];
-const TOTAL_CAP_PCT   = 0.30;                // no aplicar si el total cambia > 30%
+const TOTAL_CAP_PCT   = 0.50;                // bajada sospechosa si baja > 50% del total ...
+const TOTAL_CAP_ABS   = 100.0;               // ... Y ademas > 100 EUR (ambas -> revision manual)
 const PRICE_EPS       = 0.005;
 const NAME_LANG       = 3;                    // idioma ES para products_name de altas
 
@@ -305,12 +306,14 @@ function plan_lines($link, array $web, array $prodLines): array {
     $total     = r4($subtotal + $shipping + $insurance + $tax);
     $out['new_total'] = $total;
 
-    // Cap DIRECCIONAL: solo bloquea BAJADAS > 30% del total (la direccion peligrosa: kit no
-    // detectado, baja erronea). Las SUBIDAS se permiten (altas legitimas de producto desde QFac).
+    // Cap DIRECCIONAL: solo bloquea BAJADAS grandes en % Y en importe (ambas), la firma de un
+    // descuadre real (kit no detectado, etc.). Las reducciones normales de cantidad/linea pasan
+    // (en pedidos pequenos quitar 1 ud ya es >30%, por eso NO basta el %). Subidas siempre OK.
     if ($out['old_total'] > 0) {
-        $delta = ($total - $out['old_total']) / $out['old_total'];
-        if ($delta < -TOTAL_CAP_PCT) {
-            $out['reason'] = 'cap_bajada(' . round($delta*100,1) . '%)';
+        $drop = $out['old_total'] - $total;                 // positivo si baja
+        $dropPct = $drop / $out['old_total'];
+        if ($dropPct > TOTAL_CAP_PCT && $drop > TOTAL_CAP_ABS) {
+            $out['reason'] = 'cap_bajada(' . round(-$dropPct*100,1) . '%, ' . round($drop,2) . 'EUR)';
             return $out;
         }
     }
@@ -354,10 +357,15 @@ function plan_order($link, int $oid, array $qfac): array {
     $prodLines = array_values(array_filter($qfac['lines'], fn($l)=>$l['ccodiart'] !== null && $l['ccodiart'] !== ''));
     if (!$prodLines) { $res['reason']='qfac_sin_productos'; return $res; }
 
-    // (a) Parcial: pedido NO servido con unidades servidas (NSERVIT>0 en alguna linea) -> estado 7
-    $servedUnits = 0.0;
-    foreach ($prodLines as $l) $servedUnits += max(0.0, (float)($l['nservit'] ?? 0));
-    $partial = ($servedUnits > 0);
+    // (a) Parcial: alguna linea GENUINAMENTE partida -> 0 < NSERVIT < QUANT (servida en parte).
+    //     OJO: NSERVIT>0 a secas NO sirve: QFac pone unidades servidas durante el picking normal,
+    //     mucho antes de un envio parcial real -> marcaba parcial prematuramente (caso 10360619).
+    $partial = false;
+    foreach ($prodLines as $l) {
+        $ns = (float)($l['nservit'] ?? 0);
+        $qt = (float)($l['quant'] ?? 0);
+        if ($ns > 0 && $ns < $qt) { $partial = true; break; }
+    }
     $res['partial'] = $partial;
     $statusChange = ($partial && $curStatus !== PARTIAL_STATUS) ? PARTIAL_STATUS : null;
     $res['status_change'] = $statusChange;
@@ -425,18 +433,20 @@ function apply_changes($link, array $res): void {
             q($link, "UPDATE orders SET orders_status=".(int)$newStatus.", last_modified=NOW() WHERE orders_id=".(int)$oid);
         }
 
-        // historial visible (sin email)
+        // historial SILENCIOSO: customer_notified=1 (ya notificado) -> cron_mail_status.php lo
+        // IGNORA y NO emaila al cliente. notify=0 NO es silencioso: es el disparador del email de
+        // estados publicos (5/13/7) y ademas secuestraria el email legitimo del flujo de envio.
         $parts = [];
         if ($hasLineChanges) {
             $n = count($res['changes']);
             $parts[] = "sync de lineas: $n cambio(s), total $".number_format($res['old_total'],2)." -> $".number_format($res['totals']['total'],2);
         }
         if ($statusChange === PARTIAL_STATUS) {
-            $parts[] = "marcado Enviado Parcialmente (QFacWin: hay unidades ya servidas)";
+            $parts[] = "marcado Enviado Parcialmente (QFacWin: linea servida parcialmente)";
         }
         $comment = "Pedido actualizado automaticamente desde QFacWin (".implode('; ', $parts).").";
         q($link, "INSERT INTO orders_status_history SET orders_id=".(int)$oid.
-            ", orders_status_id=".(int)$newStatus.", date_added=NOW(), customer_notified=0".
+            ", orders_status_id=".(int)$newStatus.", date_added=NOW(), customer_notified=1".
             ", comments='".esc($link,$comment)."'");
 
         q($link, "COMMIT");

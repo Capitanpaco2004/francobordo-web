@@ -409,6 +409,9 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
 						<?php else: ?>
 							<em>No se ha seleccionado ninguno</em>
 						<?php endif; ?>
+
+						<!-- Correos Express: recogida / envío de devolución (siempre visible) -->
+						<?php if (function_exists('rmaCexRenderBox')) rmaCexRenderBox($rmaDetail); ?>
                     </div>
 					<div class="oeCntd rows sp10 ax xform">
 						<form class="rows sp12 column a12" method="post" action="<?php echo tep_href_link('rma.php', 'action=change-return-method'); ?>">

@@ -1,6 +1,7 @@
 <?php
 
 include('includes/modules/rma/install.php');
+include('includes/modules/rma/cex.php'); // Integración Correos Express (recogidas/envíos RMA)
 
 // Métodos de reembolso que acreditan puntos al cliente al pasar el RMA a status=13.
 // id=1  : método legacy "Puntos" (sin bonus) — solo accesible vía admin para ajustes manuales
@@ -64,6 +65,26 @@ function rmaSection() {
             // Borra un adjunto AÑADIDO POR EL OPERADOR (source='staff'); nunca evidencia del cliente.
             rmaRemoveAttachment();
             tep_redirect(tep_href_link('rma.php', 'action=view&id=' . intval($_POST['id'])));
+            break;
+        case 'request-pickup':
+            // Correos Express: genera envío+etiqueta o recogida sola para el RMA.
+            rmaRequestPickup();
+            break;
+        case 'cex-label':
+            // Descarga el PDF de etiqueta almacenado (hace exit dentro).
+            rmaCexDownloadLabel();
+            break;
+        case 'cex-email-label':
+            // Envía la etiqueta por email al cliente.
+            rmaCexEmailLabel();
+            break;
+        case 'cex-cancel':
+            // Anula una recogida en Correos Express.
+            rmaCexCancel();
+            break;
+        case 'cex-set-env':
+            // Interruptor global entorno Correos Express (test/pro).
+            rmaCexSetEnv();
             break;
         case 'save-types-return':
             rmaSaveTypesReturn();

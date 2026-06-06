@@ -272,7 +272,7 @@ function garminScrapeProduct($sku) {
 	if (is_array($bs)) {
 		$es = $bs['esProduct'] ?? [];
 		if (!empty($es['name'])) $out['name'] = $es['name'];
-		if (!empty($es['mainMediumImagePath'])) $out['image_url'] = $es['mainMediumImagePath'];
+		if (!empty($es['mainMediumImagePath'])) $out['image_url'] = preg_replace('/-md(\.\w+)$/i', '-xl$1', $es['mainMediumImagePath']); // -xl = alta calidad
 		if (!empty($bs['gallery']) && is_array($bs['gallery'])) {
 			foreach ($bs['gallery'] as $g) {
 				if (!empty($g['publicId'])) $out['gallery'][] = $g['publicId'];
@@ -407,9 +407,8 @@ function garminGalleryUrls(array $publicIds) {
 	$urls = [];
 	foreach ($publicIds as $pid) {
 		// publicId típico: "Product_Images/es_ES/products/010-02904-51/v/cf-xl"
-		// Construir URL: https://res.garmin.com/<resto>.jpg sustituyendo "-xl" por "-md"
+		// Construir URL: https://res.garmin.com/<resto>.jpg manteniendo "-xl" (alta calidad)
 		$rel = preg_replace('#^Product_Images/#', '', $pid);
-		$rel = preg_replace('/-xl$/', '-md', $rel);
 		$urls[] = 'https://res.garmin.com/' . $rel . '.jpg';
 	}
 	return array_values(array_unique(array_filter($urls)));

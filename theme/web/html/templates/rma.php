@@ -113,6 +113,88 @@
                 </ul>
                 <?php endif; ?>
 
+            <?php
+            // === Correos Express: al elegir "Envío a cargo de Francobordo" (type_return id=2)
+            // ofrecemos recogida a domicilio o depósito en oficina. Se REGISTRA la elección;
+            // el operador la confirma y genera la recogida/etiqueta real desde el admin. ===
+            if ($bShowRecogida):
+                $cexTypeId = rma::CEX_TYPE_RETURN_ID;
+                $cexCp = $rma->getDeliveryPostcode();
+                $cexOfis = array();
+                $cexClassFile = $_SERVER['DOCUMENT_ROOT'] . '/' . DIR_WS_CLASSES . 'correos_express.php';
+                if ($cexCp !== '' && is_file($cexClassFile)) {
+                    require_once $cexClassFile;
+                    $cexEnvQ = tep_db_query("SELECT config_value FROM cex_config WHERE config_key = 'env'");
+                    $cexEnv  = tep_db_num_rows($cexEnvQ) ? tep_db_fetch_array($cexEnvQ)['config_value'] : 'test';
+                    $cexCli  = new correos_express($cexEnv);
+                    $cexCli->setTimeout(6); // de cara al cliente: que un CEX lento no cuelgue el modal
+                    $cexOfis = correos_express::oficinasDeposito($cexCli->consultarOficinas($cexCp));
+                }
+            ?>
+            <div class="cexCollect" data-cextype="<?php echo (int) $cexTypeId; ?>" style="display:none;margin:10px 0;padding:10px;background:#eef6ff;border:1px solid #b9d7f5;border-radius:4px">
+                <p class="rmaTitleText">¿Cómo prefieres entregar el producto?</p>
+                <ul class="rmaList">
+                    <li><label><input type="radio" name="cex_metodo" value="domicilio" class="cexMetodo"> 🏠 Que un mensajero pase a recogerlo a tu domicilio</label></li>
+                    <li><label><input type="radio" name="cex_metodo" value="oficina" class="cexMetodo"> 🏤 Lo llevo yo a una oficina de Correos</label></li>
+                </ul>
+                <div class="cexDomicilio" style="display:none">
+                    <div class="rmaColumns">
+                        <div class="Column">
+                            <p class="rmaTitleText">Fecha de recogida</p>
+                            <p><input type="date" name="cex_fecha" min="<?php echo date('Y-m-d', strtotime('+1 weekday')); ?>" class="rmaTextBox" /></p>
+                        </div>
+                        <div class="Column">
+                            <p class="rmaTitleText">Franja horaria</p>
+                            <ul class="rmaList">
+                                <li><label><input type="radio" name="cex_franja" value="1" checked> Mañana</label></li>
+                                <li><label><input type="radio" name="cex_franja" value="2"> Tarde</label></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="cexOficina" style="display:none">
+                    <?php if ($cexOfis): ?>
+                        <p>Puedes dejar el paquete en cualquiera de estas oficinas de Correos cercanas a tu CP <strong><?php echo htmlspecialchars($cexCp); ?></strong>. Te enviaremos la etiqueta por email para imprimir y pegar:</p>
+                        <ul class="rmaList">
+                            <?php foreach (array_slice($cexOfis, 0, 6) as $o): ?>
+                                <li><strong><?php echo htmlspecialchars($o['nombreOficina'] ?? ''); ?></strong> — <?php echo htmlspecialchars(trim(($o['direccionOficina'] ?? '') . ', ' . ($o['poblacionOficina'] ?? ''))); ?><br><small><?php echo htmlspecialchars($o['horarioOficina'] ?? ''); ?></small></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php else: ?>
+                        <p><small>Te indicaremos por email la etiqueta y las oficinas donde puedes depositar el paquete.</small></p>
+                    <?php endif; ?>
+                </div>
+            </div>
+            <script>
+            (function(){
+                function cexMetodoSync(){
+                    var box = document.querySelector('.cexCollect');
+                    if(!box || box.style.display==='none') return;
+                    var m = box.querySelector('input[name="cex_metodo"]:checked');
+                    var dom = box.querySelector('.cexDomicilio'), ofi = box.querySelector('.cexOficina');
+                    var isDom = !!(m && m.value==='domicilio'), isOfi = !!(m && m.value==='oficina');
+                    if(dom){ dom.style.display = isDom?'block':'none'; dom.querySelectorAll('input[name="cex_fecha"]').forEach(function(i){ i.required = isDom; }); }
+                    if(ofi){ ofi.style.display = isOfi?'block':'none'; }
+                }
+                function cexSync(){
+                    var t = document.querySelector('input[name="type_return"]:checked');
+                    var box = document.querySelector('.cexCollect');
+                    if(!box) return;
+                    var on = !!(t && t.value === box.getAttribute('data-cextype'));
+                    box.style.display = on?'block':'none';
+                    box.querySelectorAll('input[name="cex_metodo"]').forEach(function(r){ r.required = on; });
+                    if(!on){ box.querySelectorAll('input').forEach(function(i){ i.required=false; }); }
+                    cexMetodoSync();
+                }
+                document.addEventListener('change', function(e){
+                    if(e.target && e.target.name==='type_return') cexSync();
+                    if(e.target && e.target.name==='cex_metodo') cexMetodoSync();
+                });
+                cexSync();
+            })();
+            </script>
+            <?php endif; ?>
+
             <?php if ($bShowRecogida): ?>
             <div class="rmaTypeReturnView" data-agencia="1">
                 <p class="rmaTitleText"><?php echo RMA_RETURN_ADDRESS_AGENCY; ?></p>
