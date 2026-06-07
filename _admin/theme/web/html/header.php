@@ -58,7 +58,13 @@ if( in_array( basename( (string) $_SERVER['SCRIPT_NAME'] ), [ FILENAME_LOGIN, FI
 					<a href="orders.php" class="ml-topbtn" title="Ir a Pedidos" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;margin-right:8px;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;"><span class="fa fa-shopping-cart"></span> Pedidos</a>
 				<?php endif; ?>
 				<?php if( tep_admin_check_boxes( 'customers.php' ) ): ?>
-					<a href="customers.php" class="ml-topbtn" title="Ir a Clientes" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;margin-right:14px;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;"><span class="fa fa-users"></span> Clientes</a>
+					<a href="customers.php" class="ml-topbtn" title="Ir a Clientes" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;margin-right:8px;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;"><span class="fa fa-users"></span> Clientes</a>
+				<?php endif; ?>
+				<?php if( tep_admin_check_boxes( 'rma.php', 'sub_boxes' ) ): ?>
+					<a href="rma.php" class="ml-topbtn" title="Ir a RMA / Devoluciones" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;margin-right:8px;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;"><span class="fa fa-undo"></span> RMA</a>
+				<?php endif; ?>
+				<?php if( tep_admin_check_boxes( 'categories.php', 'sub_boxes' ) ): ?>
+					<a href="categories.php" class="ml-topbtn" title="Ir a Catálogo" style="display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;margin-right:14px;background:#3b82f6;color:#fff;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;"><span class="fa fa-book"></span> Catálogo</a>
 				<?php endif; ?>
 				<span class="full fa fa-arrows-alt icon"></span>
 				<a class="alrt mgp-inln" href="#alrt-modal"><span class="fa fa-bell"></span><span class="nmbr blink"></span></a>

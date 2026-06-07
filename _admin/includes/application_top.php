@@ -210,6 +210,7 @@ if (
 $excludedFilesFromLogin = [
 	'recover_cart_sales_cron.php',
 	'cron_transportistas.php',
+	'cron_cex_tracking.php',          // Tracking Correos Express vía API (token-gated internally)
 	'customers_points_expire.php',
 	'cron_maintenance.php',
 	'sm_worker.php',                  // SalesManago queue worker (token-gated internally)

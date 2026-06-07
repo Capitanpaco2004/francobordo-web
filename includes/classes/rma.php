@@ -334,6 +334,36 @@ class rma {
     *
     */
 
+    /**
+     * ¿El destino del pedido es elegible para Correos Express?
+     * Solo Península (España peninsular + Portugal continental) y Baleares.
+     * Excluye Canarias (CP 35/38), Ceuta (51), Melilla (52), islas portuguesas
+     * (CP 9xxx) y cualquier otro país.
+     */
+    public function isCexEligible() {
+        $q = tep_db_query("SELECT delivery_postcode, delivery_country, customers_postcode, customers_country FROM " . TABLE_ORDERS .
+            " WHERE orders_id = '" . (int) $this->ordersID . "' AND customers_id = '" . (int) $this->customerID . "'");
+        if (!tep_db_num_rows($q)) return false;
+        $r = tep_db_fetch_array($q);
+        $cp      = trim($r['delivery_postcode']) !== '' ? trim($r['delivery_postcode']) : trim($r['customers_postcode']);
+        $country = trim($r['delivery_country'])  !== '' ? trim($r['delivery_country'])  : trim($r['customers_country']);
+        $cl = mb_strtolower($country);
+        $d  = preg_replace('/\D/', '', $cp); // solo dígitos
+
+        $isSpain    = (mb_strpos($cl, 'esp') !== false || mb_strpos($cl, 'spa') !== false);
+        $isPortugal = (mb_strpos($cl, 'port') !== false);
+
+        if ($isSpain) {
+            // CP español de 5 dígitos; excluir Canarias/Ceuta/Melilla (incluye Baleares 07).
+            return strlen($d) === 5 && !in_array(substr($d, 0, 2), array('35', '38', '51', '52'), true);
+        }
+        if ($isPortugal) {
+            // Portugal continental: CP no empieza por 9 (Madeira/Azores = 9xxx).
+            return strlen($d) >= 4 && $d[0] !== '9';
+        }
+        return false;
+    }
+
     /** CP de entrega del pedido (para buscar oficinas Correos Express cercanas). */
     public function getDeliveryPostcode() {
         $q = tep_db_query("SELECT delivery_postcode, customers_postcode FROM " . TABLE_ORDERS .
@@ -426,10 +456,14 @@ class rma {
         // domicilio, trasladamos su fecha/franja a los campos estándar date_return /
         // schedule_return (el operador los verá precargados en el admin). El operador
         // confirma y genera la recogida/etiqueta real; aquí solo se registra la elección.
-        if (intval($aFields['type_return'] ?? 0) === self::CEX_TYPE_RETURN_ID
-            && ($aFields['cex_metodo'] ?? '') === 'domicilio') {
-            if (!empty($aFields['cex_fecha']))  $aFields['date_return']     = $aFields['cex_fecha'];
-            if (!empty($aFields['cex_franja'])) $aFields['schedule_return'] = intval($aFields['cex_franja']);
+        if (intval($aFields['type_return'] ?? 0) === self::CEX_TYPE_RETURN_ID) {
+            if (($aFields['cex_metodo'] ?? '') === 'domicilio') {
+                if (!empty($aFields['cex_fecha']))  $aFields['date_return']     = $aFields['cex_fecha'];
+                if (!empty($aFields['cex_franja'])) $aFields['schedule_return'] = intval($aFields['cex_franja']);
+            }
+        } else {
+            // cex_metodo viene pre-marcado ('domicilio'); solo aplica al tipo CEX.
+            unset($aFields['cex_metodo']);
         }
 
         foreach ($aFields as $key => $value) {

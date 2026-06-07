@@ -49,6 +49,14 @@ function cexShipmentsFor($id_rma) {
     return $rows;
 }
 
+/** Estado de tracking (cex_tracking) de una referencia (F{oid} o RMA{id}); null si no hay. */
+function cexTrackEstado($ref) {
+    $ref = trim((string) $ref);
+    if ($ref === '') return null;
+    $q = tep_db_query("SELECT estado_desc, entregado, last_checked FROM cex_tracking WHERE referencia = '" . tep_db_input($ref) . "' LIMIT 1");
+    return tep_db_num_rows($q) ? tep_db_fetch_array($q) : null;
+}
+
 /** Identifica al operador logueado (best-effort, solo para traza). */
 function cexOperator() {
     foreach (array('login_email_address', 'login_id', 'login_first_name') as $k) {
@@ -379,6 +387,7 @@ function rmaCexRenderBox($rmaDetail) {
                         <?php if ($s['num_envio']): ?> · env. <code><?php echo htmlspecialchars($s['num_envio']); ?></code><?php endif; ?>
                         <?php if ($s['num_recogida']): ?> · recog. <code><?php echo htmlspecialchars($s['num_recogida']); ?></code><?php endif; ?>
                         <?php if ($s['cancelled_at']): ?> · <em>anulada</em><?php endif; ?>
+                        <?php $trk = cexTrackEstado($s['ref']); if ($trk): ?> · <strong style="color:<?php echo $trk['entregado'] ? '#2e7d32' : '#0a6ebd'; ?>">📍 <?php echo htmlspecialchars($trk['estado_desc']); ?></strong><span style="color:#999;font-size:11px"> (<?php echo date('d/m H:i', strtotime($trk['last_checked'])); ?>)</span><?php endif; ?>
                         <br><span style="color:#777"><?php echo htmlspecialchars($s['date_added']); ?><?php if (!$s['ok'] && $s['mensaje_retorno']): ?> — <?php echo htmlspecialchars($s['mensaje_retorno']); ?><?php endif; ?></span>
                         <?php if ($s['ok']): ?>
                             <div style="margin-top:3px">

@@ -245,6 +245,18 @@
 								</a>
 							</small>
 						<?php endif; ?>
+						<?php
+						// Estado real Correos Express (de cex_tracking, actualizado por el cron API).
+						$cexTrkQ = tep_db_query("SELECT estado_desc, entregado, last_checked FROM cex_tracking WHERE referencia = 'F" . (int) $_GET['order_id'] . "' LIMIT 1");
+						if (tep_db_num_rows($cexTrkQ)):
+							$cexTrk = tep_db_fetch_array($cexTrkQ);
+						?>
+							<span class="cexEstadoEnvio" style="display:block;margin-top:6px;font-size:13px">
+								<i class="fa fa-circle" style="font-size:9px;margin-right:5px;color:<?php echo $cexTrk['entregado'] ? '#2e9e44' : '#ee7f00'; ?>"></i>
+								<?php echo ((int) $languages_id == 3 ? 'Estado del envío: ' : 'Shipment status: '); ?><strong><?php echo htmlspecialchars($cexTrk['estado_desc']); ?></strong>
+								<small style="color:#999">(<?php echo date('d/m/Y H:i', strtotime($cexTrk['last_checked'])); ?>)</small>
+							</span>
+						<?php endif; ?>
 					</p>
 
 				</div>

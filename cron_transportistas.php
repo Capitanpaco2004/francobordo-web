@@ -63,8 +63,9 @@
 			$sTransportista = 'importador_seur';
 		elseif (preg_match('/Retorno de Situacion de Envios de Correos/i', $sSubject))
 			$sTransportista = 'importador_correos';
-		elseif (preg_match('/Fichero FRANCOBORDO PRODUCTOS/i', $sSubject))
-			$sTransportista = 'importador_correos_express';
+		// Correos Express DESACTIVADO 2026-06-06: el tracking lo gestiona cron_cex_tracking.php (API).
+		// elseif (preg_match('/Fichero FRANCOBORDO PRODUCTOS/i', $sSubject))
+		//	$sTransportista = 'importador_correos_express';
 		elseif (preg_match('/Reporte de Entregas de TNT/i', $sSubject))
 			$sTransportista = 'importador_tnt';
 		else

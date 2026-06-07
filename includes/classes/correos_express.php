@@ -343,6 +343,28 @@ class correos_express {
         ));
     }
 
+    /** Listado de envíos por rango de fechas (máx 90 días). Devuelve referencia + estadoEnvio (código). */
+    public function seguimientoEnviosFechas($fechaInicial, $fechaFinal, $idioma = 'ES') {
+        return $this->post('apiRestSeguimientoEnviosk8s/json/seguimientoEnviosFechas', array(
+            'fechaInicial' => (string) $fechaInicial,
+            'fechaFinal'   => (string) $fechaFinal,
+            'keyCliFac'    => self::CLIENTE,
+            'idioma'       => (string) $idioma,
+        ));
+    }
+
+    /* Códigos de estado de envío CEX (codEstado). 12 = ENTREGADO. */
+    const ESTADO_ENTREGADO = '12';
+    public static function estadoDescripcion($code) {
+        // Códigos verificados contra el detalle (codEstado) de la API.
+        $map = array(
+            '1' => 'Sin recepción', '2' => 'En arrastre', '4' => 'En tránsito',
+            '6' => 'En delegación destino', '8' => 'En reparto', '11' => 'Nuevo reparto',
+            '12' => 'Entregado', '39' => 'Disponible en punto de recogida',
+        );
+        return $map[(string) $code] ?? ('En curso (cód. ' . $code . ')');
+    }
+
     public function seguimientoRecogida($numRecogida, $idioma = 'ES') {
         return $this->post('apiRestSeguimientoRecogidak8s/json/seguimientoRecogida', array(
             'solicitante' => self::SOLICITANTE,
