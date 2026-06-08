@@ -24,17 +24,21 @@ $id author Puddled Internet - http://www.puddled.co.uk
     case 'returns_show':
 
        // first carry out a query on the database to see if there are any matching tickets
-       $database_returns_query = tep_db_query("SELECT returns_id, returns_status FROM " . TABLE_RETURNS . " where customers_id = '" . $customer_id . "' and rma_value = '" . $_POST['rma'] . "' or rma_value = '" . $_GET['rma'] . "'");
+       // Aceptamos el RMA por POST (formulario) o por GET, en una sola variable saneada.
+       $rma = tep_db_prepare_input($_POST['rma'] ?? ($_GET['rma'] ?? ''));
+       // Acotado SIEMPRE al cliente logueado (un solo AND; el "OR rma_value" anterior
+       // permitia ver el RMA de cualquier cliente) + entrada escapada (SQLi).
+       $database_returns_query = tep_db_query("SELECT returns_id, returns_status FROM " . TABLE_RETURNS . " where customers_id = '" . (int)$customer_id . "' and rma_value = '" . tep_db_input($rma) . "'");
        if (!tep_db_num_rows($database_returns_query)) {
            tep_redirect(tep_href_link('returns_track.php?error=yes'));
        } else {
           $returns_query = tep_db_fetch_array($database_returns_query);
           $returns_id = $returns_query['returns_id'];
           $returns_status_id = $returns_query['returns_status'];
-          $returns_status_query = tep_db_query("SELECT returns_status_name FROM " . TABLE_RETURNS_STATUS . " where returns_status_id = " . $returns_status_id . " and language_id = '" . (int)$languages_id . "'");
+          $returns_status_query = tep_db_query("SELECT returns_status_name FROM " . TABLE_RETURNS_STATUS . " where returns_status_id = " . (int)$returns_status_id . " and language_id = '" . (int)$languages_id . "'");
           $returns_status_array = tep_db_fetch_array($returns_status_query);
           $returns_status = $returns_status_array['returns_status_name'];
-          $returned_products_query = tep_db_query("SELECT * FROM " . TABLE_RETURNS_PRODUCTS_DATA . " op, " . TABLE_RETURNS . " o where o.returns_id = op.returns_id and op.returns_id = '" . $returns_id . "'");
+          $returned_products_query = tep_db_query("SELECT * FROM " . TABLE_RETURNS_PRODUCTS_DATA . " op, " . TABLE_RETURNS . " o where o.returns_id = op.returns_id and op.returns_id = '" . (int)$returns_id . "'");
           $returned_products = tep_db_fetch_array($returned_products_query);
 
               require(DIR_WS_CLASSES . 'order.php');

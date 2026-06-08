@@ -548,20 +548,28 @@ $_aAllCategorias = $aAllCategories['parnt'];
 $_aAllDatos      = $aAllCategories['cat'];
 
 // Inicio, llamada a un metodo de un objeto, o function mediante una peticion ajax, conteniendo en la llamada objeto:metodo, o nombre_funcion
-if (isAjax() && array_key_exists('call', $_GET) && ($aAux = tep_db_prepare_input($_GET['call'])) != '') {
+if (isAjax() && array_key_exists('call', $_GET) && ($sCall = tep_db_prepare_input($_GET['call'])) != '') {
 	// Solo permitimos estas llamadas, si se necesitan más llamadas personalizadas podemos añadirlas
-	if (!in_array($aAux, array('cart:addProductAjax', 'cart:getHtmlCart', 'cart:remove', 'dxWishlist:add', 'dxWishlist:remove', 'ajaxCountryZoneCity','ajaxCustomEvent')))
+	if (!in_array($sCall, array('cart:addProductAjax', 'cart:getHtmlCart', 'cart:remove', 'dxWishlist:add', 'dxWishlist:remove', 'ajaxCountryZoneCity','ajaxCustomEvent'), true))
 		exit();
 
-	// Explotamos la clase y el metodo, o en su defecto la funcion
-	$aAux = explode(':', $aAux);
 	$sArgs = array_key_exists('args', $_GET) ? tep_db_prepare_input($_GET['args']) : '';
 
-	// Si solo tenemos una llamada es una funcion
-	if (count($aAux) == 1)
-		eval($aAux[0] . '(' . $sArgs . ');');
-	else // Llamamos al metodo de la clase
-		eval('$' . $aAux[0] . '->' . $aAux[1] . '("' . $sArgs . '");');
+	// Despacho explicito (sin eval): el argumento se pasa SIEMPRE como dato, nunca como codigo.
+	switch ($sCall) {
+		case 'cart:addProductAjax': $cart->addProductAjax($sArgs); break;
+		case 'cart:getHtmlCart':    $cart->getHtmlCart($sArgs); break;
+		case 'cart:remove':         $cart->remove($sArgs); break;
+		case 'dxWishlist:add':      $dxWishlist->add($sArgs); break;
+		case 'dxWishlist:remove':   $dxWishlist->remove($sArgs); break;
+		case 'ajaxCountryZoneCity': ajaxCountryZoneCity(); break;
+		case 'ajaxCustomEvent':
+			// Compat: algunos clientes envian el nombre del evento entre comillas literales
+			if (strlen($sArgs) >= 2 && ($sArgs[0] === '"' || $sArgs[0] === "'") && substr($sArgs, -1) === $sArgs[0])
+				$sArgs = substr($sArgs, 1, -1);
+			ajaxCustomEvent($sArgs);
+			break;
+	}
 
 	// Salimos
 	exit();

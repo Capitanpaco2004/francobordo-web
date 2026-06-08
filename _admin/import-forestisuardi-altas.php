@@ -44,6 +44,7 @@ const IMG_HTTP_TIMEOUT = 15;
 const IMG_MIN_BYTES   = 3072;
 const MAX_SUBIMAGES   = 6;
 const ORIGIN_FLAG     = 'forestisuardi';
+const STOCK_SENTINEL  = -800;             // "bajo pedido" (convención francobordo) — Foresti se vende bajo pedido
 const EAN_INTERNAL_PREFIX = 29;           // 20-28 los usan otros importadores; 29 → "2900…" (nunca 299, que es de QFac)
 const FS_VAT_RATE     = 0.21;
 const COST_MULT       = 0.50;             // coste = PVP × 0,50 (descuento 50% de Foresti)
@@ -53,7 +54,7 @@ const DEFAULT_WEIGHT  = 1.0;
 const LLM_URL   = 'http://217.127.199.171:28001/v1/chat/completions';
 const LLM_MODEL = 'qwen36-sakamaki-nvfp4';
 
-const LLM_NAME_PROMPT_ES = "Traduce este nombre de producto náutico del italiano al ESPAÑOL. Conserva nombres propios de modelo/línea (ASTERION, SEXTANS, PROMETEO, etc.), marcas, códigos y unidades. Glosario náutico OBLIGATORIO: Bitta a scomparsa=Bita escamoteable, Bitta=Bita, Galloccia=Cornamusa, Alzapagliolo/Alzapaglioli=Cierre de payol, Pagliolo=Payol, Boccola di scarico=Desagüe, Scarico=Desagüe (NO escape), Presa a mare=Toma de mar, Passacavo=Pasacables, Oblò=Portillo, Tappo=Tapón, Golfare=Cáncamo, Ottone=Latón, Acciaio inox=Acero inoxidable, Portacanna=Portacañas, Corrimano=Pasamanos. Responde SOLO con el nombre traducido, una línea, sin comillas.";
+const LLM_NAME_PROMPT_ES = "Traduce este nombre de producto náutico del italiano al ESPAÑOL. Conserva nombres propios de modelo/línea (ASTERION, SEXTANS, PROMETEO, etc.), marcas, códigos y unidades. Glosario náutico OBLIGATORIO: Bitta a scomparsa=Bita escamoteable, Bitta=Bita, Galloccia=Cornamusa, Alzapagliolo/Alzapaglioli=Cierre de pañol, Pagliolo=Pañol, Boccola di scarico=Desagüe, Scarico=Desagüe (NO escape), Presa a mare=Toma de mar, Passacavo=Pasacables, Oblò=Portillo, Tappo=Tapón, Golfare=Cáncamo, Ottone=Latón, Acciaio inox=Acero inoxidable, Portacanna=Portacañas, Corrimano=Pasamanos. Responde SOLO con el nombre traducido, una línea, sin comillas.";
 const LLM_NAME_PROMPT_EN = "Translate this nautical product name from Italian to ENGLISH. Keep proper model/line names (ASTERION, SEXTANS, PROMETEO, etc.), brands, codes and units. Reply with ONLY the translated name, one line, no quotes.";
 
 const LLM_TRANSLATE_ES = "Traduce el siguiente texto descriptivo de producto náutico del ITALIANO al ESPAÑOL. Conserva ÍNTEGRAMENTE toda la información, números, medidas, unidades (Watt, V, VDC, mm, °K), voltajes, acrónimos (LED, IP, AISI) y nombres propios. Glosario náutico: ottone=latón, acciaio inox=acero inox, oblò=portillo, passo d'uomo=registro de cubierta, passacavo=pasacables, bitta=bita, tappo=tapón, golfare=cáncamo, plafoniera=plafón, faretto=foco, ghiera=aro, scarico a mare=desagüe al mar, presa a mare=toma de mar, corrimano=pasamanos, cerniera=bisagra, maniglia=manilla, fanale=luz de navegación. NO resumas ni inventes. Devuelve SOLO la traducción en español, sin comentarios.";
@@ -232,14 +233,19 @@ function fsExtractMedia($html) {
 /** Descarga una imagen auxiliar (drawing/icono) a /images/productos/fs-content/<basename>.
  *  Idempotente: si ya existe (>0 bytes) la reutiliza. Devuelve el filename relativo o ''. */
 function fsDownloadAuxImage($url) {
-    $base = basename((string) parse_url($url, PHP_URL_PATH));
-    if ($base === '' || !preg_match('/\.(jpg|jpeg|png|webp|gif)$/i', $base)) return '';
+    // El basename del catálogo puede traer ESPACIOS u otros caracteres ("sextans s 1.jpg")
+    // o venir ya %-encodeado. Se decodifica para detectar la extensión y se sanea para el
+    // nombre LOCAL (sin espacios), y se %-encodea la URL para que curl la acepte.
+    $rawBase = rawurldecode(basename((string) parse_url($url, PHP_URL_PATH)));
+    if ($rawBase === '' || !preg_match('/\.(jpg|jpeg|png|webp|gif)$/i', $rawBase)) return '';
+    $base = preg_replace('/-+/', '-', preg_replace('/[^A-Za-z0-9._-]+/', '-', $rawBase));
     $dir = IMG_ABS_DIR . FS_AUX_SUBDIR;
     if (!is_dir($dir)) @mkdir($dir, 0775, true);
     $dest = $dir . $base;
     if (file_exists($dest) && filesize($dest) > 200) return $base;
+    $urlEnc = str_replace(' ', '%20', $url);   // curl no acepta espacios crudos en la URL
     // descarga directa (sin el filtro IMG_MIN_BYTES de las fotos, los iconos miden ~2 KB)
-    $ch = curl_init($url);
+    $ch = curl_init($urlEnc);
     $fp = fopen($dest, 'wb');
     if (!$fp) return '';
     curl_setopt_array($ch, [
@@ -529,9 +535,6 @@ function buildExistingMap($mysqli, $mfgId) {
         $r = $mysqli->query($sql);
         if ($r) while ($row = $r->fetch_assoc()) $existing[$row['m']] = true;
     }
-    // Lista negra de reimportación: trata como "ya existentes" los códigos/EAN de productos borrados a propósito.
-    require_once dirname(__FILE__) . '/includes/import_blacklist.php';
-    $existing += fb_blacklist_keys();
     return $existing;
 }
 
@@ -703,7 +706,13 @@ foreach ($groups as $pk => $g) {
 
     // dedup: si CUALQUIER código del grupo ya existe en BD → saltar el grupo entero
     $already = false;
-    foreach ($g['items'] as $code => $it) if (isset($existing[strtolower($code)])) { $already = true; break; }
+    foreach ($g['items'] as $code => $it) {
+        if (isset($existing[strtolower($code)])) { $already = true; break; }
+        // Código base: el catálogo histórico de Foresti (mfg 451) tiene a veces el código
+        // SIN sufijo de variante (ej. "9320" ↔ feed "9320A.I", "9321" ↔ "9321B.I"). Si el
+        // stem numérico del código del feed existe tal cual como modelo → es el mismo producto.
+        if (preg_match('/^(\d{3,})/', $code, $sm) && isset($existing[$sm[1]])) { $already = true; break; }
+    }
     if ($already) { $skipExist++; continue; }
 
     // imágenes (del padre); skip si no hay
@@ -820,8 +829,9 @@ foreach ($groups as $pk => $g) {
         $price  = number_format($cheap['_PRICE'], 4, '.', '');
         $cost   = number_format($cheap['_COST'], 4, '.', '');
         $weight = number_format(DEFAULT_WEIGHT, 3, '.', '');
+        // products_quantity = STOCK_SENTINEL (-800 "bajo pedido") — Foresti se vende bajo pedido
         $sql = "INSERT INTO products (products_quantity, check_stock, products_model, products_image, products_price, products_cost, products_date_added, products_weight, products_status, products_tax_class_id, manufacturers_id, product_ean, reference_prov, products_import_origin)
-            VALUES (0, 0, \"$qmodel\", \"\", $price, $cost, NOW(), $weight, 2, " . TAX_CLASS_IVA21 . ", " . (int)$mfgId . ", \"\", \"$qmodel\", \"" . ORIGIN_FLAG . "\")";
+            VALUES (" . STOCK_SENTINEL . ", 0, \"$qmodel\", \"\", $price, $cost, NOW(), $weight, 2, " . TAX_CLASS_IVA21 . ", " . (int)$mfgId . ", \"\", \"$qmodel\", \"" . ORIGIN_FLAG . "\")";
         if (!$mysqli->query($sql)) throw new Exception("products: " . $mysqli->error);
         $pid = (int) $mysqli->insert_id;
 
@@ -902,6 +912,9 @@ foreach ($groups as $pk => $g) {
                 // EAN interno por variante (único por products_attributes_id)
                 $vEan = generateInternalEan13($paId, EAN_INTERNAL_PREFIX);
                 if ($vEan !== '') $mysqli->query("UPDATE products_attributes SET products_attributes_ean='" . $mysqli->real_escape_string($vEan) . "' WHERE products_attributes_id=$paId");
+                // Stock por variante = -800 "bajo pedido" (el cron sync_products_stock solo
+                // siembra filas que faltan con qty=0, no pisa estas; REVERSE no las borra).
+                $mysqli->query("INSERT INTO products_stock (products_id, products_stock_attributes, products_stock_quantity, products_stock_cost) VALUES ($pid, '" . VARIANT_OPTION_ID . "-$valueId', " . STOCK_SENTINEL . ", 0.0000)");
                 $g1Delta = round($it['_G1'] - $cheap['_G1'], 4);
                 $g1Prefix = $g1Delta < 0 ? '-' : '+';
                 if (!$mysqli->query("INSERT INTO products_attributes_groups (products_attributes_id, customers_group_id, options_values_price, price_prefix, products_id, options_values_weight, weight_prefix) VALUES ($paId, " . G1_GROUP_ID . ", " . number_format(abs($g1Delta), 4, '.', '') . ", '$g1Prefix', $pid, 0, '+')"))
@@ -977,7 +990,7 @@ end_action:
         • Descripción y nombre traducidos IT→ES e IT→EN vía LLM (salvo "sin LLM").<br>
         • <strong>Sin imagen → no se importa.</strong> Imágenes del CDN del catálogo (1 principal + hasta <?php echo MAX_SUBIMAGES; ?> sub).<br>
         • Sin EAN del proveedor: EAN interno prefijo <?php echo EAN_INTERNAL_PREFIX; ?> por variante (familias) o por producto (sueltos); nunca <code>299…</code>.<br>
-        • <code>products_status=2</code> (revisión), <code>check_stock=0</code>, stock NO se toca.<br>
+        • <code>products_status=2</code> (revisión), <code>check_stock=0</code>, <code>stock=-800</code> "bajo pedido" (master + cada variante en products_stock).<br>
         • Skip si el código ya existe en BD (SKU por fabricante; EAN global).
     </p>
     <form method="get" style="background:#f5f5f5;padding:15px;border-radius:5px;">

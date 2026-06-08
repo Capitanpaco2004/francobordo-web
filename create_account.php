@@ -270,7 +270,7 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
 
 	// Points/Rewards system V2.1rc2a + Remember referrer BOF
 	if (tep_not_null(USE_REFERRAL_SYSTEM) && isset($_POST['customer_referred']) && tep_not_null($_POST['customer_referred'])) {
-		$valid_referral_query = tep_db_query("SELECT customers_id FROM " . TABLE_CUSTOMERS . " WHERE customers_email_address = '" . $_POST['customer_referred'] . "'");
+		$valid_referral_query = tep_db_query("SELECT customers_id FROM " . TABLE_CUSTOMERS . " WHERE customers_email_address = '" . tep_db_input(tep_db_prepare_input($_POST['customer_referred'])) . "'");
 		$valid_referral       = tep_db_fetch_array($valid_referral_query);
 		if (!tep_db_num_rows($valid_referral_query)) {
 			$error = true;

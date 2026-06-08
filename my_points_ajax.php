@@ -8,10 +8,11 @@ require('includes/application_top.php');
 require(DIR_WS_LANGUAGES . $language . '/' . FILENAME_MY_POINTS_HELP);
 
 // Variables
-$nPrice = tep_db_prepare_input( $_GET['price'] );
+$nPrice = tep_db_prepare_input( $_GET['price'] ?? '' );
 
-// Reemplazamos la coma
-$nPrice = str_replace( ',', '.', $nPrice );
+// Reemplazamos la coma y casteamos a float (PHP 8: str_replace(null) deprecated y
+// string/float lanza TypeError si $_GET['price'] llega vacío o no numérico)
+$nPrice = (float) str_replace( ',', '.', (string) $nPrice );
 // Quitamos IVA
 $nPrice = $nPrice / 1.21;
 

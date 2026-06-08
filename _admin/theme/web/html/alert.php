@@ -112,11 +112,11 @@
 	// Obtenemos información
 	$nodeInfo = $dcXpath->query("//*[@id='tlfn']")->item(0);
 
-	// Información
+	// Información (si el HTML no trae el nodo #tlfn, $nodeInfo es null → getAttribute() on null)
 	$aReturn['info'] = [
-		'phone' => $nodeInfo->getAttribute('data-telefono'),
-		'time' => $nodeInfo->getAttribute('data-horario'),
-		'mail' => $nodeInfo->getAttribute('data-mail')
+		'phone' => $nodeInfo ? $nodeInfo->getAttribute('data-telefono') : '',
+		'time'  => $nodeInfo ? $nodeInfo->getAttribute('data-horario') : '',
+		'mail'  => $nodeInfo ? $nodeInfo->getAttribute('data-mail') : ''
 	];
 
 	// Pintamos

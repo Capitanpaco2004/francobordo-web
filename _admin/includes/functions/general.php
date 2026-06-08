@@ -3851,6 +3851,18 @@ function tep_get_category_amazon_tree($parent_id = '0', $spacing = '', $exclude 
 	return $category_tree_array;
 }
 
+/**
+ * Token efimero para "conectar como cliente" desde el admin.
+ * Sustituye a la contrasena maestra estatica (MAST_PW): va ligado al email del
+ * cliente y firmado con SECURITY_KEY. Lo valida Customer::validateMasterToken()
+ * en el front. Caduca por si solo (por defecto 6h, suficiente para una sesion
+ * de trabajo con el listado/ficha abierto).
+ */
+function tep_master_connect_token($email, $ttl = 21600) {
+	$exp = time() + (int)$ttl;
+	return $exp . '.' . hash_hmac('sha256', strtolower(trim((string)$email)) . '|' . $exp, SECURITY_KEY);
+}
+
 function getSlug($sTexto, $sSeparator = '-') {
 	// Convertimos los caracteres especiales
 

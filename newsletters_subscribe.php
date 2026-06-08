@@ -2,15 +2,17 @@
 	require('includes/application_top.php');
 	require('includes/filenames.php');
 	require(DIR_WS_LANGUAGES . $language . '/' . FILENAME_NEWSLETTERS);
-	$subscribers_info = tep_db_query("select subscribers_id from " . TABLE_SUBSCRIBERS . " where subscribers_email_address = '" . $_POST['Email'] . "' ");
+	$sEmail = tep_db_prepare_input($_POST['Email'] ?? '');
+	$sEmailType = tep_db_prepare_input($_POST['email_type'] ?? '');
+	$subscribers_info = tep_db_query("select subscribers_id from " . TABLE_SUBSCRIBERS . " where subscribers_email_address = '" . tep_db_input($sEmail) . "' ");
 	$date_now = date('Ymd');
 	if (!tep_db_num_rows($subscribers_info)) {
 		//$gender = '' ;
 		tep_db_query("insert into " . TABLE_SUBSCRIBERS . " 
 		(subscribers_email_address, language, date_account_created, customers_newsletter,  subscribers_blacklist, status_sent1,  source_import) 
-		values ('" . strtolower($_POST['Email']) . "',  'Espanol', now(),  '1',  '0', '1', 'subscribe_newsletter')");
+		values ('" . tep_db_input(strtolower($sEmail)) . "',  'Espanol', now(),  '1',  '0', '1', 'subscribe_newsletter')");
 	}else {
-		tep_db_query("update " . TABLE_SUBSCRIBERS . " set customers_newsletter = '" . '1' . "', subscribers_email_type = '" . $_POST['email_type'] . "'  where subscribers_email_address  = '" . $_POST['Email'] . "' ");
+		tep_db_query("update " . TABLE_SUBSCRIBERS . " set customers_newsletter = '" . '1' . "', subscribers_email_type = '" . tep_db_input($sEmailType) . "'  where subscribers_email_address  = '" . tep_db_input($sEmail) . "' ");
 	}
  if ($email_type  == "HTMLXX") {
   // build the message content

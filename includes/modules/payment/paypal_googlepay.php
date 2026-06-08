@@ -246,6 +246,12 @@ class paypal_googlepay {
             tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('El pago no se ha completado (' . $sStatus . ')'), 'SSL'));
         }
 
+        // Reconciliacion de importe: el pago debe coincidir con el total del pedido (servidor).
+        if ( ! \PayPalRest\Client::verifyCapturedAmount($aOrder, tep_round($order->info['total'], 2), 'EUR') ) {
+            @error_log('[paypal_googlepay] importe NO coincide order=' . $sOrderId . ' total_esperado=' . tep_round($order->info['total'], 2));
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('El importe del pago no coincide con el del pedido. La compra no se ha completado.'), 'SSL'));
+        }
+
         $this->transaction_id = $sCaptureId;
 
         tep_db_perform('redsys_payment_movements', array(

@@ -227,6 +227,13 @@ class paypal_rest {
             tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('El pago con PayPal no se ha completado (estado: ' . $sStatus . ')'), 'SSL'));
         }
 
+        // Reconciliacion de importe: el pago de PayPal debe coincidir con el total
+        // del pedido (calculado en servidor). Evita pagar de menos manipulando el carrito.
+        if ( ! \PayPalRest\Client::verifyCapturedAmount($aOrder, tep_round($order->info['total'], 2), 'EUR') ) {
+            @error_log('[paypal_rest] importe NO coincide order=' . $sOrderId . ' total_esperado=' . tep_round($order->info['total'], 2));
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('El importe del pago no coincide con el del pedido. La compra no se ha completado.'), 'SSL'));
+        }
+
         $this->transaction_id = $sCaptureId;
 
         tep_db_perform('redsys_payment_movements', array(

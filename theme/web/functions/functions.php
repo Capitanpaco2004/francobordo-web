@@ -2687,7 +2687,7 @@ function saveShippingEstimator() {
 			$order = new order;
 
 			$country_info = tep_get_countries($_POST['country_id'],true);
-			$cache_state_prov_values = tep_db_fetch_array(tep_db_query("select zone_code from " . TABLE_ZONES . " where zone_country_id = '" . $_POST['country_id'] . "' and zone_id = '" . $_POST['state'] . "'"));
+			$cache_state_prov_values = tep_db_fetch_array(tep_db_query("select zone_code from " . TABLE_ZONES . " where zone_country_id = '" . (int)$_POST['country_id'] . "' and zone_id = '" . (int)$_POST['state'] . "'"));
 			$cache_state_prov_code = $cache_state_prov_values['zone_code'];
 
 

@@ -731,12 +731,15 @@ function attributes_price($products_id) {
 			}
 
 			// Si hemos comprado alguna cantidad
-			if ($aProducto['cart_quantity'] > 0) {
+			// (int) defensivo: en PHP 8 una cart_quantity no numérica ('abc') pasa el >0
+			// y luego 'int + string' lanza TypeError al sumarla.
+			$nCartQty = (int) $aProducto['cart_quantity'];
+			if ($nCartQty > 0) {
 				if (array_key_exists('email_tarjeta', $aProducto)) {
 					$real_ids = ['email' => urldecode($aProducto['email_tarjeta'])];
 					$this->add_cart($aProducto['products_id'], $this->get_quantity(tep_get_uprid_tarjeta($aProducto['products_id'], $real_ids)) + 1, $real_ids, true, true);
 				} else
-					$this->add_cart($aProducto['products_id'], $this->get_quantity(tep_get_uprid($aProducto['products_id'], $aProducto['id'])) + $aProducto['cart_quantity'], $aProducto['id']);
+					$this->add_cart($aProducto['products_id'], $this->get_quantity(tep_get_uprid($aProducto['products_id'], $aProducto['id'])) + $nCartQty, $aProducto['id']);
 				event::getInstance()->execute('add_to_cart');
 			}
 		}

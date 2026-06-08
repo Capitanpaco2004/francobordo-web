@@ -47,8 +47,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 // (HTTPS+TCP source IP can't be spoofed; LAN-internal address). To re-enable
 // token auth, whitelist the URL in WHM > Imunify360 > Proactive Defense.
 $allowedIps = ['217.127.199.171', '127.0.0.1', '::1'];
-$clientIp = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
-$clientIp = trim(explode(',', $clientIp)[0]);
+// SOLO REMOTE_ADDR (IP TCP real). NO usar X-Forwarded-For: es una cabecera que
+// el cliente puede falsear ("X-Forwarded-For: 217.127.199.171") y permitiria
+// saltarse el allowlist. REMOTE_ADDR es la fuente fiable en este host (igual que
+// api-stock.php / api-orders.php).
+$clientIp = $_SERVER['REMOTE_ADDR'] ?? '';
 if (!in_array($clientIp, $allowedIps, true)) {
     http_response_code(403);
     echo json_encode(['error' => 'ip_not_allowed', 'ip' => $clientIp]);

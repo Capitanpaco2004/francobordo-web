@@ -218,4 +218,46 @@ class Client {
         $aData = json_decode((string)$sResp, true);
         return is_array($aData) ? $aData : array('raw' => $sResp);
     }
+
+    /**
+     * Reconcilia el importe/moneda realmente capturado en PayPal contra el total
+     * esperado del pedido (calculado en servidor). Devuelve true SOLO si la moneda
+     * coincide y el importe cuadra al centimo. Defensa contra fraude por
+     * manipulacion de importe: NO basta con fiarse del 'status' del pedido.
+     *
+     * @param array      $aOrder         Respuesta de getOrder() (PayPal Orders v2)
+     * @param float|int  $fExpectedTotal Total esperado del pedido (servidor)
+     * @param string     $sExpectedCurrency Moneda esperada (por defecto EUR)
+     */
+    public static function verifyCapturedAmount( array $aOrder, $fExpectedTotal, $sExpectedCurrency = 'EUR' ) {
+        $aUnit = isset($aOrder['purchase_units'][0]) ? $aOrder['purchase_units'][0] : null;
+        if ( ! is_array($aUnit) ) {
+            return false;
+        }
+
+        // Preferimos el importe REALMENTE capturado (captura COMPLETED);
+        // si aun no hay captura, usamos el amount de la unidad de compra.
+        $aAmount = null;
+        if ( isset($aUnit['payments']['captures']) && is_array($aUnit['payments']['captures']) ) {
+            foreach ( $aUnit['payments']['captures'] as $aCap ) {
+                if ( ($aCap['status'] ?? '') === 'COMPLETED' && isset($aCap['amount']['value']) ) {
+                    $aAmount = $aCap['amount'];
+                    break;
+                }
+            }
+        }
+        if ( $aAmount === null ) {
+            $aAmount = isset($aUnit['amount']) ? $aUnit['amount'] : null;
+        }
+        if ( ! is_array($aAmount) || ! isset($aAmount['value']) ) {
+            return false;
+        }
+
+        if ( strtoupper((string)($aAmount['currency_code'] ?? '')) !== strtoupper((string)$sExpectedCurrency) ) {
+            return false;
+        }
+
+        // Tolerancia de 1 centimo por redondeos
+        return abs( (float)$aAmount['value'] - (float)$fExpectedTotal ) <= 0.01;
+    }
 }

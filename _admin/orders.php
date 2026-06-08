@@ -1067,7 +1067,7 @@ if( tep_not_null($action) )
 			<div class="hdr-tlbr">
 				<h1 class="pageHeading">Pedido Nº <?php echo $oID; ?> - <?php echo tep_date_short( $order->info['date_purchased'] ); ?> <?php echo date('H:i', strtotime($order->info['date_purchased'])); ?><br><br><?php echo ($order->info['amazon_id'] ? 'ID Amazon: ' . $order->info['amazon_id'] : ($order->info['ebay_id'] ? 'ID eBay: ' . $order->info['ebay_id'] : '')); ?></h1>
 				<div class="btn-right">
-					<a href="#" onclick="connectAsCustomer('<?php echo htmlspecialchars($order->customer['email_address'], ENT_QUOTES); ?>');return false;" style="float: left;"><img class="dx-hovr" src="images/icons/cnct_user.png" border="0" /></a>
+					<a href="#" onclick="connectAsCustomer('<?php echo htmlspecialchars($order->customer['email_address'], ENT_QUOTES); ?>', '<?php echo tep_master_connect_token($order->customer['email_address']); ?>');return false;" style="float: left;"><img class="dx-hovr" src="images/icons/cnct_user.png" border="0" /></a>
 					<a href="<?php echo tep_href_link(FILENAME_ORDERS_EDIT, 'oID=' . $oID);?>" title="Crear Pedido"><img class="dx-hovr" src="images/icons/icon_edit_order.png"></a>
 					<a href="#" onclick="showDeleteOptions(<?php echo $oID; ?>); return false;" title="Eliminar Pedido"><img class="dx-hovr" src="images/icons/icon_delete_order.png"></a>
 					<a href="<?php echo tep_href_link(FILENAME_ORDERS_PACKINGSLIP, 'oID=' . $oID);?>" title="Etiqueta de Envío"><img class="dx-hovr" src="images/icons/icon_edit_order_etiqueta.png"></a>
@@ -2147,7 +2147,7 @@ $orders_query = tep_db_query($orders_query_raw);
 	// Conectar como cliente
 	// - Abrimos window.open() en el gesto del click (popup-blocker safe)
 	// - Creamos form en document.body y lo apuntamos a esa ventana por name
-	function connectAsCustomer(email) {
+	function connectAsCustomer(email, pass) {
 		var winName = 'connectAsCustomer_' + Date.now();
 		var newWin = window.open('', winName);
 		if (!newWin) {
@@ -2171,7 +2171,7 @@ $orders_query = tep_db_query($orders_query_raw);
 		var inputPass = document.createElement('input');
 		inputPass.type = 'hidden';
 		inputPass.name = 'password';
-		inputPass.value = '<?php echo addslashes(MAST_PW); ?>';
+		inputPass.value = pass;
 		form.appendChild(inputPass);
 
 		var inputModo = document.createElement('input');

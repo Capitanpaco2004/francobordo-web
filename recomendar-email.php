@@ -83,7 +83,7 @@
 			$aProduct = tep_db_query( 'select pd.products_name, pd.products_description, p.products_image
 									from products p
 									inner join products_description pd on (pd.products_id = p.products_id)
-									where p.products_id = ' . $_GET['pid'] . ' and pd.language_id = ' . $languages_id );
+									where p.products_id = ' . (int)$_GET['pid'] . ' and pd.language_id = ' . (int)$languages_id );
 			$aProduct = tep_db_fetch_array( $aProduct );
 			
 			$sPlantilla = '<div style="height:27px; background: #626262; width: 100%;"><div style="color:#FFFFFF;font:bold 11px \'Lucida Grande\',Arial,Helvetica,sans-serif;margin-bottom:auto;margin-left:auto;margin-right:auto;padding:7px 0 0;text-align:right;width:650px;">' . date( 'd/m/Y H:i:s' ) . '</div></div>

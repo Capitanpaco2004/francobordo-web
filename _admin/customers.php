@@ -740,7 +740,7 @@ if( in_array( $action, [ 'edit', 'update' ] ) )
 						<h1 class="pageHeading ftitl" style="top: 13px;">Editar cliente</h1>
 						<h2 class="stitl" style="top: 13px;">#<?php echo $cInfo->customers_id . ' - ' . $cInfo->customers_firstname . ' ' . $cInfo->customers_lastname; ?></h2>
 						<div class="btn-right">
-							<a id="connect" href="#" onclick="connectAsCustomer('<?php echo htmlspecialchars($cInfo->customers_email_address, ENT_QUOTES); ?>');return false;"><img src="images/icons/cnct_user<?php echo ($language == 'espanol' ? '' : '_' . $language); ?>.png" class="dx-hovr"></a>
+							<a id="connect" href="#" onclick="connectAsCustomer('<?php echo htmlspecialchars($cInfo->customers_email_address, ENT_QUOTES); ?>', '<?php echo tep_master_connect_token($cInfo->customers_email_address); ?>');return false;"><img src="images/icons/cnct_user<?php echo ($language == 'espanol' ? '' : '_' . $language); ?>.png" class="dx-hovr"></a>
 							<a title="Guardar cambios" id="save_return" href="javascript:void(0);"><img src="images/icons/icon_save.png" class="dx-hovr"></a>
 							<a title="Guardar y volver" onclick="$('form .submit').click();" href="javascript:void(0);"><img src="images/icons/icon_save_return.png" class="dx-hovr"></a>
 							<a href="<?php echo tep_href_link("customers.php", tep_get_all_get_params(array('info', 'x', 'y', 'cID', 'action'))); ?>"><img title="Volver sin guardar" src="images/icons/icon_back.png" class="dx-hovr"></a>
@@ -1614,7 +1614,7 @@ if( in_array( $action, [ 'edit', 'update' ] ) )
 									<li><a href="<?php echo tep_href_link(FILENAME_MAIL, 'selected_box=tools&amp;customer=' . $customers['customers_email_address']); ?>"><span style="padding-top: 1px;" class="icos-email"></span>Enviar email al cliente</a></li>
 									<li><a href="<?php echo tep_href_link('customers_points_history.php', 'cID=' . $customers['customers_id']); ?>"><i class="fas fa-ticket-alt"></i> Historial de puntos</a></li>
 									<li>
-										<a href="#" onclick="event.preventDefault();event.stopPropagation();connectAsCustomer('<?php echo htmlspecialchars($customers['customers_email_address'], ENT_QUOTES); ?>');return false;"><i class="fas fa-sign-in-alt"></i> <?php echo CUSTOMERS_ACTIONS_CONNECT_AS; ?></a>
+										<a href="#" onclick="event.preventDefault();event.stopPropagation();connectAsCustomer('<?php echo htmlspecialchars($customers['customers_email_address'], ENT_QUOTES); ?>', '<?php echo tep_master_connect_token($customers['customers_email_address']); ?>');return false;"><i class="fas fa-sign-in-alt"></i> <?php echo CUSTOMERS_ACTIONS_CONNECT_AS; ?></a>
 									</li>
 								</ul>
 							</div>
@@ -1661,7 +1661,7 @@ if( in_array( $action, [ 'edit', 'update' ] ) )
 	// - Abrimos window.open() PRIMERO en el gesto del click (popup-blocker safe)
 	// - Creamos form en document.body (fuera de cualquier form padre)
 	// - Apuntamos el form a la ventana abierta por su name para que el POST caiga ahí
-	function connectAsCustomer(email) {
+	function connectAsCustomer(email, pass) {
 		var winName = 'connectAsCustomer_' + Date.now();
 		var newWin = window.open('', winName);
 		if (!newWin) {
@@ -1686,7 +1686,7 @@ if( in_array( $action, [ 'edit', 'update' ] ) )
 		var inputPass = document.createElement('input');
 		inputPass.type = 'hidden';
 		inputPass.name = 'password';
-		inputPass.value = '<?php echo addslashes(MAST_PW); ?>';
+		inputPass.value = pass;
 		form.appendChild(inputPass);
 
 		var inputModo = document.createElement('input');

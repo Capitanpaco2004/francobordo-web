@@ -54,7 +54,8 @@ class Admin
 
 	public static function validatePassword(string $passwordHash, string $passwordPlain): bool
 	{
-		return ($passwordPlain === MAST_PW) || tep_validate_password($passwordPlain, $passwordHash);
+		// Sin contrasena maestra para el admin: solo el hash real.
+		return tep_validate_password($passwordPlain, $passwordHash);
 	}
 
 	public function hasFirstLogin(): bool

@@ -50,7 +50,7 @@ class Customer
 			throw new CustomerNotExistException();
 		}
 
-		if (!self::validatePassword($customer->records['customers_password'], $password)) {
+		if (!self::validatePassword($customer->records['customers_password'], $password, $customer->records['customers_email_address'])) {
 			throw new CustomerNotValidPasswordException();
 		}
 
@@ -69,9 +69,38 @@ class Customer
 		return self::create($customer->records, $parameters);
 	}
 
-	public static function validatePassword(string $passwordHash, string $passwordPlain): bool
+	public static function validatePassword(string $passwordHash, string $passwordPlain, string $email = ''): bool
 	{
-		return ($passwordPlain === MAST_PW) || tep_validate_password($passwordPlain, $passwordHash);
+		// "Conectar como cliente" (admin): se acepta un token HMAC efimero ligado al
+		// email en lugar de una contrasena maestra estatica universal (vulnerable).
+		if ($email !== '' && self::validateMasterToken($email, $passwordPlain)) {
+			return true;
+		}
+
+		return tep_validate_password($passwordPlain, $passwordHash);
+	}
+
+	/**
+	 * Valida un token de impersonacion ("conectar como cliente") generado en el
+	 * admin con tep_master_connect_token(). Formato: "<expira_ts>.<hmac_sha256>",
+	 * firmado con SECURITY_KEY y ligado al email del cliente. Caduca por si solo;
+	 * no es adivinable ni reutilizable para otra cuenta.
+	 */
+	public static function validateMasterToken(string $email, string $token): bool
+	{
+		if ($token === '' || strpos($token, '.') === false || !defined('SECURITY_KEY')) {
+			return false;
+		}
+
+		list($sExp, $sSig) = explode('.', $token, 2);
+
+		if (!ctype_digit($sExp) || (int)$sExp < time()) {
+			return false;
+		}
+
+		$sExpected = hash_hmac('sha256', strtolower(trim($email)) . '|' . $sExp, SECURITY_KEY);
+
+		return hash_equals($sExpected, $sSig);
 	}
 
 	public function login(): void
