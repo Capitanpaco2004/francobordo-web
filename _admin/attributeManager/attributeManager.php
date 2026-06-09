@@ -319,17 +319,30 @@ if(false){
 }
 ?>
 <?php
-					// Opcion 3: imagen del valor (cambia la galeria en la ficha al seleccionarlo)
+					// Opcion 3: hasta 2 imagenes por valor (cambian la galeria en la ficha al seleccionarlo).
+					// Parseamos el value en 2 slots; los ficheros nuevos llevan sufijo -1/-2, los legacy van al slot 1.
 					$amImgKey  = $optionId . '-' . $optionValueId;
-					$amImgFile = isset($amAttrImg[$amImgKey]) ? basename($amAttrImg[$amImgKey]) : '';
 					$amImgUid  = $optionId . '_' . $optionValueId;
+					$amImgVal  = isset($amAttrImg[$amImgKey]) ? (string)$amAttrImg[$amImgKey] : '';
+					$amSlots   = array(1 => '', 2 => '');
+					foreach (explode('[dxsepare]', $amImgVal) as $amF) {
+						$amF = basename(trim($amF));
+						if ($amF === '') continue;
+						if (preg_match('/-([12])\.[^.]+$/', $amF, $amMM)) $amSlots[(int)$amMM[1]] = $amF;
+						elseif ($amSlots[1] === '')                      $amSlots[1] = $amF;
+						else                                             $amSlots[2] = $amF;
+					}
 ?>
 					<span class="amAttrImg" style="display:inline-block;vertical-align:middle;margin:0 4px;white-space:nowrap;">
-						<img id="amAttrImgThumb_<?php echo $amImgUid; ?>" src="<?php echo $amImgFile === '' ? '' : '../images/atributos/' . rawurlencode($amImgFile) . '?v=' . time(); ?>" style="width:30px;height:30px;object-fit:cover;border:1px solid #ccc;vertical-align:middle;<?php echo $amImgFile === '' ? 'display:none;' : ''; ?>" >
-						<label title="Imagen del valor" style="cursor:pointer;border:1px solid #bbb;border-radius:3px;padding:1px 5px;background:#f5f5f5;font-size:11px;vertical-align:middle;">Img
-							<input type="file" id="amAttrImgFile_<?php echo $amImgUid; ?>" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;" onchange="amAttrImageUpload('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>',this);">
-						</label>
-						<input type="image" id="amAttrImgClear_<?php echo $amImgUid; ?>" src="attributeManager/images/icon_delete.png" title="Quitar imagen del valor" onclick="return amAttrImageClear('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>');" style="vertical-align:middle;<?php echo $amImgFile === '' ? 'display:none;' : ''; ?>" >
+<?php foreach (array(1, 2) as $amSlot): $amImgFile = $amSlots[$amSlot]; ?>
+						<span style="display:inline-block;vertical-align:middle;<?php echo $amSlot === 2 ? 'margin-left:6px;' : ''; ?>">
+							<img id="amAttrImgThumb_<?php echo $amImgUid; ?>_<?php echo $amSlot; ?>" src="<?php echo $amImgFile === '' ? '' : '../images/atributos/' . rawurlencode($amImgFile) . '?v=' . time(); ?>" style="width:30px;height:30px;object-fit:cover;border:1px solid #ccc;vertical-align:middle;<?php echo $amImgFile === '' ? 'display:none;' : ''; ?>" >
+							<label title="Imagen <?php echo $amSlot; ?> del valor" style="cursor:pointer;border:1px solid #bbb;border-radius:3px;padding:1px 5px;background:#f5f5f5;font-size:11px;vertical-align:middle;">Img<?php echo $amSlot; ?>
+								<input type="file" id="amAttrImgFile_<?php echo $amImgUid; ?>_<?php echo $amSlot; ?>" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;" onchange="amAttrImageUpload('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>','<?php echo $amSlot; ?>',this);">
+							</label>
+							<input type="image" id="amAttrImgClear_<?php echo $amImgUid; ?>_<?php echo $amSlot; ?>" src="attributeManager/images/icon_delete.png" title="Quitar imagen <?php echo $amSlot; ?>" onclick="return amAttrImageClear('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>','<?php echo $amSlot; ?>');" style="vertical-align:middle;<?php echo $amImgFile === '' ? 'display:none;' : ''; ?>" >
+						</span>
+<?php endforeach; ?>
 					</span>
 					<input type="image" border="0" onClick="return customPrompt('amRemoveOptionValueFromProduct','<?php echo addslashes("option_id:$optionId|option_value_id:$optionValueId|option_value_name:".str_replace('"','&quot;',$optionValueInfo['name']))?>');" src="attributeManager/images/icon_delete.png" title="<? echo htmlspecialchars(sprintf(AM_AJAX_PRODUCT_REMOVES_VALUE_FROM_OPTION,$optionValueInfo['name'],$optionInfo['name'])) ?>" >
 					<?php

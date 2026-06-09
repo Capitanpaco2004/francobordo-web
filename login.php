@@ -38,7 +38,15 @@ if (isset($_GET['action']) && $_GET['action'] == 'process') {
 		$customerParameters = [];
 
 		if (($requestPostNewCustomersGroupId = tep_db_prepare_input($_POST['new_customers_group_id'] ?? false)) !== false){
-			$customerParameters['customers_group_id'] = (int)$requestPostNewCustomersGroupId;
+			// A2 (escalada de privilegios): solo se permite forzar el grupo de cliente en el
+			// login SPPC (cuenta selector SPPC_TOGGLE_LOGIN_PASSWORD = info@denox.es) o cuando
+			// el valor es 0 (retail, que nunca es una escalada; lo usa el "conectar como
+			// cliente" de order_edit). Antes, CUALQUIER cliente podia enviar
+			// new_customers_group_id=1 y loguearse como Profesionales con sus precios/IVA.
+			if ((int)$requestPostNewCustomersGroupId === 0
+				|| strtolower($requestPostEmailAddress) === strtolower(SPPC_TOGGLE_LOGIN_PASSWORD)) {
+				$customerParameters['customers_group_id'] = (int)$requestPostNewCustomersGroupId;
+			}
 		}
 
 		$customer = Customer::createByEmail($requestPostEmailAddress, $requestPostPassword, $customerParameters);

@@ -91,9 +91,11 @@ if ($body !== '') {
     }
 }
 // --- Helper: POST a Meili. Devuelve [body|false, http_code, curl_error] ---
-function fb_meili_post(string $url, string $payload): array {
+// $timeoutMs: si se pasa, fija un timeout total en milisegundos (para acotar el
+// intento híbrido que depende del embedder externo). Si es null, usa CURL_TIMEOUT.
+function fb_meili_post(string $url, string $payload, ?int $timeoutMs = null): array {
     $ch = curl_init($url);
-    curl_setopt_array($ch, [
+    $opts = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_POST           => true,
         CURLOPT_POSTFIELDS     => $payload,
@@ -101,17 +103,38 @@ function fb_meili_post(string $url, string $payload): array {
             'Authorization: Bearer ' . MEILI_SEARCH_KEY,
             'Content-Type: application/json',
         ],
-        CURLOPT_TIMEOUT        => CURL_TIMEOUT,
         CURLOPT_CONNECTTIMEOUT => CURL_CONNECT_T,
         CURLOPT_FOLLOWLOCATION => false,
         CURLOPT_FAILONERROR    => false,
-    ]);
+    ];
+    if ($timeoutMs !== null) {
+        $opts[CURLOPT_TIMEOUT_MS] = $timeoutMs;
+    } else {
+        $opts[CURLOPT_TIMEOUT] = CURL_TIMEOUT;
+    }
+    curl_setopt_array($ch, $opts);
     $resp = curl_exec($ch);
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $err  = curl_error($ch);
     // sin curl_close(): deprecado desde PHP 8.5 y sin efecto desde 8.0
     return [$resp, $code, $err];
 }
+
+// --- Resiliencia del embedder (búsqueda híbrida) ---
+// El componente semántico depende de un servicio de embeddings BGE-M3 en GPU
+// (.112). Cuando ese servicio se satura/cae, Meili BLOQUEA la búsqueda esperándolo
+// (4-30 s). Para que la búsqueda NUNCA dependa de él: intentamos el híbrido con un
+// timeout corto y, si falla, caemos a BM25 (instantáneo). Un circuit-breaker en
+// fichero evita pagar el timeout en cada pulsación mientras el embedder esté caído.
+const HYBRID_TIMEOUT_MS    = 1800;   // tope del intento híbrido
+const EMBED_BREAKER_FILE   = '/home/francobordo/_search/logs/.embedder_slow';
+const EMBED_BREAKER_COOLDOWN = 30;   // s que evitamos el híbrido tras un fallo
+function fb_embedder_tripped(): bool {
+    $t = @filemtime(EMBED_BREAKER_FILE);
+    return $t !== false && (time() - $t) < EMBED_BREAKER_COOLDOWN;
+}
+function fb_embedder_trip(): void  { @touch(EMBED_BREAKER_FILE); }
+function fb_embedder_reset(): void { if (@filemtime(EMBED_BREAKER_FILE) !== false) @unlink(EMBED_BREAKER_FILE); }
 
 // --- Exclusión de marca al buscar su propio nombre ---
 // Cuando el cliente busca el nombre de ciertas marcas, NO queremos mostrar los
@@ -189,8 +212,31 @@ if ($resp === null) {
         $bodyJson = fb_inject_brand_exclusions($bodyJson);
         $bodyJson['showRankingScore'] = true;
         $body = json_encode($bodyJson);
+
+        if (isset($bodyJson['hybrid'])) {
+            // Búsqueda híbrida: depende del embedder externo. Intento acotado + fallback.
+            $tryHybrid = !fb_embedder_tripped();   // breaker: si cayó hace poco, ni lo intentamos
+            if ($tryHybrid) {
+                [$resp, $code, $err] = fb_meili_post($url, $body, HYBRID_TIMEOUT_MS);
+                if ($resp === false || $code !== 200) {
+                    fb_embedder_trip();            // marca embedder lento/caído
+                    $resp = null;                  // fuerza fallback BM25 abajo
+                } else {
+                    fb_embedder_reset();           // recuperado
+                }
+            }
+            if ($resp === null) {
+                // Fallback BM25: misma query sin la parte semántica -> instantáneo.
+                $bm25 = $bodyJson;
+                unset($bm25['hybrid']);
+                [$resp, $code, $err] = fb_meili_post($url, json_encode($bm25));
+            }
+        } else {
+            [$resp, $code, $err] = fb_meili_post($url, $body);
+        }
+    } else {
+        [$resp, $code, $err] = fb_meili_post($url, $body);
     }
-    [$resp, $code, $err] = fb_meili_post($url, $body);
 }
 
 if ($resp === false) {

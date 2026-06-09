@@ -22,7 +22,7 @@ echo <<<HEADER
 </script>
 <script language="JavaScript" type="text/JavaScript" src="attributeManager/javascript/requester.js"></script>
 <script language="JavaScript" type="text/JavaScript" src="attributeManager/javascript/alertBoxes.js"></script>
-<script language="JavaScript" type="text/JavaScript" src="attributeManager/javascript/attributeManager.js?v=20260525b"></script>
+<script language="JavaScript" type="text/JavaScript" src="attributeManager/javascript/attributeManager.js?v=20260525c"></script>
 
 <link rel="stylesheet" type="text/css" href="attributeManager/css/attributeManager.css" />
 HEADER;

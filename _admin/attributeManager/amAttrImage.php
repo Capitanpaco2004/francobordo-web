@@ -26,13 +26,16 @@ header('Content-Type: application/json; charset=' . CHARSET);
 function amAttrImgOut($arr) { echo json_encode($arr); exit; }
 function amAttrImgFail($msg) { amAttrImgOut(array('ok' => false, 'error' => $msg)); }
 
-$pid = (int)($_POST['products_id'] ?? 0);
-$oid = (int)($_POST['oid'] ?? 0);
-$vid = (int)($_POST['vid'] ?? 0);
-$op  = (string)($_POST['op'] ?? '');
+$pid  = (int)($_POST['products_id'] ?? 0);
+$oid  = (int)($_POST['oid'] ?? 0);
+$vid  = (int)($_POST['vid'] ?? 0);
+$op   = (string)($_POST['op'] ?? '');
+$slot = (int)($_POST['slot'] ?? 1);   // 2 imagenes por valor: slot 1 o 2
 
 if ($pid <= 0 || $oid <= 0 || $vid <= 0)
 	amAttrImgFail('Parametros invalidos');
+if ($slot !== 1 && $slot !== 2)
+	amAttrImgFail('Slot invalido');
 
 // Clave de combinacion de una sola opcion: "oid-vid" (segura, solo enteros)
 $combi = $oid . '-' . $vid;
@@ -41,27 +44,63 @@ $dir   = __DIR__ . '/../../images/atributos/';
 if (!is_dir($dir))
 	@mkdir($dir, 0755, true);
 
-// Borra los ficheros referenciados por la fila actual de esta clave
-$amDeleteExistingFiles = function () use ($pid, $combi, $dir) {
+// Lee el value actual y lo parsea en slots: [1 => fichero|'', 2 => fichero|''].
+// Ficheros nuevos llevan sufijo -1/-2; los legacy sin sufijo se asignan al slot 1.
+$amReadSlots = function () use ($pid, $combi, $dir) {
+	$slots = array(1 => '', 2 => '');
 	$res = tep_db_query('SELECT value FROM products_attributes_actions WHERE products_id = "' . (int)$pid . '" AND products_attributes = "' . $combi . '" AND action = "change_image"');
 	if (tep_db_num_rows($res) > 0) {
 		$row = tep_db_fetch_array($res);
 		foreach (explode('[dxsepare]', (string)$row['value']) as $f) {
 			$f = basename(trim($f));
-			if ($f !== '' && is_file($dir . $f))
-				@unlink($dir . $f);
+			if ($f === '') continue;
+			if (preg_match('/-([12])\.[^.]+$/', $f, $mm))      $slots[(int)$mm[1]] = $f;
+			elseif ($slots[1] === '')                          $slots[1] = $f;
+			else                                               $slots[2] = $f;
 		}
 	}
+	return $slots;
 };
 
-// ---- Borrar ----
+// Construye el value compactado (sin huecos) en orden de slot: f1[dxsepare]f2
+$amBuildValue = function ($slots) {
+	$present = array();
+	if ($slots[1] !== '') $present[] = $slots[1];
+	if ($slots[2] !== '') $present[] = $slots[2];
+	return implode('[dxsepare]', $present);
+};
+
+// Persiste el value (upsert) o borra la fila si queda vacio
+$amPersist = function ($value) use ($pid, $combi) {
+	$res = tep_db_query('SELECT id FROM products_attributes_actions WHERE products_id = "' . (int)$pid . '" AND products_attributes = "' . $combi . '" AND action = "change_image"');
+	$exists = (tep_db_num_rows($res) > 0);
+	if ($value === '') {
+		if ($exists)
+			tep_db_query('DELETE FROM products_attributes_actions WHERE products_id = "' . (int)$pid . '" AND products_attributes = "' . $combi . '" AND action = "change_image"');
+		return;
+	}
+	if ($exists)
+		tep_db_perform('products_attributes_actions', array('value' => $value), 'update', 'products_id = "' . (int)$pid . '" AND products_attributes = "' . $combi . '" AND action = "change_image"');
+	else
+		tep_db_perform('products_attributes_actions', array(
+			'products_id'         => $pid,
+			'products_attributes' => $combi,
+			'value'               => $value,
+			'action'              => 'change_image',
+		));
+};
+
+// ---- Borrar (una imagen de un slot) ----
 if ($op === 'clear') {
-	$amDeleteExistingFiles();
-	tep_db_query('DELETE FROM products_attributes_actions WHERE products_id = "' . (int)$pid . '" AND products_attributes = "' . $combi . '" AND action = "change_image"');
-	amAttrImgOut(array('ok' => true));
+	$slots = $amReadSlots();
+	if ($slots[$slot] !== '' && is_file($dir . $slots[$slot]))
+		@unlink($dir . $slots[$slot]);
+	$slots[$slot] = '';
+	$amPersist($amBuildValue($slots));
+	amAttrImgOut(array('ok' => true, 'slot' => $slot));
 }
 
-// ---- Guardar ----
+// ---- Guardar (una imagen en un slot) ----
 if ($op === 'save') {
 	$data = (string)($_POST['image'] ?? '');
 
@@ -81,25 +120,20 @@ if ($op === 'save') {
 	if (@getimagesizefromstring($bin) === false)
 		amAttrImgFail('El archivo no es una imagen valida');
 
-	$amDeleteExistingFiles();
+	$slots = $amReadSlots();
 
-	$fname = 'ai_' . $pid . '-' . $oid . '-' . $vid . '.' . $ext;
+	// Borramos el fichero previo de ESTE slot (si lo habia, aunque tuviera otra extension)
+	if ($slots[$slot] !== '' && is_file($dir . $slots[$slot]))
+		@unlink($dir . $slots[$slot]);
+
+	$fname = 'ai_' . $pid . '-' . $oid . '-' . $vid . '-' . $slot . '.' . $ext;
 	if (file_put_contents($dir . $fname, $bin) === false)
 		amAttrImgFail('No se pudo guardar el fichero');
 
-	// Upsert de la fila change_image
-	$res = tep_db_query('SELECT id FROM products_attributes_actions WHERE products_id = "' . (int)$pid . '" AND products_attributes = "' . $combi . '" AND action = "change_image"');
-	if (tep_db_num_rows($res) > 0)
-		tep_db_perform('products_attributes_actions', array('value' => $fname), 'update', 'products_id = "' . (int)$pid . '" AND products_attributes = "' . $combi . '" AND action = "change_image"');
-	else
-		tep_db_perform('products_attributes_actions', array(
-			'products_id'         => $pid,
-			'products_attributes' => $combi,
-			'value'               => $fname,
-			'action'              => 'change_image',
-		));
+	$slots[$slot] = $fname;
+	$amPersist($amBuildValue($slots));
 
-	amAttrImgOut(array('ok' => true, 'thumb' => '../images/atributos/' . rawurlencode($fname) . '?v=' . time()));
+	amAttrImgOut(array('ok' => true, 'slot' => $slot, 'thumb' => '../images/atributos/' . rawurlencode($fname) . '?v=' . time()));
 }
 
 amAttrImgFail('Operacion desconocida');

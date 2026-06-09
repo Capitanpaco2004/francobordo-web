@@ -18,9 +18,9 @@
 		while( $aSqlOpinion = tep_db_fetch_array( $aSqlOpinions ) ) {
 			$stars = '<i class="fa fa-star"></i><i class="fa fa-star"></i><i class="fa fa-star"></i><i class="fa fa-star"></i><i class="fa fa-star"></i></div>';
 			echo '<div class="bx_cmnt">';
-			echo '<div class="bx_name"><span>' . preg_replace('/(\s*)([^\s]*)(.*)/', '$2', $aSqlOpinion['customers_name'] ?? '') . '</span><div class="star st' . $aSqlOpinion['general'] . '">' .$stars. '</div>';
-			echo '<p class="bx_text">' . truncate( $aSqlOpinion['comentario_general'], array( 'SIZE' => 180 ) ) . '</p>';
-			echo '<div class="star star_mobile st' . $aSqlOpinion['general'] . '">' .$stars;
+			echo '<div class="bx_name"><span>' . tep_output_string_protected(preg_replace('/(\s*)([^\s]*)(.*)/', '$2', $aSqlOpinion['customers_name'] ?? '')) . '</span><div class="star st' . (int)$aSqlOpinion['general'] . '">' .$stars. '</div>';
+			echo '<p class="bx_text">' . tep_output_string_protected( truncate( $aSqlOpinion['comentario_general'], array( 'SIZE' => 180 ) ) ) . '</p>';
+			echo '<div class="star star_mobile st' . (int)$aSqlOpinion['general'] . '">' .$stars;
 			echo '</div>';
 		}
 		?>

@@ -97,6 +97,12 @@ $PHP_SELF = $_SERVER['PHP_SELF'];
 // Configuracion
 $configurationAdapter = new Configuration();
 
+// A5 (CSRF): el back-office usa SameSite=Strict en sus cookies de sesion/login.
+// No necesita navegacion cross-site, y asi se bloquea el CSRF tambien en las
+// acciones via GET (con 'lax' aun pasaba en una navegacion top-level). Solo
+// afecta al admin: el front no define esta constante y mantiene 'lax'.
+if (!defined('COOKIE_SAMESITE')) define('COOKIE_SAMESITE', 'Strict');
+
 // Cookie lifetime
 $cookieLifeTimeBackOffice = $configurationAdapter->get('COOKIE_LIFETIME_BACK_OFFICE', 5);
 $cookieCalculateLifeTimeCommandHandler = DependencyInjection::getInstance()->get(CookieCalculateLifeTimeCommandHandler::class);

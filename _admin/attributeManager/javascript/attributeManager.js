@@ -683,7 +683,7 @@ function amAttrImageEndpoint() {
 	return base;
 }
 
-function amAttrImageUpload(oid, vid, input) {
+function amAttrImageUpload(oid, vid, slot, input) {
 	if(!input || !input.files || !input.files[0]) return false;
 	var file = input.files[0];
 	if(file.size > 3 * 1024 * 1024) {
@@ -691,21 +691,23 @@ function amAttrImageUpload(oid, vid, input) {
 		input.value = '';
 		return false;
 	}
+	var sfx = oid + '_' + vid + '_' + slot;
 	var reader = new FileReader();
 	reader.onload = function(e) {
 		var data = new FormData();
 		data.append('products_id', productsId);
 		data.append('oid', oid);
 		data.append('vid', vid);
+		data.append('slot', slot);
 		data.append('op', 'save');
 		data.append('image', e.target.result);
 		fetch(amAttrImageEndpoint(), { method: 'POST', body: data, credentials: 'same-origin' })
 			.then(function(r){ return r.json(); })
 			.then(function(j){
 				if(j && j.ok) {
-					var thumb = getElement('amAttrImgThumb_' + oid + '_' + vid);
+					var thumb = getElement('amAttrImgThumb_' + sfx);
 					if(thumb) { thumb.src = j.thumb; thumb.style.display = 'inline'; }
-					var clear = getElement('amAttrImgClear_' + oid + '_' + vid);
+					var clear = getElement('amAttrImgClear_' + sfx);
 					if(clear) clear.style.display = 'inline';
 				} else {
 					alert((j && j.error) ? j.error : 'No se pudo subir la imagen.');
@@ -718,22 +720,24 @@ function amAttrImageUpload(oid, vid, input) {
 	return false;
 }
 
-function amAttrImageClear(oid, vid) {
-	if(!confirm('Quitar la imagen de este valor?')) return false;
+function amAttrImageClear(oid, vid, slot) {
+	if(!confirm('Quitar esta imagen del valor?')) return false;
+	var sfx = oid + '_' + vid + '_' + slot;
 	var data = new FormData();
 	data.append('products_id', productsId);
 	data.append('oid', oid);
 	data.append('vid', vid);
+	data.append('slot', slot);
 	data.append('op', 'clear');
 	fetch(amAttrImageEndpoint(), { method: 'POST', body: data, credentials: 'same-origin' })
 		.then(function(r){ return r.json(); })
 		.then(function(j){
 			if(j && j.ok) {
-				var thumb = getElement('amAttrImgThumb_' + oid + '_' + vid);
+				var thumb = getElement('amAttrImgThumb_' + sfx);
 				if(thumb) { thumb.style.display = 'none'; thumb.src = ''; }
-				var clear = getElement('amAttrImgClear_' + oid + '_' + vid);
+				var clear = getElement('amAttrImgClear_' + sfx);
 				if(clear) clear.style.display = 'none';
-				var fileInput = getElement('amAttrImgFile_' + oid + '_' + vid);
+				var fileInput = getElement('amAttrImgFile_' + sfx);
 				if(fileInput) fileInput.value = '';
 			} else {
 				alert((j && j.error) ? j.error : 'No se pudo quitar la imagen.');

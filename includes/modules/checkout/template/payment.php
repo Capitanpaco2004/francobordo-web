@@ -1,5 +1,15 @@
 <?php use util\tools;?>
 
+<style>
+	/* Icono Apple Pay / Google Pay (redsys_xpay): la imagen es apaisada (240x112, dos
+	   logos). La regla por defecto pone width:60px → solo ~28px de alto, se ve pequeno.
+	   Le damos mas ancho para que iguale la altura (~56px) del resto de iconos. */
+	.chkc-mthh.redsys_xpay .imge { width: 155px !important; }
+	.chkc-mthh.redsys_xpay .imge img { height: 40px !important; width: auto !important; max-width: 150px !important; }
+	/* Separacion entre los logos y el texto "Apple Pay / Google Pay" */
+	.chkc-mthh.redsys_xpay .infr-wrp { margin-left: 16px !important; }
+</style>
+
 <form id="checkout_form" action="<?php echo tep_href_link(FILENAME_CHECKOUT_PAYMENT . 'process/'); ?>" method="post" class="col chkc-right">
 	<div id="chkt-bton" class="checkout_form_target xbutton verde hv9 expand bton-cntn dhide thide"><?php echo CHECKOUT_CONTINUE; ?></div>
 

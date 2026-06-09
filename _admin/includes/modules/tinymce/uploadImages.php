@@ -11,7 +11,12 @@
 //    nombre del cliente), evitando .php/.phtml/.htaccess/.svg y dobles extensiones.
 
 chdir(dirname(__FILE__) . '/../../../');                     // -> _admin/
-$PHP_SELF = 'index.php';                                     // usa permisos de index.php (cualquier admin logueado)
+// application_top.php resetea $PHP_SELF desde $_SERVER['PHP_SELF'] (~linea 95) y la
+// comprobacion de permisos (tep_admin_check_login) usa basename($PHP_SELF). Hacemos
+// que se resuelva como index.php (FILENAME_DEFAULT, exento del chequeo de admin_files)
+// para que cualquier admin LOGUEADO pueda subir sin registrar este endpoint en
+// admin_files. El login se sigue exigiendo (eso usa SCRIPT_FILENAME, no PHP_SELF).
+$_SERVER['PHP_SELF'] = dirname($_SERVER['PHP_SELF']) . '/index.php';
 require(dirname(__FILE__) . '/../../application_top.php');   // login + constantes + funciones
 
 // A partir de aqui solo continua un administrador autenticado

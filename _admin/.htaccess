@@ -64,3 +64,17 @@ RewriteRule ^addon_(.+).php /_admin/addons.php
 <Files "cron_mail_status.php">
    Allow from all
 </Files>
+
+# Restriccion especifica para los endpoints del traspaso QFacWin (C4):
+# solo accesibles desde la IP del ERP/oficina, IPs de servidor y localhost.
+# Cierra la superficie de SQLi de estos scripts sin tocar el codigo del proveedor
+# (QFacWin sube sus scripts por FTP y llama por HTTP desde 217.127.199.171).
+<FilesMatch "^qfacwin_.*\.php$">
+   Order deny,allow
+   Deny from all
+   Allow from 217.127.199.171
+   Allow from 80.28.193.44
+   Allow from 20.71.1.14
+   Allow from 127.0.0.1
+   Allow from ::1
+</FilesMatch>

@@ -13,7 +13,7 @@
 											  from opinion o
 											  inner join customers c on (c.customers_id = o.customers_id )
 											  where o.status_aprobado = true
-											  order by fecha_envio desc', 10 );
+											  order by o.fecha_envio desc', 10 );
 
 	$aOpiniones = tep_db_query( $aSplitOpiniones->sql_query );
 	
