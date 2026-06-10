@@ -1036,7 +1036,7 @@
 												 'manufacturers_id' => tep_db_prepare_input($_POST['manufacturers_id']),
 												 'products_ship_free' => tep_db_prepare_input($_POST['products_ship_free']),
 												 'amazon_status' => tep_db_prepare_input($_POST['amazon_status']),
-												 'products_liquidacion' => ($_POST['products_liquidacion'] == 1 && tep_db_prepare_input($_POST['specials_min_price']) > 0 ? 1 : 0));
+												 'products_liquidacion' => (isset($_POST['products_liquidacion']) && $_POST['products_liquidacion'] == 1 ? 1 : 0));
 
 		//++++ QT Pro: Begin Added code
 			if($product_investigation['has_tracked_options'] or $product_investigation['stock_entries_count'] > 0){
@@ -1175,7 +1175,17 @@
 						}
 
 						// Liquidacion productos //
-
+						/*
+						 * 2026-05-12 — DESACTIVADO: este bloque creaba/actualizaba un `specials`
+						 * con descuento (PERCENT_DISCOUNT_LIQUIDACION) al guardar un producto en
+						 * liquidación con `specials_min_price > 0`. Ya no rebajamos precios
+						 * automáticamente; el flag `products_liquidacion` solo dispara la
+						 * descatalogación por stock vía
+                         *   _admin/scripts/cron_products_liquidacion.php
+						 * Si en el futuro queremos restablecer el descuento automático,
+						 * descomentar este bloque y revisar PERCENT_DISCOUNT_LIQUIDACION.
+						 */
+						/*
 						$nLiquidacion = (int)tep_db_prepare_input( $_POST['products_liquidacion'] );
 						$nMinDiscount = tep_db_prepare_input( $_POST['specials_min_price'] );
 
@@ -1231,6 +1241,7 @@
 											   VALUES (' . (int)$products_id . ', "' . $nSpecialPrice . '", "' . $nMinDiscount . '", now(), 1, 0);');
 							}
 						}
+						*/
 						// FIN; Liquidacion productos //
 
 						// BOF Bundled Products

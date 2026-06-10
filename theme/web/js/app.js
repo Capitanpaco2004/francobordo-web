@@ -5,9 +5,9 @@ var dmHead = $("#banrs-home").length > 0 ? $("#banrs-home") : $("#titu1");
 var nHeightNav;
 
 // Galeria de ficha (feature "imagen por valor de atributo"):
-// reconstruye #slick-fich CONSERVANDO la galeria original y, si el valor seleccionado
-// tiene imagen de atributo, la antepone como primer slide. window.amFichGalleryOrig se
-// captura en createSlick() antes de inicializar Slick (HTML limpio, sin clones).
+// reconstruye #slick-fich. Si el valor seleccionado tiene imagen(es) de atributo, muestra
+// SOLO esas (reemplaza la galeria); si no tiene, restaura la galeria original del producto.
+// window.amFichGalleryOrig se captura en createSlick() antes de inicializar Slick (HTML limpio).
 window.amAttrImgPending = null;
 function amRebuildFichGallery(aImages) {
 	var $gal = $("#slick-fich");
@@ -42,7 +42,9 @@ function amRebuildFichGallery(aImages) {
 	if ($gal.hasClass("slick-initialized")) $gal.slick("unslick");
 	try { if ($gal.data("lightGallery")) $gal.data("lightGallery").destroy(true); } catch (e) {}
 
-	$gal.html(sPrepend + window.amFichGalleryOrig);
+	// Si el valor seleccionado tiene imagen(es) de atributo, mostramos SOLO esas (reemplazamos
+	// la galeria). Si no tiene, restauramos la galeria original del producto.
+	$gal.html(sPrepend !== "" ? sPrepend : window.amFichGalleryOrig);
 	$gal.children().removeClass("actv").first().addClass("actv");
 
 	$gal.not(".slick-initialized").slick({

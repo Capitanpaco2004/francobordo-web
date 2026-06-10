@@ -2,6 +2,7 @@
 
 include('includes/modules/rma/install.php');
 include('includes/modules/rma/cex.php'); // Integración Correos Express (recogidas/envíos RMA)
+include('includes/modules/rma/seur.php'); // Integración SEUR (envíos/etiquetas de devolución RMA)
 
 // Métodos de reembolso que acreditan puntos al cliente al pasar el RMA a status=13.
 // id=1  : método legacy "Puntos" (sin bonus) — solo accesible vía admin para ajustes manuales
@@ -85,6 +86,26 @@ function rmaSection() {
         case 'cex-set-env':
             // Interruptor global entorno Correos Express (test/pro).
             rmaCexSetEnv();
+            break;
+        case 'seur-label-gen':
+            // SEUR: graba envío de devolución + genera etiqueta PDF.
+            rmaSeurGenerateLabel();
+            break;
+        case 'seur-label':
+            // Descarga el PDF de etiqueta SEUR almacenado (hace exit dentro).
+            rmaSeurDownloadLabel();
+            break;
+        case 'seur-email-label':
+            // Envía la etiqueta SEUR por email al cliente.
+            rmaSeurEmailLabel();
+            break;
+        case 'seur-cancel':
+            // Anula un envío en SEUR.
+            rmaSeurCancel();
+            break;
+        case 'seur-set-env':
+            // Interruptor global entorno SEUR (pre/pro).
+            rmaSeurSetEnv();
             break;
         case 'save-types-return':
             rmaSaveTypesReturn();

@@ -33,10 +33,23 @@ $confirmed = (int)($_POST['confirmed'] ?? 0);
 if ($vid <= 0)
 	amNameFail('Parametros invalidos');
 
-// Idioma activo del attribute manager (mismo que usa el resto del panel)
-$lang = amGetSessionVariable(AM_SESSION_CURRENT_LANG_VAR_NAME);
-if ($lang === false || (int)$lang <= 0)
-	$lang = AM_DEFAULT_LANGUAGE_ID;
+// Idioma del valor a editar. PRIORIDAD: el idioma que el cliente envia (data-lang del input),
+// que es EXACTAMENTE el idioma en que se renderizo el nombre -> el guardado coincide con lo que
+// se ve/edita. Esto evita el desajuste por la sesion de idioma de la AM (amGetSessionVariable usa
+// $GLOBALS, que se puebla distinto entre attributeManager.php y este endpoint).
+// Validamos contra la tabla languages. Fallback: sesion AM -> AM_DEFAULT_LANGUAGE_ID.
+$lang = 0;
+$postLang = (int)($_POST['lang'] ?? 0);
+if ($postLang > 0) {
+	$chkLang = tep_db_query('SELECT languages_id FROM languages WHERE languages_id = "' . $postLang . '" LIMIT 1');
+	if (tep_db_num_rows($chkLang) > 0)
+		$lang = $postLang;
+}
+if ($lang <= 0) {
+	$lang = amGetSessionVariable(AM_SESSION_CURRENT_LANG_VAR_NAME);
+	if ($lang === false || (int)$lang <= 0)
+		$lang = AM_DEFAULT_LANGUAGE_ID;
+}
 $lang = (int)$lang;
 
 // Cuantos productos usan este valor (blast radius del cambio)

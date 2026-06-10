@@ -7,7 +7,7 @@
 
   Released under the GNU General Public License
   
-  Copyright © 2006 Kangaroo Partners
+  Copyright ï¿½ 2006 Kangaroo Partners
   http://kangaroopartners.com
   osc@kangaroopartners.com
 */
@@ -28,9 +28,22 @@ class attributeManagerConfig {
 		
 		
 		/**
-		 * Default admin interface language id
+		 * Default admin interface language id.
+		 * Usamos el idioma POR DEFECTO DE LA TIENDA (DEFAULT_LANGUAGE), no $languages_id:
+		 * en el contexto AJAX del attribute manager $languages_id resolvia a ingles, lo que hacia
+		 * que los nombres de valores se editaran/guardaran en ingles mientras la tienda (espanol)
+		 * no cambiaba. Con esto el AM arranca en el idioma de la tienda; las banderas siguen
+		 * permitiendo cambiar de idioma. Fallback a $languages_id si la consulta falla.
 		 */
-		$this->add('AM_DEFAULT_LANGUAGE_ID',$GLOBALS['languages_id']);
+		$amDefaultLangId = isset($GLOBALS['languages_id']) ? (int)$GLOBALS['languages_id'] : 1;
+		if (defined('DEFAULT_LANGUAGE') && function_exists('tep_db_query')) {
+			$amLangQ = tep_db_query("SELECT languages_id FROM languages WHERE code = '" . tep_db_input(DEFAULT_LANGUAGE) . "' LIMIT 1");
+			if ($amLangQ && tep_db_num_rows($amLangQ) > 0) {
+				$amLangR = tep_db_fetch_array($amLangQ);
+				$amDefaultLangId = (int)$amLangR['languages_id'];
+			}
+		}
+		$this->add('AM_DEFAULT_LANGUAGE_ID', $amDefaultLangId);
 		
 		/**
 		 * Default admin interface template order

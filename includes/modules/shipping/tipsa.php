@@ -108,7 +108,7 @@ class tipsa
             }
 
             if (tep_not_null($this->icon)) {
-                $this->quotes['icon'] = tep_image($this->icon, $this->title);
+                $this->quotes['icon'] = 'shipping_furgoneta.png';
             }
 
             if ($error == true) {

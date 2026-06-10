@@ -91,7 +91,7 @@ class correoscert
         }
 
         if (tep_not_null($this->icon)) {
-            $this->quotes['icon'] = tep_image($this->icon, $this->title);
+            $this->quotes['icon'] = 'shipping_correos.png';
         }
 
         return $this->quotes;

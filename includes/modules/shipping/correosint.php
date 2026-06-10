@@ -77,7 +77,7 @@
 	if ($this->tax_class > 0) {
 		$this->quotes['tax'] = tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id']);
 	}
-	if (tep_not_null($this->icon)) $this->quotes['icon'] = tep_image($this->icon, $this->title);
+	if (tep_not_null($this->icon)) $this->quotes['icon'] = 'shipping_correos.png';
 	return $this->quotes;
     }
     function check() {

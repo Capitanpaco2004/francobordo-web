@@ -185,6 +185,27 @@ class Shipping
             require_once DIR_WS_CLASSES . 'shipping.php';
             $shipping_modules = new \shipping;
 
+            // Inicio, punto de recogida SEUR (2shop): validar y fijar el punto en sesión.
+            // El punto puede ser de OTRO CP distinto al de entrega (buscador del checkout):
+            // seur_pudo_cp lleva el CP donde se buscó; se valida contra la caché de ESE CP.
+            if ($module === 'seurpunto') {
+                $sSeurPudo = tep_db_prepare_input(isset($_POST['seur_pudo']) ? $_POST['seur_pudo'] : '');
+                $sSeurCp = preg_replace('/\D/', '', isset($_POST['seur_pudo_cp']) ? $_POST['seur_pudo_cp'] : '');
+                if (!preg_match('/^\d{5}$/', $sSeurCp)) $sSeurCp = $order->delivery['postcode'];
+                $aSeurPudo = ($sSeurPudo != '' && class_exists('seurpunto'))
+                    ? \seurpunto::puntoById($sSeurPudo, $sSeurCp, '', 'ES')
+                    : false;
+                if ($aSeurPudo === false) {
+                    $this->messageError = TEXT_ERROR_SEUR_PUDO;
+                    $this->redirect = tep_href_link(FILENAME_CHECKOUT_SHIPPING);
+                    return false;
+                }
+                $_SESSION['seur_pudo_sel'] = $aSeurPudo;
+            } else {
+                unset($_SESSION['seur_pudo_sel']);
+            }
+            // Fin, punto de recogida SEUR
+
             // Si existe
             if ((isset($GLOBALS[$module]) && is_object($GLOBALS[$module])) || $module == 'free') {
                 // Comprobamos si es gratis

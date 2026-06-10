@@ -165,6 +165,23 @@ if(!isset($_GET['target']) || 'currentAttributes' == $_GET['target']) {
 			$amAttrImg[$amAttrRow['products_attributes']] = $amAttrRow['value'];
 	}
 
+	// Edicion del NOMBRE del valor: la hacemos SIEMPRE en el idioma por defecto de la tienda
+	// (AM_DEFAULT_LANGUAGE_ID, ya resuelto al idioma de DEFAULT_LANGUAGE = español), NO en el
+	// idioma de interfaz del AM. Motivo: el idioma de interfaz del AM se queda pegado a ingles
+	// (la persistencia de su variable de sesion es poco fiable), y editar/guardar en ingles hacia
+	// que el nombre que ve la tienda (español) "no cambiara". Precargamos los nombres en ese idioma.
+	$amNameLang = (int)AM_DEFAULT_LANGUAGE_ID;
+	$amValNameDef = array();
+	if($amAttrPid > 0 && $amNameLang > 0) {
+		$amNameRes = tep_db_query('SELECT pov.products_options_values_id AS vid, pov.products_options_values_name AS nombre
+								   FROM products_attributes pa
+								   INNER JOIN products_options_values pov ON pov.products_options_values_id = pa.options_values_id AND pov.language_id = "' . $amNameLang . '"
+								   WHERE pa.products_id = "' . $amAttrPid . '"
+								   GROUP BY pov.products_options_values_id');
+		while($amNameRow = tep_db_fetch_array($amNameRes))
+			$amValNameDef[(int)$amNameRow['vid']] = $amNameRow['nombre'];
+	}
+
 	// Precio final con IVA + signo "=": mostramos el PVP real de cada valor (base +/- delta, IVA incl.)
 	// y forzamos el prefijo a "=". Internamente se sigue guardando como incremento (ver clase Instant,
 	// que reconvierte "=" -> delta ex-IVA al persistir). Es un punto fijo estable: display y campo viven
@@ -257,9 +274,14 @@ if(false){
 					<img src="attributeManager/images/icon_arrow.gif" >
 				</td>
 				<td>
-					<?php $amValNameEsc = htmlspecialchars((string)$optionValueInfo['name'], ENT_QUOTES, CHARSET); $amValUid = $optionId.'_'.$optionValueId; ?>
+					<?php
+						// Nombre a editar = el del idioma por defecto de la tienda (no el de interfaz del AM).
+						$amValNameRaw = array_key_exists((int)$optionValueId, $amValNameDef) ? $amValNameDef[(int)$optionValueId] : (string)$optionValueInfo['name'];
+						$amValNameEsc = htmlspecialchars((string)$amValNameRaw, ENT_QUOTES, CHARSET);
+						$amValUid = $optionId.'_'.$optionValueId;
+					?>
 					<span style="display:inline-flex;align-items:center;gap:5px;max-width:100%;">
-						<input type="text" id="amValName_<?php echo $amValUid; ?>" class="amValName" value="<?php echo $amValNameEsc; ?>" data-orig="<?php echo $amValNameEsc; ?>" readonly style="width:420px;max-width:100%;box-sizing:border-box;font-size:12px;background:#f3f3f3;border:1px solid #ccc;" title="Pulsa el lapiz para editar el nombre" onkeydown="if(event.keyCode==13){this.blur();return false;}" onblur="return amAttrNameBlur('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>',this);">
+						<input type="text" id="amValName_<?php echo $amValUid; ?>" class="amValName" value="<?php echo $amValNameEsc; ?>" data-orig="<?php echo $amValNameEsc; ?>" data-lang="<?php echo $amNameLang; ?>" readonly style="width:420px;max-width:100%;box-sizing:border-box;font-size:12px;background:#f3f3f3;border:1px solid #ccc;" title="Pulsa el lapiz para editar el nombre" onkeydown="if(event.keyCode==13){this.blur();return false;}" onblur="return amAttrNameBlur('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>',this);">
 						<input type="image" id="amValEdit_<?php echo $amValUid; ?>" src="attributeManager/images/icon_rename.png" border="0" title="Editar nombre del valor" onclick="return amAttrNameEdit('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>');" style="vertical-align:middle;cursor:pointer;">
 					</span>
 					<div id="amValAffected_<?php echo $amValUid; ?>" class="amValAffected" style="display:none;margin-top:4px;font-size:11px;line-height:1.35;color:#444;background:#fffbe6;border:1px solid #e8d98a;border-radius:3px;padding:5px 7px;max-width:480px;"></div>

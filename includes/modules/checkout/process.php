@@ -251,6 +251,17 @@ class Process
             }
         }
 
+        // Inicio, punto de recogida SEUR: la entrega va al punto elegido (como retira en tienda)
+        if ($shipping['id'] == 'seurpunto_seurpunto' && !empty($_SESSION['seur_pudo_sel']['id'])) {
+            $aSeurPudo = $_SESSION['seur_pudo_sel'];
+            $sql_data_array['delivery_company']        = 'Punto SEUR: ' . $aSeurPudo['name'];
+            $sql_data_array['delivery_street_address'] = $aSeurPudo['address'];
+            $sql_data_array['delivery_postcode']       = $aSeurPudo['cp'];
+            $sql_data_array['delivery_city']           = $aSeurPudo['city'];
+            $comments .= '<br>Entrega en punto SEUR: ' . $aSeurPudo['id'] . ' - ' . $aSeurPudo['name'] . ' (' . $aSeurPudo['address'] . ', ' . $aSeurPudo['cp'] . ' ' . $aSeurPudo['city'] . ')';
+        }
+        // Fin, punto de recogida SEUR
+
         // Isertamos orders — con reintento ante carrera de orders_id.
         // El id se genera con MAX(orders_id)+1 (línea ~168); si dos checkouts entran a
         // la vez leen el mismo MAX y colisionan en la PRIMARY KEY (Duplicate entry).
@@ -282,6 +293,24 @@ class Process
          * @author Daniel Lucia <daniel.lucia@denox.es>
          */
         \Affiliates::generateOrder($order, intval($insert_id));
+
+        // Inicio, punto de recogida SEUR: persistir el punto para la API (pickupCentreCode)
+        if ($shipping['id'] == 'seurpunto_seurpunto' && !empty($_SESSION['seur_pudo_sel']['id'])) {
+            $aSeurPudo = $_SESSION['seur_pudo_sel'];
+            tep_db_perform('seur_pudo_orders', array(
+                'orders_id'  => (int) $insert_id,
+                'pudo_id'    => $aSeurPudo['id'],
+                'name'       => $aSeurPudo['name'],
+                'address'    => $aSeurPudo['address'],
+                'postcode'   => $aSeurPudo['cp'],
+                'city'       => $aSeurPudo['city'],
+                'lat'        => (float) $aSeurPudo['lat'],
+                'lng'        => (float) $aSeurPudo['lng'],
+                'date_added' => 'now()',
+            ));
+            unset($_SESSION['seur_pudo_sel']);
+        }
+        // Fin, punto de recogida SEUR
 
         if (preg_match('/UPS \(UPS\)/i', $order->info['shipping_method'])) {
             $upsshipping->update_order($insert_id, $cartID);

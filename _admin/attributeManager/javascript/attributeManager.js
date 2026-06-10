@@ -817,6 +817,10 @@ function amAttrNameSend(oid, vid, input) {
 	data.append('vid', vid);
 	data.append('op', 'save');
 	data.append('name', input.value);
+	// Idioma EXACTO en que se renderizo el nombre (data-lang), para que el guardado coincida
+	// con lo que se ve/edita. Evita el desajuste por la sesion de idioma de la AM ($GLOBALS).
+	var amLang = input.getAttribute('data-lang');
+	if(amLang) data.append('lang', amLang);
 	data.append('confirmed', 1); // el desglose de afectados ya se mostro al entrar en edicion
 	fetch(amAttrNameEndpoint(), { method: 'POST', body: data, credentials: 'same-origin' })
 		.then(function(r){ return r.json(); })
