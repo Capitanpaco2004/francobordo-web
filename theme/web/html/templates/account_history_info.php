@@ -235,7 +235,33 @@
 			<?php if ($order->info['shipping_method']!='' && $max_status > 3): ?>
 				<div class="orderHistoryBox">
 					<h3>Enviado por</h3>
-					<p><?php echo $order->info['shipping_method']; ?>
+					<?php
+						$cexTrk = null;
+						$cexTrkQ = tep_db_query("SELECT * FROM cex_tracking WHERE referencia = 'F" . (int) $_GET['order_id'] . "' LIMIT 1");
+						if (tep_db_num_rows($cexTrkQ)) $cexTrk = tep_db_fetch_array($cexTrkQ);
+						// Tracking Ontime (ontime_tracking, lo alimenta cron_ontime_tracking.php; referencia = orders_id).
+						$ontTrk = null;
+						$ontTrkQ = tep_db_query("SELECT * FROM ontime_tracking WHERE referencia = '" . (int) $_GET['order_id'] . "' LIMIT 1");
+						if (tep_db_num_rows($ontTrkQ)) $ontTrk = tep_db_fetch_array($ontTrkQ);
+						$corrTrk = null;
+						$corrTrkQ = tep_db_query("SELECT * FROM correos_tracking WHERE referencia = 'F" . (int) $_GET['order_id'] . "' LIMIT 1");
+						if (tep_db_num_rows($corrTrkQ)) $corrTrk = tep_db_fetch_array($corrTrkQ);
+						// Tracking SEUR (seur_tracking, lo alimenta cron_seur_tracking.php).
+						// Referencia 'F{oid}' (integración API) o '{oid}' a pelo (integración
+						// vieja de Vstock) — se prueba la F primero.
+						$seurTrk = null;
+						$seurTrkQ = tep_db_query("SELECT * FROM seur_tracking WHERE referencia IN ('F" . (int) $_GET['order_id'] . "', '" . (int) $_GET['order_id'] . "') ORDER BY referencia = 'F" . (int) $_GET['order_id'] . "' DESC LIMIT 1");
+						if (tep_db_num_rows($seurTrkQ)) $seurTrk = tep_db_fetch_array($seurTrkQ);
+						$cexUrlSeg = !empty($aUrlEnvio[0][0]) ? $aUrlEnvio[0][0] : '';
+						$cexCarrier = '';
+						if ($cexTrk || stripos($cexUrlSeg, 'correosexpress') !== false) $cexCarrier = 'Correos Express';
+						elseif ($ontTrk || stripos($cexUrlSeg, 'ontime') !== false || stripos($cexUrlSeg, 'alertran') !== false) $cexCarrier = 'Ontime';
+						elseif ($seurTrk || stripos($cexUrlSeg, 'seur') !== false) $cexCarrier = 'SEUR';
+						elseif (stripos($cexUrlSeg, 'dhl') !== false)  $cexCarrier = 'DHL';
+						elseif (stripos($cexUrlSeg, 'tnt') !== false)  $cexCarrier = 'TNT';
+						elseif ($corrTrk || stripos($cexUrlSeg, 'correos') !== false) $cexCarrier = 'Correos';
+						?>
+					<p><strong><?php echo $cexCarrier !== '' ? htmlspecialchars($cexCarrier) : $order->info['shipping_method']; ?></strong>
 						<?php
 						//Si tenemos un array y una url válida, motramos el banner.
 						if (!empty($aUrlEnvio) && !empty($aUrlEnvio[0]) && filter_var($aUrlEnvio[0][0], FILTER_VALIDATE_URL)): ?>
@@ -245,19 +271,141 @@
 								</a>
 							</small>
 						<?php endif; ?>
-						<?php
-						// Estado real Correos Express (de cex_tracking, actualizado por el cron API).
-						$cexTrkQ = tep_db_query("SELECT estado_desc, entregado, last_checked FROM cex_tracking WHERE referencia = 'F" . (int) $_GET['order_id'] . "' LIMIT 1");
-						if (tep_db_num_rows($cexTrkQ)):
-							$cexTrk = tep_db_fetch_array($cexTrkQ);
-						?>
-							<span class="cexEstadoEnvio" style="display:block;margin-top:6px;font-size:13px">
-								<i class="fa fa-circle" style="font-size:9px;margin-right:5px;color:<?php echo $cexTrk['entregado'] ? '#2e9e44' : '#ee7f00'; ?>"></i>
-								<?php echo ((int) $languages_id == 3 ? 'Estado del envío: ' : 'Shipment status: '); ?><strong><?php echo htmlspecialchars($cexTrk['estado_desc']); ?></strong>
-								<small style="color:#999">(<?php echo date('d/m/Y H:i', strtotime($cexTrk['last_checked'])); ?>)</small>
-							</span>
-						<?php endif; ?>
 					</p>
+					<?php
+					// Estado + histórico Correos (correos_tracking, cron API; referencia F-oid). Desplegable como el de CEX.
+					if ($corrTrk):
+						$esEspC  = ((int) $languages_id == 3);
+						$corrEvs = !empty($corrTrk['eventos_json']) ? json_decode($corrTrk['eventos_json'], true) : null;
+					?>
+						<details class="correosTimeline" style="margin-top:6px;font-size:13px">
+							<summary style="cursor:pointer"><i class="fa fa-circle" style="font-size:8px;margin-right:6px;color:<?php echo $corrTrk['entregado'] ? '#2e9e44' : '#ee7f00'; ?>"></i><?php
+								if ($corrTrk['entregado'] && !empty($corrTrk['fecha_evento'])) {
+									echo ($esEspC ? 'Entregado el ' : 'Delivered on ') . '<strong>' . date('d/m/Y H:i', strtotime($corrTrk['fecha_evento'])) . '</strong>';
+								} else {
+									echo ($esEspC ? 'Seguimiento del env&iacute;o: ' : 'Tracking: ') . '<strong>' . htmlspecialchars($corrTrk['estado_desc']) . '</strong>';
+								}
+							?></summary>
+							<?php if (is_array($corrEvs) && count($corrEvs)): $corrEvs = array_reverse($corrEvs); ?>
+							<ul style="list-style:none;margin:6px 0 0;padding:0 0 0 4px">
+								<?php foreach ($corrEvs as $corrE):
+									$corrOk  = (stripos((string) ($corrE['fase'] ?? ''), 'ENTREGAD') !== false);
+									$corrBad = (stripos((string) ($corrE['fase'] ?? ''), 'DEVOLUC') !== false);
+								?>
+									<li style="padding:2px 0"><i class="fa fa-circle" style="font-size:8px;margin-right:6px;color:<?php echo $corrOk ? '#2e9e44' : ($corrBad ? '#c0392b' : '#9bb7cc'); ?>"></i><?php echo htmlspecialchars((string) ($corrE['txt'] ?? '')); ?><?php if (!empty($corrE['f'])): ?> <small style="color:#999">&mdash; <?php echo htmlspecialchars($corrE['f'] . (!empty($corrE['h']) ? ' ' . $corrE['h'] : '')); ?></small><?php endif; ?></li>
+								<?php endforeach; ?>
+							</ul>
+							<?php endif; ?>
+						</details>
+					<?php endif; ?>
+					<?php
+					// Histórico de estados (solo envíos Correos Express). Detalle de la API cacheado en cex_tracking.
+					if ($cexTrk):
+						$cexTimeline = !empty($cexTrk['timeline_json']) ? json_decode($cexTrk['timeline_json'], true) : null;
+						$cexFresh = !empty($cexTrk['timeline_at']) && (strtotime($cexTrk['timeline_at']) > time() - 3600);
+						if (!is_array($cexTimeline) || (empty($cexTrk['entregado']) && !$cexFresh)) {
+							require_once $_SERVER['DOCUMENT_ROOT'] . '/' . DIR_WS_CLASSES . 'correos_express.php';
+							$cexEnvQ = tep_db_query("SELECT config_value FROM cex_config WHERE config_key = 'env'");
+							$cexEnv  = tep_db_num_rows($cexEnvQ) ? tep_db_fetch_array($cexEnvQ)['config_value'] : 'test';
+							$cexCli  = new correos_express($cexEnv); $cexCli->setTimeout(5);
+							$cexRes  = $cexCli->seguimientoEnvio('F' . (int) $_GET['order_id']);
+							if (!empty($cexRes['ok']) && !empty($cexRes['data']['estadoEnvios'])) {
+								$cexTimeline = array();
+								foreach ($cexRes['data']['estadoEnvios'] as $cexE) {
+									$cexTimeline[] = array('d' => $cexE['descEstado'] ?? '', 'f' => $cexE['fechaEstado'] ?? '', 'h' => $cexE['horaEstado'] ?? '', 'i' => $cexE['descIncEstado'] ?? '', 'e' => (($cexE['codEstado'] ?? '') === '12') ? 1 : 0);
+								}
+								tep_db_query("UPDATE cex_tracking SET timeline_json = '" . tep_db_input(json_encode($cexTimeline, JSON_UNESCAPED_UNICODE)) . "', timeline_at = now() WHERE referencia = 'F" . (int) $_GET['order_id'] . "'");
+							}
+						}
+						if (is_array($cexTimeline) && count($cexTimeline)):
+					?>
+						<?php $cexLast = end($cexTimeline); reset($cexTimeline); ?>
+							<details class="cexTimeline" style="margin-top:6px;font-size:13px">
+								<summary style="cursor:pointer"><i class="fa fa-circle" style="font-size:8px;margin-right:6px;color:<?php echo !empty($cexLast['e']) ? '#2e9e44' : '#ee7f00'; ?>"></i><?php echo ((int) $languages_id == 3 ? 'Seguimiento del env&iacute;o: ' : 'Tracking: '); ?><strong><?php echo htmlspecialchars(mb_convert_case(mb_strtolower($cexLast['d']), MB_CASE_TITLE)); ?></strong></summary>
+								<ul style="list-style:none;margin:6px 0 0;padding:0 0 0 4px">
+							<?php foreach ($cexTimeline as $cexT):
+								$cexFmt = '';
+								if (!empty($cexT['f']) && strlen($cexT['f']) === 8) $cexFmt = substr($cexT['f'], 0, 2) . '/' . substr($cexT['f'], 2, 2) . '/' . substr($cexT['f'], 4, 4);
+								if (!empty($cexT['h']) && strlen($cexT['h']) >= 4) $cexFmt .= ' ' . substr($cexT['h'], 0, 2) . ':' . substr($cexT['h'], 2, 2);
+							?>
+								<li style="padding:2px 0">
+									<i class="fa fa-circle" style="font-size:8px;margin-right:6px;color:<?php echo !empty($cexT['e']) ? '#2e9e44' : '#9bb7cc'; ?>"></i>
+									<?php echo htmlspecialchars(mb_convert_case(mb_strtolower($cexT['d']), MB_CASE_TITLE)); ?>
+									<?php if (!empty($cexT['i'])): ?><span style="color:#c0392b">(<?php echo htmlspecialchars(mb_convert_case(mb_strtolower($cexT['i']), MB_CASE_TITLE)); ?>)</span><?php endif; ?>
+									<?php if ($cexFmt): ?><small style="color:#999"> — <?php echo $cexFmt; ?></small><?php endif; ?>
+								</li>
+							<?php endforeach; ?>
+						</ul>
+							</details>
+					<?php endif; endif; ?>
+					<?php
+					// Histórico de estados (solo envíos Ontime). Eventos cacheados por el cron
+					// en eventos_json; desplegable <details> como el de Correos Express.
+					if ($ontTrk):
+						$esEsp  = ((int) $languages_id == 3);
+						$ontEvs = !empty($ontTrk['eventos_json']) ? json_decode($ontTrk['eventos_json'], true) : null;
+						$ontEvs = (is_array($ontEvs) && count($ontEvs)) ? array_reverse($ontEvs) : array();
+						$ontResumen = ($ontTrk['entregado'] && !empty($ontTrk['fecha_entrega']))
+							? ($esEsp ? 'Entregado el ' : 'Delivered on ') . '<strong>' . date('d/m/Y H:i', strtotime($ontTrk['fecha_entrega'])) . '</strong>'
+							: ($esEsp ? 'Estado del env&iacute;o: ' : 'Shipment status: ') . '<strong>' . htmlspecialchars($ontTrk['estado_desc']) . '</strong>' . ($ontEvs ? '' : ' <small style="color:#999">(' . date('d/m/Y H:i', strtotime($ontTrk['last_checked'])) . ')</small>');
+					if ($ontEvs): ?>
+						<details class="ontimeTimeline" style="margin-top:6px;font-size:13px">
+							<summary style="cursor:pointer"><i class="fa fa-circle" style="font-size:8px;margin-right:6px;color:<?php echo $ontTrk['entregado'] ? '#2e9e44' : '#ee7f00'; ?>"></i><?php echo $ontResumen; ?></summary>
+							<ul style="list-style:none;margin:6px 0 0;padding:0 0 0 4px">
+							<?php foreach ($ontEvs as $ontE):
+								$ontOk  = in_array(($ontE['t'] ?? ''), array('ENTR', 'EFEC', 'DIAE', 'EAGE'), true);
+								$ontBad = in_array(($ontE['t'] ?? ''), array('NOEF', 'DIAN', 'FALT', 'DGEN', 'DEVU', 'ANUL'), true) || preg_match('/^\d{4}$/', (string) ($ontE['t'] ?? ''));
+								$ontFmt = !empty($ontE['f']) ? date('d/m/Y H:i', strtotime($ontE['f'])) : '';
+							?>
+								<li style="padding:2px 0">
+									<i class="fa fa-circle" style="font-size:8px;margin-right:6px;color:<?php echo $ontOk ? '#2e9e44' : ($ontBad ? '#c0392b' : '#9bb7cc'); ?>"></i>
+									<?php echo htmlspecialchars(mb_convert_case(mb_strtolower((string) ($ontE['d'] ?? '')), MB_CASE_TITLE)); ?>
+									<?php if (!empty($ontE['g'])): ?><small style="color:#777">· <?php echo htmlspecialchars(mb_convert_case(mb_strtolower($ontE['g']), MB_CASE_TITLE)); ?></small><?php endif; ?>
+									<?php if ($ontFmt): ?><small style="color:#999"> — <?php echo $ontFmt; ?></small><?php endif; ?>
+								</li>
+							<?php endforeach; ?>
+							</ul>
+						</details>
+					<?php else: ?>
+						<span class="ontimeEstadoEnvio" style="display:block;margin-top:6px;font-size:13px">
+							<i class="fa fa-circle" style="font-size:9px;margin-right:5px;color:<?php echo $ontTrk['entregado'] ? '#2e9e44' : '#ee7f00'; ?>"></i><?php echo $ontResumen; ?>
+						</span>
+					<?php endif; ?>
+					<?php endif; ?>
+					<?php
+					// Histórico de estados (solo envíos SEUR vía API). Eventos cacheados por
+					// cron_seur_tracking.php en eventos_json [{f,t,d}]; desplegable como los demás.
+					if ($seurTrk):
+						$esEspS  = ((int) $languages_id == 3);
+						$seurEvs = !empty($seurTrk['eventos_json']) ? json_decode($seurTrk['eventos_json'], true) : null;
+						$seurEvs = (is_array($seurEvs) && count($seurEvs)) ? array_reverse($seurEvs) : array();
+						$seurResumen = ($seurTrk['entregado'] && !empty($seurTrk['fecha_entrega']))
+							? ($esEspS ? 'Entregado el ' : 'Delivered on ') . '<strong>' . date('d/m/Y H:i', strtotime($seurTrk['fecha_entrega'])) . '</strong>'
+							: ($esEspS ? 'Seguimiento del env&iacute;o: ' : 'Tracking: ') . '<strong>' . htmlspecialchars($seurTrk['estado_desc']) . '</strong>' . ($seurEvs ? '' : ' <small style="color:#999">(' . date('d/m/Y H:i', strtotime($seurTrk['last_checked'])) . ')</small>');
+					if ($seurEvs): ?>
+						<details class="seurTimeline" style="margin-top:6px;font-size:13px">
+							<summary style="cursor:pointer"><i class="fa fa-circle" style="font-size:8px;margin-right:6px;color:<?php echo $seurTrk['entregado'] ? '#2e9e44' : '#ee7f00'; ?>"></i><?php echo $seurResumen; ?></summary>
+							<ul style="list-style:none;margin:6px 0 0;padding:0 0 0 4px">
+							<?php foreach ($seurEvs as $seurE):
+								$seurD   = mb_strtoupper((string) ($seurE['d'] ?? ''));
+								$seurOk  = (strpos($seurD, 'ENTREGAD') !== false && !preg_match('/\b(NO|SIN)\s+ENTREG/u', $seurD));
+								$seurBad = (strpos($seurD, 'ANULAD') !== false || strpos($seurD, 'CANCELAD') !== false || strpos($seurD, 'DEVOL') !== false || strpos($seurD, 'DEVUELTO') !== false || preg_match('/\b(NO|SIN)\s+ENTREG/u', $seurD));
+								$seurFmt = !empty($seurE['f']) ? date('d/m/Y H:i', strtotime($seurE['f'])) : '';
+							?>
+								<li style="padding:2px 0">
+									<i class="fa fa-circle" style="font-size:8px;margin-right:6px;color:<?php echo $seurOk ? '#2e9e44' : ($seurBad ? '#c0392b' : '#9bb7cc'); ?>"></i>
+									<?php echo htmlspecialchars(mb_convert_case(mb_strtolower((string) ($seurE['d'] ?? '')), MB_CASE_TITLE)); ?>
+									<?php if ($seurFmt): ?><small style="color:#999"> — <?php echo $seurFmt; ?></small><?php endif; ?>
+								</li>
+							<?php endforeach; ?>
+							</ul>
+						</details>
+					<?php else: ?>
+						<span class="seurEstadoEnvio" style="display:block;margin-top:6px;font-size:13px">
+							<i class="fa fa-circle" style="font-size:9px;margin-right:5px;color:<?php echo $seurTrk['entregado'] ? '#2e9e44' : '#ee7f00'; ?>"></i><?php echo $seurResumen; ?>
+						</span>
+					<?php endif; ?>
+					<?php endif; ?>
 
 				</div>
 
@@ -397,3 +545,66 @@
 		</p>
 	</div>
 </div>
+
+<script>
+/* Mapa de puntos SEUR del modal RMA. El modal llega por AJAX (sus <script> no se
+ * ejecutan), así que el mapa se monta desde aquí con listeners delegados: al marcar
+ * "punto SEUR" se carga Leaflet (perezoso, CDN) y se pinta #seurRmaMap con los puntos
+ * del select. Elegir en el mapa selecciona en el select y viceversa. */
+(function () {
+	function ensureLeaflet(cb) {
+		if (window.L) { cb(); return; }
+		if (!document.getElementById('seurLeafletCss')) {
+			var l = document.createElement('link');
+			l.id = 'seurLeafletCss'; l.rel = 'stylesheet';
+			l.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+			document.head.appendChild(l);
+		}
+		var s = document.getElementById('seurLeafletJs');
+		if (s) { s.addEventListener('load', function () { if (window.L) cb(); }); return; }
+		s = document.createElement('script');
+		s.id = 'seurLeafletJs';
+		s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+		s.onload = cb;
+		document.head.appendChild(s);
+	}
+	function initSeurRmaMap() {
+		var div = document.getElementById('seurRmaMap');
+		var sel = document.getElementById('seurRmaSelect');
+		if (!div || !sel || div.dataset.seurInit) return;
+		div.dataset.seurInit = '1';
+		div.style.display = 'block';
+		var map = L.map(div);
+		L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
+		var bounds = [], markers = {};
+		Array.prototype.forEach.call(sel.options, function (o) {
+			var lat = parseFloat(o.getAttribute('data-lat')), lng = parseFloat(o.getAttribute('data-lng'));
+			if (!isFinite(lat) || !isFinite(lng)) return;
+			var m = L.marker([lat, lng]).addTo(map);
+			m.bindPopup('<strong>' + (o.getAttribute('data-name') || '') + '</strong><br>' +
+				(o.getAttribute('data-addr') || '') + '<br>' +
+				'<a href="javascript:void(0)" onclick="seurRmaChoose(\'' + o.value + '\')">&#10004; Elegir este punto</a>');
+			markers[o.value] = m;
+			bounds.push([lat, lng]);
+		});
+		if (bounds.length) map.fitBounds(bounds, { padding: [25, 25] });
+		window.seurRmaChoose = function (id) {
+			sel.value = id;
+			if (markers[id]) markers[id].openPopup();
+		};
+		sel.addEventListener('change', function () {
+			var m = markers[sel.value];
+			if (m) { map.panTo(m.getLatLng()); m.openPopup(); }
+		});
+		setTimeout(function () { map.invalidateSize(); }, 150);
+	}
+	function maybeInit() {
+		var r = document.querySelector('input[name="cex_metodo"][value="seurpunto"]');
+		if (r && r.checked) ensureLeaflet(initSeurRmaMap);
+	}
+	document.addEventListener('change', function (e) {
+		if (e.target && e.target.name === 'cex_metodo') maybeInit();
+	});
+	document.addEventListener('click', maybeInit);
+})();
+</script>

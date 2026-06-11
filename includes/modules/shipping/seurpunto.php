@@ -43,8 +43,32 @@ class seurpunto {
         }
     }
 
+    /* Tarifa 2SHOP 24 SEUR (coste sin IVA, vigente 01/11/2025). Tramos "hasta N kg".
+     * Solo zonas que ofrece el módulo: Península y Baleares (Canarias/Ceuta/Melilla
+     * y Portugal quedan excluidos por el gate). margen 0% (pass-through del coste). */
+    const TARIFA_PENINSULA = array(   // kg => €/expedición
+        1=>4.20, 2=>4.26, 3=>4.46, 4=>4.78, 5=>5.22, 7=>5.66, 10=>5.66,
+        15=>6.50, 20=>7.47, 25=>8.83, 30=>10.20, 40=>15.03, 50=>18.12,
+    );
+    const TARIFA_BALEARES = array(
+        1=>5.67, 2=>6.32, 3=>6.91, 4=>7.46, 5=>8.03, 7=>10.88, 10=>10.88,
+        15=>13.71, 20=>16.54, 25=>19.35, 30=>22.19, 40=>29.17, 50=>35.06,
+    );
+    const TARIFA_EXTRA_KG = array('PEN'=>0.36, 'BAL'=>0.58);  // €/kg por encima de 50 kg
+
+    /** Coste SEUR (sin IVA) según peso (kg) y zona ('BAL' Baleares / 'PEN' resto). */
+    public static function costePorPeso($kg, $zona) {
+        $tabla = ($zona === 'BAL') ? self::TARIFA_BALEARES : self::TARIFA_PENINSULA;
+        $kg = (float) $kg; if ($kg <= 0) $kg = 1;
+        foreach ($tabla as $maxkg => $precio) {
+            if ($kg <= $maxkg) return $precio;
+        }
+        // > 50 kg: precio del último tramo + €/kg sobre 50
+        return end($tabla) + (ceil($kg) - 50) * self::TARIFA_EXTRA_KG[$zona === 'BAL' ? 'BAL' : 'PEN'];
+    }
+
     public function quote($method = '') {
-        global $order, $cart;
+        global $order, $cart, $shipping_weight;
 
         if (!$this->enabled) return array();
 
@@ -60,6 +84,20 @@ class seurpunto {
         // sin stock inmediato (decisión 2026-06-09: el punto custodia el paquete,
         // la promesa de plazo es menos crítica que en entrega a domicilio 24h).
 
+        // Precio por peso y zona (tarifa SEUR, sin margen). Baleares = CP 07xxx.
+        $kg   = (float) (isset($shipping_weight) ? $shipping_weight : $cart->show_weight());
+        $zona = (strncmp($cp, '07', 2) === 0) ? 'BAL' : 'PEN';
+        $base = self::costePorPeso($kg, $zona);   // coste sin IVA
+
+        $iva = ($this->tax_class > 0)
+            ? tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id'])
+            : 0;
+        // Redondeo a múltiplos de 0,05 sobre el precio CON IVA (regla de la tienda);
+        // devolvemos el coste sin IVA equivalente para que el checkout muestre el redondeado.
+        $conIva     = $base * (1 + $iva / 100);
+        $conIvaRound = round($conIva / 0.05) * 0.05;
+        $cost = ($iva > 0) ? ($conIvaRound / (1 + $iva / 100)) : $conIvaRound;
+
         $sTitle = MODULE_SHIPPING_SEURPUNTO_TEXT_WAY;
         if (!empty($_SESSION['seur_pudo_sel']['name'])) {
             $sTitle .= ' — ' . $_SESSION['seur_pudo_sel']['name'];
@@ -71,12 +109,10 @@ class seurpunto {
             'methods' => array(array(
                 'id'    => $this->code,
                 'title' => $sTitle,
-                'cost'  => (float) MODULE_SHIPPING_SEURPUNTO_COST,
+                'cost'  => round($cost, 4),
             )),
         );
-        if ($this->tax_class > 0) {
-            $this->quotes['tax'] = tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id']);
-        }
+        if ($iva > 0) $this->quotes['tax'] = $iva;
         // El checkout moderno (includes/modules/checkout) espera un NOMBRE DE FICHERO
         // de su carpeta images/ (no HTML de tep_image como el legacy).
         $this->quotes['icon'] = 'shipping_seur.png';

@@ -19,7 +19,7 @@ class rma {
     public $typesReturn = array();
     public $paymentMethodDefault;
     public $paymentMethods;
-    private $validFields = array('option_return', 'quantity','comments', 'type_return', 'address', 'address_return', 'date_return', 'schedule_return', 'payment_method', 'payment_method_default', 'cex_metodo');
+    private $validFields = array('option_return', 'quantity','comments', 'type_return', 'address', 'address_return', 'date_return', 'schedule_return', 'payment_method', 'payment_method_default', 'cex_metodo', 'seur_pudo_id', 'seur_pudo_name');
     // type_return que activa las opciones de recogida Correos Express ("Envío a cargo de Francobordo")
     const CEX_TYPE_RETURN_ID = 2;
     public $idRma;
@@ -376,6 +376,17 @@ class rma {
         return '';
     }
 
+    /** País de entrega del pedido (nombre tal cual en orders, p.ej. "España"). */
+    public function getDeliveryCountry() {
+        $q = tep_db_query("SELECT delivery_country, customers_country FROM " . TABLE_ORDERS .
+            " WHERE orders_id = '" . (int) $this->ordersID . "' AND customers_id = '" . (int) $this->customerID . "'");
+        if (tep_db_num_rows($q)) {
+            $r = tep_db_fetch_array($q);
+            return trim($r['delivery_country']) !== '' ? trim($r['delivery_country']) : trim($r['customers_country']);
+        }
+        return '';
+    }
+
     public function getFieldsForm($aFields = array()) {
         $excludeFields = array('step');
         foreach($aFields as $key => $value):
@@ -460,6 +471,24 @@ class rma {
             if (($aFields['cex_metodo'] ?? '') === 'domicilio') {
                 if (!empty($aFields['cex_fecha']))  $aFields['date_return']     = $aFields['cex_fecha'];
                 if (!empty($aFields['cex_franja'])) $aFields['schedule_return'] = intval($aFields['cex_franja']);
+            }
+            // SEUR punto de recogida: validar el punto contra la caché (anti-tampering,
+            // mismo patrón que el checkout) y registrar id+nombre para el operador.
+            if (($aFields['cex_metodo'] ?? '') === 'seurpunto') {
+                $pudo = trim((string) ($aFields['seur_pudo'] ?? ($_POST['seur_pudo'] ?? '')));
+                if ($pudo !== '') {
+                    if (!class_exists('seurpunto')) {
+                        $f = DIR_FS_CATALOG . 'includes/modules/shipping/seurpunto.php';
+                        if (is_file($f)) require_once $f;
+                    }
+                    $p = class_exists('seurpunto') ? seurpunto::puntoById($pudo, $this->getDeliveryPostcode()) : false;
+                    if ($p) {
+                        $aFields['seur_pudo_id']   = $p['id'];
+                        $aFields['seur_pudo_name'] = mb_substr($p['name'] . ' - ' . $p['address'] . ' (' . $p['cp'] . ' ' . $p['city'] . ')', 0, 96);
+                    }
+                }
+                // Sin punto validado se registra igualmente cex_metodo='seurpunto':
+                // el operador verá la intención y elegirá el punto con el cliente.
             }
         } else {
             // cex_metodo viene pre-marcado ('domicilio'); solo aplica al tipo CEX.

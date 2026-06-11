@@ -30,6 +30,14 @@ ini_set('display_errors', '0');
 
 define('SEUR_ALB_TOKEN', 'seuralb_9d2f51c7a3e8');
 
+/* Plantilla de la etiqueta ZPL. Z4_TWO_BODIES = formato completo (remitente,
+ * destinatario/punto, refs, obs) y cabe en el rollo de 8x20 cm de la Zebra del
+ * almacén con un desplazamiento fino de -32 dots (~4 mm) que se inyecta como
+ * ^LS en cada etiqueta (validado impreso 2026-06-10). GEOLABEL/NORMAL son de
+ * 105 mm y se cortan en ese rollo. El PDF se mantiene en GEOLABEL (respaldo A4). */
+define('SEUR_ZPL_TEMPLATE', 'Z4_TWO_BODIES');
+define('SEUR_ZPL_LS', -32);
+
 $in = array_merge($_GET, $_POST);
 
 function out($arr) { echo json_encode($arr, JSON_UNESCAPED_UNICODE); exit; }
@@ -42,6 +50,23 @@ if (($in['token'] ?? '') !== SEUR_ALB_TOKEN) {
 chdir(__DIR__);
 include 'includes/configure.php';
 require_once 'includes/classes/seur.php';
+
+/* ---- Modo REIMPRESIÓN: el watcher (.112) recoge los ZPL encolados desde el
+ * panel admin y los deja en su cola de impresión hacia la Zebra ---- */
+if (($in['reprints'] ?? '') === '1') {
+    $db = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
+    if ($db->connect_errno) out(array('ok' => false, 'error' => 'db'));
+    $out = array();
+    $r = $db->query("SELECT id, orders_id, zpl FROM seur_reprint_queue WHERE done = 0 ORDER BY id LIMIT 20");
+    while ($row = $r->fetch_assoc()) {
+        $out[] = array('id' => (int) $row['id'], 'oid' => (int) $row['orders_id'], 'zpl' => $row['zpl']);
+    }
+    if ($out) {
+        $ids = implode(',', array_map(function ($x) { return $x['id']; }, $out));
+        $db->query("UPDATE seur_reprint_queue SET done = 1, done_at = NOW() WHERE id IN ($ids)");
+    }
+    out(array('ok' => true, 'reprints' => $out));
+}
 
 $oid    = (int) ($in['oid'] ?? 0);
 $kilos  = (float) str_replace(',', '.', (string) ($in['kilos'] ?? '1'));
@@ -64,11 +89,12 @@ if ($r = $db->query("SELECT config_value FROM seur_config WHERE config_key='env'
     if ($row = $r->fetch_assoc()) $env = ($row['config_value'] === 'pro') ? 'pro' : 'pre';
 }
 
-/* ---- Dedup: si ya hay envío OK no anulado para este albarán/pedido, devolver el existente ---- */
+/* ---- Dedup: si ya hay envío OK no anulado para este albarán/pedido EN ESTE ENTORNO,
+ *      devolver el existente (un envío de PRE no satisface el dedup en PRO) ---- */
 $st = $alb !== ''
-    ? $db->prepare("SELECT * FROM seur_shipments WHERE albaran_id=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1")
-    : $db->prepare("SELECT * FROM seur_shipments WHERE orders_id=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1");
-if ($alb !== '') $st->bind_param('s', $alb); else $st->bind_param('i', $oid);
+    ? $db->prepare("SELECT * FROM seur_shipments WHERE albaran_id=? AND entorno=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1")
+    : $db->prepare("SELECT * FROM seur_shipments WHERE orders_id=? AND entorno=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1");
+if ($alb !== '') $st->bind_param('ss', $alb, $env); else $st->bind_param('is', $oid, $env);
 $st->execute();
 $prev = $st->get_result()->fetch_assoc();
 if ($prev) {
@@ -141,6 +167,7 @@ if ($dry) out(array('ok' => true, 'dry' => true, 'env' => $env, 'payload' => $sh
 $s = new seur($env);
 $s->setTimeout(60);
 $res  = $s->createShipment($shipment);
+$reqShip = $s->lastRequest; // capturar AHORA: las llamadas de etiqueta lo sobrescriben
 $code = seur::extraerShipmentCode($res);
 $bul  = seur::extraerBultos($res);
 
@@ -159,7 +186,7 @@ if (!$res['ok'] && !$code) {
                           ref, kilos, http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
                         VALUES (0,?,?,'envio',?,?,?,?,?,?,?,0,?,?, 'vstock-watcher', NOW())");
     $http = (string) $res['http'];
-    $req  = json_encode($s->lastRequest, JSON_UNESCAPED_UNICODE);
+    $req  = json_encode($reqShip, JSON_UNESCAPED_UNICODE);
     $raw = $res['raw'];
     $st->bind_param('isssssdssss', $oid, $alb, $env, $shipment['serviceCode'], $shipment['productCode'],
                     $ref, $kilos, $http, $err, $req, $raw);
@@ -169,13 +196,22 @@ if (!$res['ok'] && !$code) {
 
 /* Etiquetas (ZPL para térmica; PDF como respaldo/reimpresión) */
 $zpl = null; $pdfBin = null;
-$labZ = $s->getLabel($code, 'ZPL');
+/* Inyecta el ajuste ^LS en el bloque imprimible (el último ^XA: los primeros
+ * suelen ser la descarga de plantilla/logo ~DG/^DF). */
+function seurAjustarZpl($zpl) {
+    if ((int) SEUR_ZPL_LS === 0) return $zpl;
+    $pos = strrpos($zpl, '^XA');
+    if ($pos === false) return $zpl;
+    return substr($zpl, 0, $pos + 3) . '^LS' . (int) SEUR_ZPL_LS . substr($zpl, $pos + 3);
+}
+
+$labZ = $s->getLabel($code, 'ZPL', array('templateType' => SEUR_ZPL_TEMPLATE));
 if ($labZ['ok'] && !empty($labZ['labels'])) {
     $parts = array();
-    foreach ($labZ['labels'] as $L) if (!empty($L['label'])) $parts[] = $L['label'];
+    foreach ($labZ['labels'] as $L) if (!empty($L['label'])) $parts[] = seurAjustarZpl($L['label']);
     if ($parts) $zpl = implode("\n", $parts);
 } elseif ($labZ['ok'] && !empty($labZ['label'])) {
-    $zpl = $labZ['label'];
+    $zpl = seurAjustarZpl($labZ['label']);
 }
 $labP = $s->getLabel($code, 'PDF');
 if ($labP['ok'] && !empty($labP['pdf_bin'])) $pdfBin = $labP['pdf_bin'];
@@ -199,7 +235,7 @@ $st = $db->prepare("INSERT INTO seur_shipments (id_rma, orders_id, albaran_id, t
                     VALUES (0,?,?,'envio',?,?,?,?,?,?,?,?,?,?,?,?,?, '', 1, ?, ?, 'vstock-watcher', NOW())");
 $fmt  = ($zplPath && $pdfPath) ? 'both' : ($zplPath ? 'zpl' : 'pdf');
 $http = (string) $res['http'];
-$req  = json_encode($s->lastRequest, JSON_UNESCAPED_UNICODE);
+$req  = json_encode($reqShip, JSON_UNESCAPED_UNICODE);
 $st->bind_param('issssssssdsssssss', $oid, $alb, $env, $code, $ecb, $pn,
                 $shipment['serviceCode'], $shipment['productCode'], $ref, $kilos,
                 $fmt, $pdfPath, $zplPath, $trackingUrl, $http, $req, $res['raw']);

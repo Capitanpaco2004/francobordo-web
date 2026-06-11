@@ -1,2 +1,2 @@
-<?php $strfets = "10361845,10361846,10361847,10361848"; 
- $strfetsrma = ""; ?>
+<?php $strfets = "10361947"; 
+ $strfetsrma = "11930"; ?>

@@ -3,6 +3,8 @@
 include('includes/modules/rma/install.php');
 include('includes/modules/rma/cex.php'); // Integración Correos Express (recogidas/envíos RMA)
 include('includes/modules/rma/seur.php'); // Integración SEUR (envíos/etiquetas de devolución RMA)
+include('includes/modules/rma/correos.php'); // Integración Correos (etiquetas de devolución RMA, depósito en oficina)
+include('includes/modules/rma/ontime.php'); // Integración Ontime (recogidas de devolución RMA)
 
 // Métodos de reembolso que acreditan puntos al cliente al pasar el RMA a status=13.
 // id=1  : método legacy "Puntos" (sin bonus) — solo accesible vía admin para ajustes manuales
@@ -87,6 +89,22 @@ function rmaSection() {
             // Interruptor global entorno Correos Express (test/pro).
             rmaCexSetEnv();
             break;
+        case 'correos-label-gen':
+            // Correos: preregistra devolución + genera etiqueta PDF.
+            rmaCorreosGenerateLabel();
+            break;
+        case 'correos-label':
+            // Descarga el PDF de etiqueta Correos almacenado (hace exit dentro).
+            rmaCorreosDownloadLabel();
+            break;
+        case 'correos-email-label':
+            // Envía la etiqueta Correos por email al cliente.
+            rmaCorreosEmailLabel();
+            break;
+        case 'correos-cancel':
+            // Anula el preregistro de devolución en Correos.
+            rmaCorreosCancel();
+            break;
         case 'seur-label-gen':
             // SEUR: graba envío de devolución + genera etiqueta PDF.
             rmaSeurGenerateLabel();
@@ -106,6 +124,22 @@ function rmaSection() {
         case 'seur-set-env':
             // Interruptor global entorno SEUR (pre/pro).
             rmaSeurSetEnv();
+            break;
+        case 'ontime-pickup':
+            // Ontime: expedición + etiqueta + recogida de devolución.
+            rmaOntimePickup();
+            break;
+        case 'ontime-label':
+            // Descarga el PDF de etiqueta Ontime almacenado (hace exit dentro).
+            rmaOntimeDownloadLabel();
+            break;
+        case 'ontime-email-label':
+            // Envía la etiqueta Ontime por email al cliente.
+            rmaOntimeEmailLabel();
+            break;
+        case 'ontime-set-env':
+            // Interruptor global entorno Ontime (pre/pro).
+            rmaOntimeSetEnv();
             break;
         case 'save-types-return':
             rmaSaveTypesReturn();

@@ -254,11 +254,15 @@ class Process
         // Inicio, punto de recogida SEUR: la entrega va al punto elegido (como retira en tienda)
         if ($shipping['id'] == 'seurpunto_seurpunto' && !empty($_SESSION['seur_pudo_sel']['id'])) {
             $aSeurPudo = $_SESSION['seur_pudo_sel'];
-            $sql_data_array['delivery_company']        = 'Punto SEUR: ' . $aSeurPudo['name'];
+            // delivery_company es varchar(32): prefijo corto para que quepa el nombre del punto
+            $sql_data_array['delivery_company']        = substr('Pto SEUR: ' . $aSeurPudo['name'], 0, 32);
             $sql_data_array['delivery_street_address'] = $aSeurPudo['address'];
             $sql_data_array['delivery_postcode']       = $aSeurPudo['cp'];
             $sql_data_array['delivery_city']           = $aSeurPudo['city'];
-            $comments .= '<br>Entrega en punto SEUR: ' . $aSeurPudo['id'] . ' - ' . $aSeurPudo['name'] . ' (' . $aSeurPudo['address'] . ', ' . $aSeurPudo['cp'] . ' ' . $aSeurPudo['city'] . ')';
+            $sSeurComment = 'Entrega en punto SEUR: ' . $aSeurPudo['id'] . ' - ' . $aSeurPudo['name'] . ' (' . $aSeurPudo['address'] . ', ' . $aSeurPudo['cp'] . ' ' . $aSeurPudo['city'] . ')';
+            $comments .= '<br>' . $sSeurComment;
+            // el historial del pedido se graba desde $order->info['comments'] (no desde $comments)
+            $order->info['comments'] = trim((string) $order->info['comments'] . ($order->info['comments'] != '' ? '<br>' : '') . $sSeurComment);
         }
         // Fin, punto de recogida SEUR
 

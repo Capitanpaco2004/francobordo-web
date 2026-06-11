@@ -38,23 +38,29 @@ class seur {
 
     /* ------------------------------------------------------------------ *
      *  Credenciales del token, por entorno (OAuth password grant).        *
-     *  OJO: el repo se espeja a GitHub (privado). En el deploy a PRO,      *
-     *  mover los secrets a fichero gitignored.                            *
-     *  Las de PRE son las del fichero TOKEN_PRE de SEUR. Las de PRO las    *
-     *  facilita SEUR al pasar a producción (placeholder hasta entonces).   *
+     *  Viven FUERA de public_html (el repo se espeja a GitHub):           *
+     *  /home/francobordo/seur_credentials.php devuelve                    *
+     *  array('pre'=>array(client_id,client_secret,username,password),     *
+     *        'pro'=>array(...)).                                          *
      * ------------------------------------------------------------------ */
-    const TOKEN_PRE = array(
-        'client_id'     => 'ac4329a2',
-        'client_secret' => 'd1b16ca5f590798c8d3aa1c941d9bf33',
-        'username'      => 'lfcsNBJ',
-        'password'      => '99ISz36h9vwv',
-    );
-    const TOKEN_PRO = array(   // PENDIENTE: credenciales de producción (SEUR)
-        'client_id'     => '',
-        'client_secret' => '',
-        'username'      => '',
-        'password'      => '',
-    );
+    const CREDS_FILE = '/home/francobordo/seur_credentials.php';
+
+    /** @var array|null cache estático del fichero de credenciales */
+    private static $credsFile = null;
+
+    /** Credenciales del token para un entorno ('pre'|'pro'). */
+    protected static function tokenCreds($env) {
+        if (self::$credsFile === null) {
+            if (!is_readable(self::CREDS_FILE)) {
+                throw new Exception('seur: falta el fichero de credenciales ' . self::CREDS_FILE);
+            }
+            self::$credsFile = include self::CREDS_FILE;
+        }
+        if (empty(self::$credsFile[$env]['client_id'])) {
+            throw new Exception('seur: sin credenciales para el entorno ' . $env . ' en ' . self::CREDS_FILE);
+        }
+        return self::$credsFile[$env];
+    }
 
     /* Bases de la API por entorno. */
     const BASE_PRE = 'https://servicios.apipre.seur.io';
@@ -133,7 +139,7 @@ class seur {
         if ($env === null) $env = self::DEFAULT_ENV;
         $this->env   = ($env === 'pro') ? 'pro' : 'pre';
         $this->base  = ($this->env === 'pro') ? self::BASE_PRO : self::BASE_PRE;
-        $this->creds = ($this->env === 'pro') ? self::TOKEN_PRO : self::TOKEN_PRE;
+        $this->creds = self::tokenCreds($this->env);
     }
 
     public function getEnv()  { return $this->env; }
@@ -353,11 +359,17 @@ class seur {
      */
     public function getLabel($shipmentCode, $type = 'PDF', array $opts = array()) {
         $q = array(
-            'code'         => (string) $shipmentCode,
-            'type'         => strtoupper($type),
-            'entity'       => (string) ($opts['entity'] ?? 'SHIPMENTS'),
-            'templateType' => (string) ($opts['templateType'] ?? 'GEOLABEL'),
+            'code'   => (string) $shipmentCode,
+            'type'   => strtoupper($type),
+            'entity' => (string) ($opts['entity'] ?? 'SHIPMENTS'),
         );
+        // templateType SOLO aplica a SHIPMENTS: con COLLECTIONS provoca un 400
+        // engañoso ("only allowed for 31/88 and import pickups").
+        $tpl = $opts['templateType'] ?? ($q['entity'] === 'SHIPMENTS' ? 'GEOLABEL' : null);
+        if ($tpl !== null && $tpl !== '') $q['templateType'] = (string) $tpl;
+        // Devoluciones desde punto pickup: SEUR pide solicitar el QR (el cliente
+        // lo muestra en el punto sin necesidad de imprimir).
+        if (!empty($opts['qr'])) $q['qr'] = 'true';
         $r = $this->request('pic/v1/labels', null, 'GET', $q);
 
         // La respuesta puede ser JSON {data:[{pdf|label}]} / {label:..} / lista, o crudo.
@@ -375,12 +387,120 @@ class seur {
             $label = $r['raw']; // cuerpo crudo (ZPL o base64 sin envolver en JSON)
         }
         $r['label'] = $label;
+        // QR (devolución desde punto): viene por bulto en LabelsData.qr
+        $r['qr'] = (is_array($d) && isset($d[0]['qr'])) ? $d[0]['qr'] : (is_array($d) && isset($d['qr']) ? $d['qr'] : null);
 
         if ($label && strtoupper($type) === 'PDF') {
             $bin = base64_decode($label, true);
             if ($bin !== false && strncmp($bin, '%PDF', 4) === 0) $r['pdf_bin'] = $bin;
         }
         return $r;
+    }
+
+    /* ================================================================== *
+     *  Collections — recogidas / DEVOLUCIONES                             *
+     *  (Email SEUR 2026-06-10: las devoluciones NO se graban en           *
+     *  /shipments; llevan recogida implícita y van por /collections.)     *
+     * ================================================================== */
+
+    /**
+     * Graba una recogida/devolución. $c = CollectionRequestBody (ver
+     * devolucionRecogidaDesdeRma()). Respuesta data: {collectionRef('REC...'),
+     * fRec, reference, ecbs[], parcelNumbers[]}. El collectionRef es el
+     * "localizador" → etiqueta con getLabel($ref,'PDF',['entity'=>'COLLECTIONS']).
+     */
+    public function createCollection(array $c) {
+        return $this->request('pic/v1/collections', $c, 'POST');
+    }
+
+    /** Extrae el localizador (collectionRef) de una respuesta de createCollection. */
+    public static function extraerCollectionRef(array $resp) {
+        $d = self::payload($resp);
+        if (!is_array($d)) return null;
+        if (!empty($d['collectionRef'])) return (string) $d['collectionRef'];
+        if (isset($d[0]['collectionRef'])) return (string) $d[0]['collectionRef'];
+        return null;
+    }
+
+    /** Anula una o varias recogidas por su collectionRef (REC...). */
+    public function cancelCollection($collectionRef) {
+        $codes = is_array($collectionRef) ? array_values($collectionRef) : array((string) $collectionRef);
+        return $this->request('pic/v1/collections/cancel', array('codes' => $codes), 'POST');
+    }
+
+    /** Próximo día laborable (L-V) en formato Y-m-d. Las recogidas con
+     *  label=true se realizan siempre al día siguiente (indicación SEUR). */
+    public static function proximoDiaLaborable($desde = null) {
+        $ts = $desde ? strtotime($desde) : time();
+        do { $ts += 86400; } while ((int) date('N', $ts) >= 6);
+        return date('Y-m-d', $ts);
+    }
+
+    /**
+     * DEVOLUCIÓN de un RMA vía /collections.
+     * $opts:
+     *   tipo:  'domicilio' (31/86: recogida en casa del cliente) |
+     *          'punto'     (31/88: el cliente deposita en punto SEUR; requiere pickupCentreCode)
+     *   pickupCentreCode: pudoId del punto (obligatorio con tipo=punto)
+     *   fecha: Y-m-d (def. próximo día laborable)
+     *   label: bool (def. true → obtenemos etiqueta y se la enviamos al cliente;
+     *          false → el repartidor lleva la etiqueta impresa)
+     *   weight/width/height/length, observations
+     */
+    public static function devolucionRecogidaDesdeRma(array $rma, array $opts = array()) {
+        $ref   = 'RMA' . str_pad((string) ($rma['id_rma'] ?? ''), 8, '0', STR_PAD_LEFT);
+        $punto = (($opts['tipo'] ?? 'domicilio') === 'punto');
+
+        $senderAddr = array(
+            'streetName' => trim((string) ($rma['customers_street_address'] ?? '') . ' ' . (string) ($rma['customers_suburb'] ?? '')),
+            'cityName'   => trim((string) ($rma['customers_city'] ?? '')),
+            'postalCode' => trim((string) ($rma['customers_postcode'] ?? '')),
+            'country'    => 'ES',
+        );
+        if ($punto && !empty($opts['pickupCentreCode'])) {
+            $senderAddr['pickupCentreCode'] = (string) $opts['pickupCentreCode'];
+        }
+
+        return array(
+            'serviceCode'    => (int) ($opts['service'] ?? self::SVC_DEVOLUCION),               // 31
+            'productCode'    => (int) ($opts['product'] ?? ($punto ? self::PRD_DEVOL_PICKUP : self::PRD_DEVOL_DOMICILIO)), // 88 / 86
+            'ref'            => $ref,
+            'collectionDate' => (string) ($opts['fecha'] ?? self::proximoDiaLaborable()),
+            'label'          => (bool) ($opts['label'] ?? true),
+            'payer'          => 'ORD',
+            'customer'       => array(   // cuenta que paga = Francobordo
+                'accountNumber' => self::CCC,
+                'name'          => self::FB_NOMBRE,
+                'idNumber'      => self::NIF,
+                'phone'         => self::FB_TLFNO,
+                'email'         => self::FB_EMAIL,
+            ),
+            'sender'         => array(   // quien devuelve = cliente
+                'name'        => trim((string) ($rma['customers_name'] ?? '')),
+                'phone'       => trim((string) ($rma['customers_telephone'] ?? '')),
+                'email'       => trim((string) ($rma['customers_email_address'] ?? '')),
+                'contactName' => trim((string) ($rma['customers_name'] ?? '')),
+                'address'     => $senderAddr,
+            ),
+            'receiver'       => array(   // destino = Francobordo
+                'name'        => self::FB_NOMBRE,
+                'phone'       => self::FB_TLFNO,
+                'contactName' => self::FB_CONTACTO,
+                'email'       => self::FB_EMAIL,
+                'address'     => array(
+                    'streetName' => self::FB_DIR,
+                    'cityName'   => self::FB_POBL,
+                    'postalCode' => self::FB_CP,
+                    'country'    => self::FB_PAIS_ISO,
+                ),
+            ),
+            'parcels'        => self::parcels($opts, $ref),
+            // El spec los marca como obligatorios (numéricos); sin valor declarado → 0.
+            'declaredValue'      => (float) ($opts['declaredValue'] ?? 0),
+            'insuredValue'       => (float) ($opts['insuredValue'] ?? 0),
+            'cashOnDeliveryValue' => (float) ($opts['cashOnDeliveryValue'] ?? 0),
+            'observations'   => (string) ($opts['observations'] ?? ('Devolucion RMA ' . ($rma['id_rma'] ?? ''))),
+        );
     }
 
     /* ================================================================== *
@@ -432,25 +552,27 @@ class seur {
      * Tracking simplificado (último estado) por referencia del envío.
      * En PRE solo devuelve el estado inicial.
      */
-    public function trackingSimplified($ref, $refType = 'REFERENCE') {
-        return $this->request('pic/v1/tracking-services/simplified', null, 'GET', array(
-            'ref'           => (string) $ref,
-            'refType'       => (string) $refType,
-            'idNumber'      => self::NIF,
-            'accountNumber' => self::accountNumber(),
-            'businessUnit'  => self::BUSINESS_UNIT,
-        ));
+    public function trackingSimplified($ref, $refType = 'REFERENCE', $filtros = true) {
+        $q = array('ref' => (string) $ref, 'refType' => (string) $refType);
+        if ($filtros) {
+            // Filtros de cuenta: encuentran nuestros envios API y los nacionales de la
+            // integracion vieja; los INTERNACIONALES solo aparecen SIN filtros (la red
+            // los re-registra bajo la businessUnit de destino). Ver cron_seur_tracking.
+            $q += array('idNumber' => self::NIF, 'accountNumber' => self::accountNumber(), 'businessUnit' => self::BUSINESS_UNIT);
+        }
+        return $this->request('pic/v1/tracking-services/simplified', null, 'GET', $q);
     }
 
     /** Tracking extendido (todos los estados por los que ha pasado el envío). */
-    public function trackingExtended($ref, $refType = 'REFERENCE') {
-        return $this->request('pic/v1/tracking-services/extended', null, 'GET', array(
-            'ref'           => (string) $ref,
-            'refType'       => (string) $refType,
-            'idNumber'      => self::NIF,
-            'accountNumber' => self::accountNumber(),
-            'businessUnit'  => self::BUSINESS_UNIT,
-        ));
+    public function trackingExtended($ref, $refType = 'REFERENCE', $filtros = true) {
+        $q = array('ref' => (string) $ref, 'refType' => (string) $refType);
+        if ($filtros) {
+            // Filtros de cuenta: encuentran nuestros envios API y los nacionales de la
+            // integracion vieja; los INTERNACIONALES solo aparecen SIN filtros (la red
+            // los re-registra bajo la businessUnit de destino). Ver cron_seur_tracking.
+            $q += array('idNumber' => self::NIF, 'accountNumber' => self::accountNumber(), 'businessUnit' => self::BUSINESS_UNIT);
+        }
+        return $this->request('pic/v1/tracking-services/extended', null, 'GET', $q);
     }
 
     /* ================================================================== *

@@ -26,6 +26,7 @@ const HELPER_BIN     = '/home/francobordo/qfac_recovery/qfac_sync_pull.py';
 const HELPER_TIMEOUT = 60;
 
 const ELIGIBLE_STATUS = [1, 2, 7, 13];       // Pendiente / Proceso / Enviado Parcialmente / En preparacion
+const FINAL_STATUS    = [3, 5];              // Entregado / Enviado: se incluyen SOLO para la "ultima pasada" al servirse
 const PARTIAL_STATUS  = 7;                    // Enviado Parcialmente
 const WINDOW_DAYS     = 30;
 const ALLOWED_TOTALS  = ['ot_subtotal', 'ot_shipping', 'ot_insurance', 'ot_tax', 'ot_total'];
@@ -110,7 +111,10 @@ function helper_pull(array $orders_ids): array {
 
 // ----------------------------------------------------------------------------
 function load_eligible($link, $only): array {
-    $where = "COALESCE(cfactur,'')='S' AND orders_status IN (".implode(',',ELIGIBLE_STATUS).")";
+    // Incluye tambien FINAL_STATUS (3/5): los pedidos ya enviados/entregados se traen para poder
+    // hacerles la "ultima pasada" cuando QFac los marca servidos (una sola vez, ver $FINAL_DONE).
+    $statuses = array_merge(ELIGIBLE_STATUS, FINAL_STATUS);
+    $where = "COALESCE(cfactur,'')='S' AND orders_status IN (".implode(',',$statuses).")";
     if ($only) {
         $where = "orders_id=".(int)$only;
     } else {
@@ -268,9 +272,22 @@ function plan_lines($link, array $web, array $prodLines): array {
                 $net = $net_of($q1['npreu'], (float)$w1['tax']);
                 $qtyChanged   = ($w1['qty'] !== $q1['qty']);
                 $priceChanged = (abs($w1['price'] - $net) > PRICE_EPS);
-                if ($qtyChanged || $priceChanged) {
+                // Cambio de VARIANTE en linea emparejada (p.ej. color Naranja->Amarillo en QFac
+                // con misma cantidad y precio): se detecta comparando el CCODIVAL de ambos lados.
+                // SOLO si AMBOS lados tienen codigo: si el vcode web esta vacio (atributo legacy
+                // sin CCODIVAL en catalogo, o linea sin atributo) NO es distinguible de una compra
+                // original -> tratarlo como cambio crearia falsos positivos en masa. Se ignora.
+                $varChanged = false; $variant = null;
+                if ($q1['cvar'] !== '' && $w1['cvar'] !== '' && vnorm($q1['cvar']) !== vnorm($w1['cvar'])) {
+                    $variant = resolve_variant_attr($link, $pid, $q1['cvar']);
+                    if ($variant === null) { $out['reason']='variante_no_mapea:pid'.$pid.':'.$q1['cvar']; return $out; }
+                    $varChanged = true;
+                }
+                if ($qtyChanged || $priceChanged || $varChanged) {
                     $changes[] = ['type'=>'update', 'op_id'=>$w1['op_id'], 'pid'=>$pid, 'cost'=>$w1['cost'],
-                        'old'=>['qty'=>$w1['qty'],'price'=>$w1['price']], 'new'=>['qty'=>$q1['qty'],'price'=>$net]];
+                        'old'=>['qty'=>$w1['qty'],'price'=>$w1['price'],'cvar'=>$w1['cvar']],
+                        'new'=>['qty'=>$q1['qty'],'price'=>$net,'cvar'=>$q1['cvar']],
+                        'variant'=>$variant];
                 }
                 $finalLines[] = ['price'=>$net, 'qty'=>$q1['qty']];
             } elseif ($w1 && !$q1) {
@@ -336,13 +353,28 @@ function plan_lines($link, array $web, array $prodLines): array {
  *  (b) sync de lineas (con sus guardas). NO escribe (eso lo hace apply_changes). */
 function plan_order($link, int $oid, array $qfac): array {
     $res = ['orders_id'=>$oid, 'action'=>'skip', 'reason'=>null, 'changes'=>[],
-            'old_total'=>null, 'new_total'=>null, 'status_change'=>null, 'cur_status'=>null, 'partial'=>false];
+            'old_total'=>null, 'new_total'=>null, 'status_change'=>null, 'cur_status'=>null,
+            'partial'=>false, 'final'=>false];
 
+    global $FINAL_DONE, $ONLY;
+
+    // GUARD: si hay MAS DE UN documento QFac con el mismo CCMDWEB (p.ej. pedido DUPLICADO en
+    // QFacWin, que copia la referencia web), las lineas de ambos llegan fusionadas y el diff
+    // anadiria/quitaria lineas erroneamente (incidente 10361901, 2026-06-10). Revision manual:
+    // hay que vaciar el CCMDWEB del duplicado en QFac.
+    if (count($qfac['headers']) > 1) { $res['reason'] = 'ccmdweb_duplicado('.count($qfac['headers']).'docs)'; return $res; }
     $header = $qfac['headers'][0];
 
-    // GATE: solo pedidos NO servidos en QFac (CSERVIDA = 'N'). Servidos = fuera de alcance.
+    // GATE: pedidos NO servidos (CSERVIDA='N') -> sync normal. Pedidos SERVIDOS ('S') ->
+    // UNA "ultima pasada" de lineas (capta ediciones hechas al servir, p.ej. 8->3 uds) y a
+    // partir de ahi quedan excluidos (marker 'final' en qfac_order_sync_log). --order la repite.
     $cservida = strtoupper(trim((string)($header['cservida'] ?? '')));
-    if ($cservida !== 'N') { $res['reason']='servido_cservida='.($cservida ?: 'vacio'); return $res; }
+    $isFinal = ($cservida !== 'N');
+    if ($isFinal && isset($FINAL_DONE[$oid]) && !$ONLY) {
+        $res['reason'] = 'servido_cservida='.($cservida ?: 'vacio');
+        return $res;
+    }
+    $res['final'] = $isFinal;
 
     $web = load_web_order($link, $oid);
     if (!$web['ops']) { $res['reason']='web_sin_lineas'; return $res; }
@@ -360,14 +392,17 @@ function plan_order($link, int $oid, array $qfac): array {
     // (a) Parcial: alguna linea GENUINAMENTE partida -> 0 < NSERVIT < QUANT (servida en parte).
     //     OJO: NSERVIT>0 a secas NO sirve: QFac pone unidades servidas durante el picking normal,
     //     mucho antes de un envio parcial real -> marcaba parcial prematuramente (caso 10360619).
+    //     Solo aplica a pedidos NO servidos y en estado pre-envio (1/2/13): nunca degradar un 5/3.
     $partial = false;
-    foreach ($prodLines as $l) {
-        $ns = (float)($l['nservit'] ?? 0);
-        $qt = (float)($l['quant'] ?? 0);
-        if ($ns > 0 && $ns < $qt) { $partial = true; break; }
+    if (!$isFinal) {
+        foreach ($prodLines as $l) {
+            $ns = (float)($l['nservit'] ?? 0);
+            $qt = (float)($l['quant'] ?? 0);
+            if ($ns > 0 && $ns < $qt) { $partial = true; break; }
+        }
     }
     $res['partial'] = $partial;
-    $statusChange = ($partial && $curStatus !== PARTIAL_STATUS) ? PARTIAL_STATUS : null;
+    $statusChange = ($partial && in_array($curStatus, [1, 2, 13], true)) ? PARTIAL_STATUS : null;
     $res['status_change'] = $statusChange;
 
     // (b) Sync de lineas (independiente del cambio de estado)
@@ -396,17 +431,38 @@ function apply_changes($link, array $res): void {
             if ($c['type'] === 'update') {
                 $price = $c['new']['price']; $qty = $c['new']['qty']; $cost = $c['cost'];
                 $profit = r4(($price - $cost) * $qty);
+                $variant = $c['variant'] ?? null;
                 // Nota descriptiva del cambio para marcar la linea en el detalle del admin.
                 $parts = [];
                 if ($c['old']['qty'] != $qty) $parts[] = 'cant '.$c['old']['qty'].'->'.$qty;
                 if (abs($c['old']['price'] - $price) > PRICE_EPS) $parts[] = 'precio '.number_format($c['old']['price'],2).'->'.number_format($price,2).' EUR';
+                if ($variant !== null) $parts[] = 'variante '.(($c['old']['cvar'] ?? '') !== '' ? $c['old']['cvar'] : '(sin)').'->'.$c['new']['cvar'];
                 $note = substr(implode(', ', $parts), 0, 255);
                 // Solo final_price (precio cobrado) y cantidad. products_price (base) NO se toca.
+                $setVar = $variant !== null ? ", CCODIVAL1='".esc($link,(string)$c['new']['cvar'])."'" : '';
                 q($link, "UPDATE orders_products SET final_price=".(float)$price.
                     ", products_quantity=".(int)$qty.
-                    ", profit=".(float)$profit.
+                    ", profit=".(float)$profit.$setVar.
                     ", qfac_sync_note='".esc($link,$note)."', qfac_sync_at=NOW()".
                     " WHERE orders_products_id=".(int)$c['op_id']);
+                if ($variant !== null) {
+                    // Reemplazar el atributo de la linea por la variante nueva (single-option;
+                    // multi-option esta deprecated en la tienda).
+                    q($link, "DELETE FROM orders_products_attributes WHERE orders_products_id=".(int)$c['op_id']);
+                    q($link, "INSERT INTO orders_products_attributes SET
+                        orders_id=".(int)$oid.", orders_products_id=".(int)$c['op_id'].",
+                        products_options='".esc($link,$variant['oname'])."',
+                        products_options_values='".esc($link,$variant['vname'])."',
+                        options_values_price=".(float)$variant['options_values_price'].",
+                        price_prefix='".esc($link,$variant['price_prefix'] ?: '+')."',
+                        reference='".esc($link,(string)$variant['reference'])."',
+                        products_attributes_ean=0,
+                        NIDATRIB=".(int)$variant['products_attributes_id'].",
+                        products_options_id=".(int)$variant['options_id'].",
+                        products_options_values_id=".(int)$variant['options_values_id'].",
+                        options_values_weight=".(float)$variant['options_values_weight'].",
+                        weight_prefix='".esc($link,(string)($variant['weight_prefix'] ?: ''))."'");
+                }
             } elseif ($c['type'] === 'remove') {
                 q($link, "DELETE FROM orders_products_attributes WHERE orders_products_id=".(int)$c['op_id']);
                 q($link, "DELETE FROM orders_products WHERE orders_products_id=".(int)$c['op_id']);
@@ -524,6 +580,11 @@ $qfacOrders = $pull['orders'] ?? [];
 $COMPOSITE = array_fill_keys($pull['composite_arts'] ?? [], true);
 echo "QFac devolvio ".count($qfacOrders)." pedidos con datos. Articulos con composicion: ".count($COMPOSITE).".\n";
 
+// Pedidos servidos que ya recibieron su "ultima pasada" (marker action='final' en el log).
+$FINAL_DONE = [];
+$r = q($link, "SELECT DISTINCT orders_id FROM qfac_order_sync_log WHERE action='final'");
+while ($row = mysqli_fetch_assoc($r)) $FINAL_DONE[(int)$row['orders_id']] = true;
+
 $stats = ['sync'=>0,'noop'=>0,'skip'=>0,'applied'=>0,'errors'=>0];
 $skips = [];
 
@@ -536,19 +597,25 @@ foreach ($eligible as $oid) {
         $stats['errors']++; echo "  #$oid ERROR plan: ".$e->getMessage()."\n"; continue;
     }
     $stats[$res['action']]++;
+    $appliedOk = true;
     if ($res['action'] === 'sync') {
         $n = count($res['changes']);
         $tot = ($n && $res['new_total']!==null) ? "  total ".number_format($res['old_total'],2)." -> ".number_format($res['new_total'],2) : "";
-        echo "  #$oid SYNC: $n cambio(s) de linea$tot\n";
+        $fin = !empty($res['final']) ? "  [ULTIMA PASADA - servido]" : "";
+        echo "  #$oid SYNC: $n cambio(s) de linea$tot$fin\n";
         if ($res['status_change'] === PARTIAL_STATUS) echo "      * estado {$res['cur_status']} -> 7 (Enviado Parcialmente)\n";
         if ($res['reason']) echo "      (lineas NO sincronizadas: {$res['reason']})\n";
         foreach ($res['changes'] as $c) {
-            if ($c['type']==='update')      echo "      ~ pid {$c['pid']}: qty {$c['old']['qty']}->{$c['new']['qty']}  precio ".number_format($c['old']['price'],4)."->".number_format($c['new']['price'],4)."\n";
+            if ($c['type']==='update') {
+                $v = !empty($c['variant']) ? "  variante ".(($c['old']['cvar']??'')!==''?$c['old']['cvar']:'(sin)')."->".$c['new']['cvar']." (".$c['variant']['oname'].": ".$c['variant']['vname'].")" : "";
+                echo "      ~ pid {$c['pid']}: qty {$c['old']['qty']}->{$c['new']['qty']}  precio ".number_format($c['old']['price'],4)."->".number_format($c['new']['price'],4)."$v\n";
+            }
             elseif ($c['type']==='remove')  echo "      - pid {$c['pid']} (qty {$c['old']['qty']}) BAJA\n";
             elseif ($c['type']==='add')     echo "      + pid {$c['pid']}".(!empty($c['cvar'])?" [var ".$c['cvar']."]":"")." (qty {$c['new']['qty']} @ ".number_format($c['new']['price'],4).") ALTA".(!empty($c['variant'])?" -> ".$c['variant']['oname'].": ".$c['variant']['vname']:"")."\n";
         }
         if ($APPLY) {
-            try { apply_changes($link, $res); $stats['applied']++; echo "      => APLICADO\n"; }
+            $appliedOk = false;
+            try { apply_changes($link, $res); $stats['applied']++; $appliedOk = true; echo "      => APLICADO\n"; }
             catch (Throwable $e) { $stats['errors']++; echo "      => ERROR apply: ".$e->getMessage()."\n"; }
         }
         log_run($link, $res, $MODE);
@@ -557,6 +624,15 @@ foreach ($eligible as $oid) {
         log_run($link, $res, $MODE);
     }
     // noop: no log para no inflar
+
+    // Marker de "ultima pasada" hecha en pedidos servidos (solo APPLY y si no fallo el apply):
+    // a partir de aqui ese pedido queda excluido del sync para siempre.
+    if ($APPLY && !empty($res['final']) && !isset($FINAL_DONE[$oid]) && $appliedOk) {
+        $mreason = 'ultima_pasada' . ($res['reason'] ? ':'.$res['reason'] : ($res['action']==='sync' ? ':aplicada' : ':sin_cambios'));
+        q($link, "INSERT INTO qfac_order_sync_log SET orders_id=".(int)$oid.
+            ", run_at=NOW(), mode='APPLY', action='final', reason='".esc($link,substr($mreason,0,40))."'");
+        $FINAL_DONE[$oid] = true;
+    }
 }
 
 echo "\n--- RESUMEN ($MODE) ---\n";

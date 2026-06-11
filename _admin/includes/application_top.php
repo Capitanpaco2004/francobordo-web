@@ -217,6 +217,9 @@ $excludedFilesFromLogin = [
 	'recover_cart_sales_cron.php',
 	'cron_transportistas.php',
 	'cron_cex_tracking.php',          // Tracking Correos Express vía API (token-gated internally)
+	'cron_ontime_tracking.php',       // Tracking Ontime vía API (token-gated internally)
+	'cron_correos_tracking.php',       // Tracking devoluciones Correos vía API canónica (token-gated internally)
+	'cron_seur_tracking.php',          // Tracking SEUR vía API PIC (token-gated internally)
 	'customers_points_expire.php',
 	'cron_maintenance.php',
 	'sm_worker.php',                  // SalesManago queue worker (token-gated internally)

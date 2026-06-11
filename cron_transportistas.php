@@ -59,9 +59,12 @@
 		$sSubject = $oMessage->getSubject();
 
 		// Vamos a preparar la key de nuestro array global a través del asunto del email
-		if (preg_match('/Fichero situaciones/i', $sSubject))
-			$sTransportista = 'importador_seur';
-		elseif (preg_match('/Retorno de Situacion de Envios de Correos/i', $sSubject))
+		// SEUR DESACTIVADO 2026-06-11: el tracking lo gestiona cron_seur_tracking.php (API
+		// PIC, tabla seur_tracking) - cubre la integracion API (ref F{oid}) y la vieja de
+		// Vstock (ref oid a pelo, fallback sin filtros de cuenta para internacionales).
+		// if (preg_match('/Fichero situaciones/i', $sSubject))
+		//	$sTransportista = 'importador_seur';
+		if (preg_match('/Retorno de Situacion de Envios de Correos/i', $sSubject))
 			$sTransportista = 'importador_correos';
 		// Correos Express DESACTIVADO 2026-06-06: el tracking lo gestiona cron_cex_tracking.php (API).
 		// elseif (preg_match('/Fichero FRANCOBORDO PRODUCTOS/i', $sSubject))

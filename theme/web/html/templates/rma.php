@@ -134,6 +134,23 @@
                     $cexCli->setTimeout(6); // de cara al cliente: que un CEX lento no cuelgue el modal
                     $cexOfis = correos_express::oficinasDeposito($cexCli->consultarOficinas($cexCp));
                 }
+
+                // === SEUR: tercera opción "lo llevo a un punto SEUR" (solo España
+                // peninsular + Baleares: la devolución desde punto es la nacional 31/88).
+                // Se REGISTRA la elección con el punto; el operador la valida y genera
+                // la devolución desde el admin y el cliente recibe un QR por email. ===
+                $seurPts = array();
+                $seurCountry = mb_strtolower($rma->getDeliveryCountry());
+                if ($cexCp !== '' && (mb_strpos($seurCountry, 'esp') !== false || mb_strpos($seurCountry, 'spa') !== false)) {
+                    $seurDigits = preg_replace('/\D/', '', $cexCp);
+                    if (strlen($seurDigits) === 5 && !in_array(substr($seurDigits, 0, 2), array('35', '38', '51', '52'), true)) {
+                        $seurModFile = $_SERVER['DOCUMENT_ROOT'] . '/includes/modules/shipping/seurpunto.php';
+                        if (is_file($seurModFile)) {
+                            require_once $seurModFile;
+                            $seurPts = seurpunto::puntos($seurDigits, '', 'ES', 10);
+                        }
+                    }
+                }
             ?>
             <?php $cexTomorrow = date('Y-m-d', strtotime('+1 weekday')); ?>
             <style>
@@ -141,15 +158,19 @@
                    inline no se ejecutan al cambiar de paso; los <style> sí se aplican). */
                 .cexCollect{display:none;margin:10px 0;padding:10px;background:#eef6ff;border:1px solid #b9d7f5;border-radius:4px}
                 .rmaPage:has(input[name="type_return"][value="<?php echo (int) $cexTypeId; ?>"]:checked) .cexCollect{display:block}
-                .cexDomicilio,.cexOficina{display:none}
+                .cexDomicilio,.cexOficina,.cexSeur{display:none}
                 .cexCollect:has(input[name="cex_metodo"][value="domicilio"]:checked) .cexDomicilio{display:block}
                 .cexCollect:has(input[name="cex_metodo"][value="oficina"]:checked) .cexOficina{display:block}
+                .cexCollect:has(input[name="cex_metodo"][value="seurpunto"]:checked) .cexSeur{display:block}
             </style>
             <div class="cexCollect">
                 <p class="rmaTitleText">¿Cómo prefieres entregar el producto?</p>
                 <ul class="rmaList">
                     <li><label><input type="radio" name="cex_metodo" value="domicilio" class="cexMetodo" checked> 🏠 Que un mensajero pase a recogerlo a tu domicilio</label></li>
                     <li><label><input type="radio" name="cex_metodo" value="oficina" class="cexMetodo"> 🏤 Lo llevo yo a una oficina de Correos</label></li>
+                    <?php if ($seurPts): ?>
+                    <li><label><input type="radio" name="cex_metodo" value="seurpunto" class="cexMetodo"> 📦 Lo llevo yo a un punto de recogida SEUR</label></li>
+                    <?php endif; ?>
                 </ul>
                 <div class="cexDomicilio">
                     <div class="rmaColumns">
@@ -179,6 +200,26 @@
                         <p><small>Te indicaremos por email la etiqueta y las oficinas donde puedes depositar el paquete.</small></p>
                     <?php endif; ?>
                 </div>
+                <?php if ($seurPts): ?>
+                <div class="cexSeur">
+                    <p>Elige el punto SEUR donde dejarás el paquete (cercanos a tu CP <strong><?php echo htmlspecialchars($cexCp); ?></strong>):</p>
+                    <?php /* Mapa Leaflet: lo inicializa el JS de la página anfitriona
+                           (account_history_info) al marcar la opción — los <script> de
+                           este HTML inyectado por AJAX no se ejecutan. Sin JS, queda
+                           oculto y el select sigue funcionando solo. */ ?>
+                    <div id="seurRmaMap" style="display:none;height:260px;border:1px solid #b9d7f5;border-radius:4px;margin-bottom:8px"></div>
+                    <p><select name="seur_pudo" id="seurRmaSelect" class="rmaTextBox" style="max-width:100%">
+                        <?php foreach ($seurPts as $p): ?>
+                            <option value="<?php echo htmlspecialchars($p['id']); ?>"
+                                    data-lat="<?php echo htmlspecialchars($p['lat']); ?>"
+                                    data-lng="<?php echo htmlspecialchars($p['lng']); ?>"
+                                    data-name="<?php echo htmlspecialchars($p['name']); ?>"
+                                    data-addr="<?php echo htmlspecialchars($p['address'] . ' (' . $p['cp'] . ' ' . $p['city'] . ')'); ?>"><?php echo htmlspecialchars($p['name'] . ' — ' . $p['address'] . ' (' . $p['cp'] . ' ' . $p['city'] . ')'); ?></option>
+                        <?php endforeach; ?>
+                    </select></p>
+                    <p><small>Cuando validemos tu solicitud te enviaremos por email un <strong>código QR</strong>: enséñalo en el punto al entregar el paquete, sin necesidad de imprimir nada.</small></p>
+                </div>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
 

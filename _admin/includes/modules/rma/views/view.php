@@ -415,6 +415,11 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
 
 						<!-- SEUR: envío/etiqueta de devolución (siempre visible) -->
 						<?php if (function_exists('rmaSeurRenderBox')) rmaSeurRenderBox($rmaDetail); ?>
+
+						<!-- Ontime: recogida de devolución (siempre visible) -->
+						<?php if (function_exists('rmaOntimeRenderBox')) rmaOntimeRenderBox($rmaDetail); ?>
+						<!-- Correos: etiqueta de devolución para depósito en oficina (siempre visible) -->
+						<?php if (function_exists('rmaCorreosRenderBox')) rmaCorreosRenderBox($rmaDetail); ?>
                     </div>
 					<div class="oeCntd rows sp10 ax xform">
 						<form class="rows sp12 column a12" method="post" action="<?php echo tep_href_link('rma.php', 'action=change-return-method'); ?>">

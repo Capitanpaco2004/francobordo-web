@@ -372,6 +372,8 @@ function rmaCexRenderBox($rmaDetail) {
                 📨 <strong>El cliente solicitó:</strong>
                 <?php if ($reqMetodo === 'domicilio'): ?>
                     Recogida a <strong>domicilio</strong><?php if (!empty($rmaDetail['date_return']) && $rmaDetail['date_return'] !== '0000-00-00'): ?> el <strong><?php echo date('d/m/Y', strtotime($rmaDetail['date_return'])); ?></strong><?php endif; ?> (franja <?php echo $reqFranja === 2 ? 'tarde' : 'mañana'; ?>) — usa 📦 o 🚚 abajo (fecha y franja ya precargadas).
+                <?php elseif ($reqMetodo === 'seurpunto'): ?>
+                    Entregar en <strong>punto SEUR</strong> — gestionar desde la caja <strong>SEUR — Devolución</strong> (más abajo), no desde Correos Express.
                 <?php else: ?>
                     <strong>Llevar a una oficina de Correos</strong> — genera 🏤 "Etiqueta para oficina (depósito)".
                 <?php endif; ?>
