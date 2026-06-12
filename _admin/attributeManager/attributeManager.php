@@ -165,21 +165,34 @@ if(!isset($_GET['target']) || 'currentAttributes' == $_GET['target']) {
 			$amAttrImg[$amAttrRow['products_attributes']] = $amAttrRow['value'];
 	}
 
-	// Edicion del NOMBRE del valor: la hacemos SIEMPRE en el idioma por defecto de la tienda
-	// (AM_DEFAULT_LANGUAGE_ID, ya resuelto al idioma de DEFAULT_LANGUAGE = español), NO en el
-	// idioma de interfaz del AM. Motivo: el idioma de interfaz del AM se queda pegado a ingles
-	// (la persistencia de su variable de sesion es poco fiable), y editar/guardar en ingles hacia
-	// que el nombre que ve la tienda (español) "no cambiara". Precargamos los nombres en ese idioma.
-	$amNameLang = (int)AM_DEFAULT_LANGUAGE_ID;
-	$amValNameDef = array();
-	if($amAttrPid > 0 && $amNameLang > 0) {
-		$amNameRes = tep_db_query('SELECT pov.products_options_values_id AS vid, pov.products_options_values_name AS nombre
-								   FROM products_attributes pa
-								   INNER JOIN products_options_values pov ON pov.products_options_values_id = pa.options_values_id AND pov.language_id = "' . $amNameLang . '"
-								   WHERE pa.products_id = "' . $amAttrPid . '"
-								   GROUP BY pov.products_options_values_id');
-		while($amNameRow = tep_db_fetch_array($amNameRes))
-			$amValNameDef[(int)$amNameRow['vid']] = $amNameRow['nombre'];
+	// Edicion del NOMBRE del valor: DOS campos por valor, uno por idioma (ES/EN), cada uno edita
+	// su idioma DIRECTAMENTE (el input lleva data-lang y se lo envia al endpoint). Asi es imposible
+	// cruzar idiomas: antes el campo unico dependia del idioma de interfaz del AM, que se queda
+	// pegado a ingles, y el operador acababa metiendo cada idioma en el slot equivocado.
+	// Precargamos los idiomas (el de la tienda primero) y los nombres de cada valor en todos ellos.
+	$amLangs    = array();   // [ {languages_id, code, name}, ... ]
+	$amValNames = array();   // [vid][languages_id] => nombre
+	if($amAttrPid > 0) {
+		$amLangRes = tep_db_query('SELECT languages_id, code, name FROM languages ORDER BY (code = "' . tep_db_input(DEFAULT_LANGUAGE) . '") DESC, sort_order, languages_id');
+		while($amLRow = tep_db_fetch_array($amLangRes))
+			$amLangs[] = $amLRow;
+		$amVNRes = tep_db_query('SELECT pov.products_options_values_id AS vid, pov.language_id AS lid, pov.products_options_values_name AS nm
+								 FROM products_attributes pa
+								 INNER JOIN products_options_values pov ON pov.products_options_values_id = pa.options_values_id
+								 WHERE pa.products_id = "' . $amAttrPid . '"');
+		while($amVNRow = tep_db_fetch_array($amVNRes))
+			$amValNames[(int)$amVNRow['vid']][(int)$amVNRow['lid']] = $amVNRow['nm'];
+	}
+
+	// Idem para el NOMBRE DE LA OPCION ("Modelo", "Talla"...): editable por idioma desde la fila
+	// de cabecera de la opcion. Limite 32 chars (QFac EA15_ARTPROP.CNOMPROP VARCHAR(32)).
+	$amOptNames = array();   // [oid][languages_id] => nombre
+	if($amAttrPid > 0) {
+		$amONRes = tep_db_query('SELECT po.products_options_id AS oid, po.language_id AS lid, po.products_options_name AS nm
+								 FROM products_options po
+								 WHERE po.products_options_id IN (SELECT DISTINCT options_id FROM products_attributes WHERE products_id = "' . $amAttrPid . '")');
+		while($amONRow = tep_db_fetch_array($amONRes))
+			$amOptNames[(int)$amONRow['oid']][(int)$amONRow['lid']] = $amONRow['nm'];
 	}
 
 	// Precio final con IVA + signo "=": mostramos el PVP real de cada valor (base +/- delta, IVA incl.)
@@ -219,7 +232,24 @@ if(!isset($_GET['target']) || 'currentAttributes' == $_GET['target']) {
 				
 				</td>
 				<td>
-					<?php echo "{$optionInfo['name']} ($numValues)";?>
+					<span style="display:inline-flex;flex-direction:column;gap:3px;max-width:100%;">
+<?php foreach($amLangs as $amL):
+					$amLid   = (int)$amL['languages_id'];
+					$amNmRaw = isset($amOptNames[(int)$optionId][$amLid]) ? $amOptNames[(int)$optionId][$amLid] : '';
+					$amNmEsc = htmlspecialchars((string)$amNmRaw, ENT_QUOTES, CHARSET);
+					$amCode  = htmlspecialchars(strtoupper((string)$amL['code']), ENT_QUOTES, CHARSET);
+?>
+					<span style="display:inline-flex;align-items:center;gap:5px;">
+						<span style="font-size:10px;font-weight:bold;color:#777;width:24px;flex:0 0 24px;" title="<?php echo htmlspecialchars((string)$amL['name'], ENT_QUOTES, CHARSET); ?>"><?php echo $amCode; ?></span>
+						<input type="text" id="amOptName_<?php echo $optionId; ?>_<?php echo $amLid; ?>" class="amOptName" maxlength="32" value="<?php echo $amNmEsc; ?>" data-orig="<?php echo $amNmEsc; ?>" data-lang="<?php echo $amLid; ?>" readonly style="width:260px;max-width:100%;box-sizing:border-box;font-size:12px;font-weight:bold;background:#f3f3f3;border:1px solid #ccc;" title="Pulsa el lapiz para editar el nombre de la opcion en <?php echo $amCode; ?> (max 32 caracteres, limite QFacWin)" onkeydown="if(event.keyCode==13){this.blur();return false;}" onblur="return amOptNameBlur('<?php echo $optionId; ?>',this);">
+						<input type="image" id="amOptEdit_<?php echo $optionId; ?>_<?php echo $amLid; ?>" src="attributeManager/images/icon_rename.png" border="0" title="Editar nombre de la opcion (<?php echo $amCode; ?>)" onclick="return amOptNameEdit('<?php echo $optionId; ?>','<?php echo $amLid; ?>');" style="vertical-align:middle;cursor:pointer;">
+<?php if($amLid === (int)$amLangs[0]['languages_id']): ?>
+						<span style="font-size:11px;color:#777;">(<?php echo $numValues; ?>)</span>
+<?php endif; ?>
+					</span>
+<?php endforeach; ?>
+					<div id="amOptAffected_<?php echo $optionId; ?>" class="amValAffected" style="display:none;margin-top:4px;font-size:11px;line-height:1.35;color:#444;background:#fffbe6;border:1px solid #e8d98a;border-radius:3px;padding:5px 7px;max-width:480px;"></div>
+					</span>
 				</td>
 		
 				<td align="right">
@@ -274,17 +304,21 @@ if(false){
 					<img src="attributeManager/images/icon_arrow.gif" >
 				</td>
 				<td>
-					<?php
-						// Nombre a editar = el del idioma por defecto de la tienda (no el de interfaz del AM).
-						$amValNameRaw = array_key_exists((int)$optionValueId, $amValNameDef) ? $amValNameDef[(int)$optionValueId] : (string)$optionValueInfo['name'];
-						$amValNameEsc = htmlspecialchars((string)$amValNameRaw, ENT_QUOTES, CHARSET);
-						$amValUid = $optionId.'_'.$optionValueId;
-					?>
-					<span style="display:inline-flex;align-items:center;gap:5px;max-width:100%;">
-						<input type="text" id="amValName_<?php echo $amValUid; ?>" class="amValName" value="<?php echo $amValNameEsc; ?>" data-orig="<?php echo $amValNameEsc; ?>" data-lang="<?php echo $amNameLang; ?>" readonly style="width:420px;max-width:100%;box-sizing:border-box;font-size:12px;background:#f3f3f3;border:1px solid #ccc;" title="Pulsa el lapiz para editar el nombre" onkeydown="if(event.keyCode==13){this.blur();return false;}" onblur="return amAttrNameBlur('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>',this);">
-						<input type="image" id="amValEdit_<?php echo $amValUid; ?>" src="attributeManager/images/icon_rename.png" border="0" title="Editar nombre del valor" onclick="return amAttrNameEdit('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>');" style="vertical-align:middle;cursor:pointer;">
-					</span>
-					<div id="amValAffected_<?php echo $amValUid; ?>" class="amValAffected" style="display:none;margin-top:4px;font-size:11px;line-height:1.35;color:#444;background:#fffbe6;border:1px solid #e8d98a;border-radius:3px;padding:5px 7px;max-width:480px;"></div>
+					<?php $amValUid = $optionId.'_'.$optionValueId; ?>
+					<span style="display:inline-flex;flex-direction:column;gap:3px;max-width:100%;">
+<?php foreach($amLangs as $amL):
+						$amLid   = (int)$amL['languages_id'];
+						$amNmRaw = isset($amValNames[(int)$optionValueId][$amLid]) ? $amValNames[(int)$optionValueId][$amLid] : '';
+						$amNmEsc = htmlspecialchars((string)$amNmRaw, ENT_QUOTES, CHARSET);
+						$amCode  = htmlspecialchars(strtoupper((string)$amL['code']), ENT_QUOTES, CHARSET);
+?>
+						<span style="display:inline-flex;align-items:center;gap:5px;">
+							<span style="font-size:10px;font-weight:bold;color:#777;width:24px;flex:0 0 24px;" title="<?php echo htmlspecialchars((string)$amL['name'], ENT_QUOTES, CHARSET); ?>"><?php echo $amCode; ?></span>
+							<input type="text" id="amValName_<?php echo $amValUid; ?>_<?php echo $amLid; ?>" class="amValName" maxlength="64" value="<?php echo $amNmEsc; ?>" data-orig="<?php echo $amNmEsc; ?>" data-lang="<?php echo $amLid; ?>" readonly style="width:400px;max-width:100%;box-sizing:border-box;font-size:12px;background:#f3f3f3;border:1px solid #ccc;" title="Pulsa el lapiz para editar el nombre en <?php echo $amCode; ?> (max 64 caracteres, limite QFacWin)" onkeydown="if(event.keyCode==13){this.blur();return false;}" onblur="return amAttrNameBlur('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>',this);">
+							<input type="image" id="amValEdit_<?php echo $amValUid; ?>_<?php echo $amLid; ?>" src="attributeManager/images/icon_rename.png" border="0" title="Editar nombre (<?php echo $amCode; ?>)" onclick="return amAttrNameEdit('<?php echo $optionId; ?>','<?php echo $optionValueId; ?>','<?php echo $amLid; ?>');" style="vertical-align:middle;cursor:pointer;">
+						</span>
+<?php endforeach; ?>
+						<div id="amValAffected_<?php echo $amValUid; ?>" class="amValAffected" style="display:none;margin-top:4px;font-size:11px;line-height:1.35;color:#444;background:#fffbe6;border:1px solid #e8d98a;border-radius:3px;padding:5px 7px;max-width:480px;"></div>
 					
 				</td>
 				<td align="right">

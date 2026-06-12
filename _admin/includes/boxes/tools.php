@@ -10,5 +10,9 @@
 
 <?php echo tep_admin_files_boxes("scraper_reports.php", '<i class="bullet"></i> &#x1F6E1; Scraper Reports'); ?>
 
+<?php echo tep_admin_files_boxes('google_merchant_envios.php', '<i class="bullet"></i> Google Merchant &mdash; Env&iacute;os'); ?>
+
+<?php echo tep_admin_files_boxes('google_merchant_catalogo.php', '<i class="bullet"></i> Google Merchant &mdash; Cat&aacute;logo'); ?>
+
 <?php echo implode('', event::getInstance()->execute('back_office_includes_boxes_tools_after')); ?>
 <!-- tools_eof //-->

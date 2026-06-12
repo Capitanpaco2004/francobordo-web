@@ -147,6 +147,20 @@ while ($row = tep_db_fetch_array($q)) {
     if (count($worklist) >= $maxRefresh) break;
     $worklist[(string) $row['orders_id']] = array('tipo' => 'envio', 'cp' => (string) $row['delivery_postcode'], 'city' => (string) $row['delivery_city']);
 }
+// Filas ya conocidas en seur_tracking aun pendientes (p.ej. cacheadas por la
+// consulta en vivo del admin antes de que el pedido tenga comentario status 5).
+$q = tep_db_query(
+    "SELECT t.referencia, o.delivery_postcode, o.delivery_city FROM seur_tracking t " .
+    "JOIN " . TABLE_ORDERS . " o ON o.orders_id = CAST(IF(t.referencia LIKE 'F%', SUBSTRING(t.referencia, 2), t.referencia) AS UNSIGNED) " .
+    "WHERE t.referencia REGEXP '^F?[0-9]+$' AND t.entregado = 0 " .
+    "AND t.estado_desc NOT LIKE '%ANULAD%' AND t.estado_desc NOT LIKE '%CANCELAD%' " .
+    "AND t.date_added > NOW() - INTERVAL " . (int) $days . " DAY LIMIT " . (int) $maxRefresh
+);
+while ($row = tep_db_fetch_array($q)) {
+    if (count($worklist) >= $maxRefresh) break;
+    if (isset($worklist[(string) $row['referencia']])) continue;
+    $worklist[(string) $row['referencia']] = array('tipo' => 'envio', 'cp' => (string) $row['delivery_postcode'], 'city' => (string) $row['delivery_city']);
+}
 echo 'Referencias a consultar: ' . count($worklist) . $br;
 
 $consultadas = 0; $conDatos = 0; $sinDatos = 0; $errores = 0;

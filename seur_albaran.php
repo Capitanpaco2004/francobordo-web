@@ -224,11 +224,17 @@ $suf = substr(md5($code . microtime(true)), 0, 8);
 if ($zpl !== null   && @file_put_contents($dir . "seur_{$oid}_{$suf}.zpl", $zpl)   !== false) $zplPath = $dir . "seur_{$oid}_{$suf}.zpl";
 if ($pdfBin !== null && @file_put_contents($dir . "seur_{$oid}_{$suf}.pdf", $pdfBin) !== false) $pdfPath = $dir . "seur_{$oid}_{$suf}.pdf";
 
-/* URL pública de seguimiento por referencia (mismo patrón que usa Vstock para SEUR) */
-$trackingUrl = 'http://www.seur.com/seguimiento/' . rawurlencode($ref) . '/fecha/' . date('d-m-Y');
-
 $ecb = $bul['ecbs'][0] ?? null;
 $pn  = $bul['parcelNumbers'][0] ?? null;
+
+/* URL pública de seguimiento. El formato viejo seur.com/seguimiento/{ref}/fecha/{f}
+ * fue RETIRADO por SEUR (404, 2026-06-11): el vivo es miseur/mis-envios, que lee
+ * code + cp (+email_tlf) de la query — con ambos abre el detalle sin pedir datos
+ * (la página exige CP destino "por seguridad", como el enlace de CEX s=...&cp=).
+ * code: preferimos el ECB del bulto (código de barras estándar); si no, la ref. */
+$trackingUrl = 'https://www.seur.com/miseur/mis-envios?code=' . rawurlencode($ecb !== null && $ecb !== '' ? $ecb : $ref)
+             . '&cp=' . rawurlencode(preg_replace('/\s+/', '', (string) ($dest['postalCode'] ?? '')))
+             . '&email_tlf=' . rawurlencode(preg_replace('/\s+/', '', (string) ($dest['phone'] ?? '')));
 $st = $db->prepare("INSERT INTO seur_shipments (id_rma, orders_id, albaran_id, tipo, entorno, shipment_code, ecb,
                       parcel_number, service_code, product_code, ref, kilos, label_format, label_path, label_zpl_path,
                       tracking_url, http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)

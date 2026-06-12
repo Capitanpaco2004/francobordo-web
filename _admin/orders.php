@@ -1157,8 +1157,23 @@ if( tep_not_null($action) )
 										if( defined( $sConstTitle ) ) $sShippingName = (string)constant( $sConstTitle );
 									}
 
+									// Compañía REAL de transporte: tablas de tracking API o URL del comentario de Enviado.
+									$sCarrierReal = '';
+									foreach( array( 'seur_tracking' => 'SEUR', 'cex_tracking' => 'Correos Express', 'correos_tracking' => 'Correos', 'ontime_tracking' => 'Ontime' ) as $sTblT => $sNomT ) {
+										if( tep_db_fetch_array( tep_db_query( "SELECT 1 FROM " . $sTblT . " WHERE referencia IN ('F" . (int)$oID . "', '" . (int)$oID . "') LIMIT 1" ) ) ) { $sCarrierReal = $sNomT; break; }
+									}
+									if( $sCarrierReal === '' ) {
+										$rUrlT = tep_db_fetch_array( tep_db_query( "SELECT comments FROM orders_status_history WHERE orders_id = " . (int)$oID . " AND orders_status_id = 5 AND comments LIKE '%http%' ORDER BY date_added DESC LIMIT 1" ) );
+										$sUrlT = (string)( $rUrlT['comments'] ?? '' );
+										foreach( array( 'correosexpress' => 'Correos Express', 'cexpr.es' => 'Correos Express', 'correos.es' => 'Correos', 'seur' => 'SEUR', 'ontime' => 'Ontime', 'alertran' => 'Ontime', 'gls' => 'GLS', 'dhl' => 'DHL', 'tnt' => 'TNT' ) as $sDomT => $sNomT )
+											if( stripos( $sUrlT, $sDomT ) !== false ) { $sCarrierReal = $sNomT; break; }
+									}
 									echo '<i class="fa fa-truck" style="margin-right:6px;color:#27a5d2;"></i>';
-									if( $sShippingName !== '' ) {
+									if( $sCarrierReal !== '' ) {
+										echo '<strong>' . htmlspecialchars( $sCarrierReal, ENT_QUOTES, 'UTF-8' ) . '</strong>';
+										echo ' <small style="color:#888;">(' . htmlspecialchars( $sShippingName !== '' ? $sShippingName : $sShippingCode, ENT_QUOTES, 'UTF-8' ) . ')</small>';
+									}
+									elseif( $sShippingName !== '' ) {
 										echo '<strong>' . htmlspecialchars( $sShippingName, ENT_QUOTES, 'UTF-8' ) . '</strong>';
 										if( $sShippingCode !== '' )
 											echo ' <small style="color:#888;">(' . htmlspecialchars( $sShippingCode, ENT_QUOTES, 'UTF-8' ) . ')</small>';
@@ -1169,6 +1184,153 @@ if( tep_not_null($action) )
 								?>
 							<?php endif; ?>
 						</div>
+
+						<?php
+						// === Registros del envío (tracking API: seur_tracking / cex_tracking /
+						//     ontime_tracking / correos_tracking, los alimentan los crons horarios).
+						//     Se muestra el del transportista que tenga datos para este pedido. ===
+						$sTrkCarrier = ''; $sTrkEstado = ''; $nTrkEntregado = 0; $sTrkChecked = ''; $aTrkRegs = array();
+						$qTrk = tep_db_query( "SELECT * FROM seur_tracking WHERE referencia IN ('F" . (int)$oID . "', '" . (int)$oID . "') ORDER BY referencia = 'F" . (int)$oID . "' DESC LIMIT 1" );
+						if( $rTrk = tep_db_fetch_array( $qTrk ) ) {
+							$sTrkCarrier = 'SEUR'; $sTrkEstado = $rTrk['estado_desc']; $nTrkEntregado = (int)$rTrk['entregado']; $sTrkChecked = (string)$rTrk['last_checked'];
+							foreach( (array)json_decode( (string)$rTrk['eventos_json'], true ) as $eTrk )
+								$aTrkRegs[] = array( 'f' => (string)( $eTrk['f'] ?? '' ), 'd' => (string)( $eTrk['d'] ?? '' ) );
+						}
+						if( $sTrkCarrier === '' ) {
+							$qTrk = tep_db_query( "SELECT * FROM cex_tracking WHERE referencia = 'F" . (int)$oID . "' LIMIT 1" );
+							if( $rTrk = tep_db_fetch_array( $qTrk ) ) {
+								$sTrkCarrier = 'Correos Express'; $sTrkEstado = $rTrk['estado_desc']; $nTrkEntregado = (int)$rTrk['entregado']; $sTrkChecked = (string)$rTrk['last_checked'];
+								// Histórico: fetch lazy del detalle API + caché en timeline_json (el cron horario solo
+								// actualiza el estado actual; sin esto el desplegable salía vacío casi siempre).
+								$aTrkTl = json_decode( (string)$rTrk['timeline_json'], true );
+								$bTrkFresh = !empty( $rTrk['timeline_at'] ) && ( strtotime( $rTrk['timeline_at'] ) > time() - 3600 );
+								if( !is_array( $aTrkTl ) || ( !$nTrkEntregado && !$bTrkFresh ) ) {
+									require_once DIR_FS_CATALOG . 'includes/classes/correos_express.php';
+									$qTrkEnv = tep_db_query( "SELECT config_value FROM cex_config WHERE config_key = 'env'" );
+									$sTrkEnv = tep_db_num_rows( $qTrkEnv ) ? tep_db_fetch_array( $qTrkEnv )['config_value'] : 'test';
+									$oTrkCex = new correos_express( $sTrkEnv ); $oTrkCex->setTimeout( 5 );
+									$aTrkRes = $oTrkCex->seguimientoEnvio( 'F' . (int)$oID );
+									if( !empty( $aTrkRes['ok'] ) && !empty( $aTrkRes['data']['estadoEnvios'] ) ) {
+										$aTrkTl = array();
+										foreach( $aTrkRes['data']['estadoEnvios'] as $eTrk )
+											$aTrkTl[] = array( 'd' => $eTrk['descEstado'] ?? '', 'f' => $eTrk['fechaEstado'] ?? '', 'h' => $eTrk['horaEstado'] ?? '', 'i' => $eTrk['descIncEstado'] ?? '', 'e' => ( ( $eTrk['codEstado'] ?? '' ) === '12' ) ? 1 : 0 );
+										tep_db_query( "UPDATE cex_tracking SET timeline_json = '" . tep_db_input( json_encode( $aTrkTl, JSON_UNESCAPED_UNICODE ) ) . "', timeline_at = now() WHERE referencia = 'F" . (int)$oID . "'" );
+									}
+								}
+								foreach( (array)$aTrkTl as $eTrk ) {
+									$sTrkF = (string)( $eTrk['f'] ?? '' ); $sTrkH = (string)( $eTrk['h'] ?? '' );
+									$sTrkFmt = ( strlen( $sTrkF ) === 8 ) ? substr( $sTrkF, 0, 2 ) . '/' . substr( $sTrkF, 2, 2 ) . '/' . substr( $sTrkF, 4, 4 ) : $sTrkF;
+									if( strlen( $sTrkH ) >= 4 ) $sTrkFmt .= ' ' . substr( $sTrkH, 0, 2 ) . ':' . substr( $sTrkH, 2, 2 );
+									$aTrkRegs[] = array( 'f' => trim( $sTrkFmt ), 'd' => (string)( $eTrk['d'] ?? '' ) . ( !empty( $eTrk['i'] ) ? ' — ' . $eTrk['i'] : '' ) );
+								}
+							}
+						}
+						if( $sTrkCarrier === '' ) {
+							$qTrk = tep_db_query( "SELECT * FROM ontime_tracking WHERE referencia = '" . (int)$oID . "' LIMIT 1" );
+							if( $rTrk = tep_db_fetch_array( $qTrk ) ) {
+								$sTrkCarrier = 'Ontime'; $sTrkEstado = $rTrk['estado_desc']; $nTrkEntregado = (int)$rTrk['entregado']; $sTrkChecked = (string)$rTrk['last_checked'];
+								foreach( (array)json_decode( (string)$rTrk['eventos_json'], true ) as $eTrk )
+									$aTrkRegs[] = array( 'f' => (string)( $eTrk['f'] ?? '' ), 'd' => (string)( $eTrk['d'] ?? '' ) . ( !empty( $eTrk['g'] ) ? ' · ' . $eTrk['g'] : '' ) );
+							}
+						}
+						if( $sTrkCarrier === '' ) {
+							$qTrk = tep_db_query( "SELECT * FROM correos_tracking WHERE referencia = 'F" . (int)$oID . "' LIMIT 1" );
+							if( $rTrk = tep_db_fetch_array( $qTrk ) ) {
+								$sTrkCarrier = 'Correos'; $sTrkEstado = $rTrk['estado_desc']; $nTrkEntregado = (int)$rTrk['entregado']; $sTrkChecked = (string)$rTrk['last_checked'];
+								foreach( (array)json_decode( (string)$rTrk['eventos_json'], true ) as $eTrk )
+									$aTrkRegs[] = array( 'f' => trim( (string)( $eTrk['f'] ?? '' ) . ' ' . (string)( $eTrk['h'] ?? '' ) ), 'd' => (string)( $eTrk['txt'] ?? '' ) );
+						}
+						}
+						// Pedido SEUR sin fila de tracking: consulta EN VIVO a la API (cubre la
+						// ventana entre el albaran y el cron) y cachea en seur_tracking para que
+						// el cron horario lo siga refrescando.
+						if( $sTrkCarrier === '' && strpos( (string)( $order->info['shipping_module'] ?? '' ), 'seur' ) === 0 ) {
+							$sTrkCarrier = 'SEUR'; $sTrkEstado = '';
+							$qEnv = tep_db_query( "SELECT config_value FROM seur_config WHERE config_key = 'env'" );
+							$sSeurEnv = ( $rEnv = tep_db_fetch_array( $qEnv ) ) ? $rEnv['config_value'] : 'pre';
+							if( $sSeurEnv === 'pro' ) {
+								require_once( DIR_FS_CATALOG . 'includes/classes/seur.php' );
+								$oSeurTrk = new seur( 'pro' ); $oSeurTrk->setTimeout( 6 );
+								$sCpPed   = preg_replace( '/[^0-9A-Za-z]/', '', (string)( $order->delivery['postcode'] ?? '' ) );
+								$sCityPed = preg_replace( '/[^0-9A-Za-z]/', '', (string)( $order->delivery['city'] ?? '' ) );
+								foreach( array( 'F' . (int)$oID, (string)(int)$oID ) as $sRefTry ) {
+									$aResT = $oSeurTrk->trackingExtended( $sRefTry );
+									if( (int)$aResT['http'] === 204 ) $aResT = $oSeurTrk->trackingExtended( $sRefTry, 'REFERENCE', false );
+									if( (int)$aResT['http'] === 204 || !$aResT['ok'] ) continue;
+									$aPayT = seur::payload( $aResT );
+									if( !is_array( $aPayT ) ) continue;
+									$aSitsT = array(); $aVistoT = array(); $sEcbT = '';
+									foreach( $aPayT as $aEntT ) {
+										if( ( $aEntT['type'] ?? '' ) !== 'Exp' ) continue;
+										$sCpE   = preg_replace( '/[^0-9A-Za-z]/', '', (string)( $aEntT['postalCode'] ?? '' ) );
+										$sCityE = preg_replace( '/[^0-9A-Za-z]/', '', (string)( $aEntT['cityName'] ?? '' ) );
+										$bOkCp = ( $sCpPed !== '' && $sCpE !== '' && ( stripos( $sCpPed, $sCpE ) !== false || stripos( $sCpE, $sCpPed ) !== false ) );
+										$bOkCity = false;
+										foreach( array( $sCityPed, $sCpPed ) as $sPedTxt )
+											if( $sPedTxt !== '' && $sCityE !== '' && ( stripos( $sCityE, $sPedTxt ) !== false || stripos( $sPedTxt, $sCityE ) !== false ) ) $bOkCity = true;
+										if( ( $sCpPed !== '' || $sCityPed !== '' ) && !$bOkCp && !$bOkCity ) continue;
+										foreach( (array)( $aEntT['situations'] ?? array() ) as $aSitT ) {
+											$kT = ( $aSitT['eventCode'] ?? '' ) . '|' . ( $aSitT['situationDate'] ?? '' );
+											if( isset( $aVistoT[$kT] ) ) continue;
+											$aVistoT[$kT] = true; $aSitsT[] = $aSitT;
+										}
+										if( $sEcbT === '' && !empty( $aEntT['packs'][0]['ecb'] ) ) $sEcbT = (string)$aEntT['packs'][0]['ecb'];
+									}
+									if( !count( $aSitsT ) ) continue;
+									usort( $aSitsT, function( $a, $b ) { return strcmp( (string)( $a['situationDate'] ?? '' ), (string)( $b['situationDate'] ?? '' ) ); } );
+									$sFentT = ''; $aEvJsonT = array();
+									foreach( $aSitsT as $aSitT ) {
+										$sDT = (string)( $aSitT['description'] ?? '' );
+										$sFT = substr( str_replace( 'T', ' ', (string)( $aSitT['situationDate'] ?? '' ) ), 0, 19 );
+										$sDU = mb_strtoupper( $sDT );
+										if( strpos( $sDU, 'ENTREGAD' ) !== false && !preg_match( '/\\b(NO|SIN)\\s+ENTREG/u', $sDU ) ) { $nTrkEntregado = 1; $sFentT = $sFT; }
+										$aTrkRegs[] = array( 'f' => substr( $sFT, 0, 16 ), 'd' => $sDT );
+										$aEvJsonT[] = array( 'f' => substr( $sFT, 0, 16 ), 't' => (string)( $aSitT['eventCode'] ?? '' ), 'd' => $sDT );
+									}
+									$aUltT = end( $aSitsT );
+									$sTrkEstado = (string)( $aUltT['description'] ?? '' ); $sTrkChecked = date( 'Y-m-d H:i:s' );
+									tep_db_query( "INSERT INTO seur_tracking (referencia, ecb, estado_code, estado_desc, entregado, fecha_entrega, eventos_json, last_checked) VALUES ('"
+										. tep_db_input( $sRefTry ) . "', '" . tep_db_input( $sEcbT ) . "', '" . tep_db_input( substr( (string)( $aUltT['eventCode'] ?? '' ), 0, 8 ) ) . "', '" . tep_db_input( substr( $sTrkEstado, 0, 80 ) ) . "', " . (int)$nTrkEntregado . ", "
+										. ( $sFentT !== '' ? "'" . tep_db_input( $sFentT ) . "'" : "NULL" ) . ", '" . tep_db_input( json_encode( $aEvJsonT, JSON_UNESCAPED_UNICODE ) ) . "', now()) "
+										. "ON DUPLICATE KEY UPDATE ecb=VALUES(ecb), estado_code=VALUES(estado_code), estado_desc=VALUES(estado_desc), entregado=VALUES(entregado), fecha_entrega=COALESCE(VALUES(fecha_entrega), fecha_entrega), eventos_json=VALUES(eventos_json), last_checked=now()" );
+									break;
+								}
+							}
+						}
+						?>
+						<?php if( $sTrkCarrier !== '' ): $aTrkRegs = array_reverse( $aTrkRegs ); ?>
+						<!-- Separador -->
+						<div style="border-top:1px dashed #ddd;margin:10px 0;"></div>
+						<div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Registros del envío <small>(<?php echo htmlspecialchars( $sTrkCarrier, ENT_QUOTES, 'UTF-8' ); ?>)</small></div>
+						<div style="margin-bottom:6px;">
+							<?php if( $sTrkEstado === '' ): ?>
+								<i class="fa fa-circle" style="font-size:9px;margin-right:5px;color:#bbb;"></i>
+								<span style="color:#888;">Sin registros todav&iacute;a &mdash; aparecer&aacute;n cuando el almac&eacute;n grabe el env&iacute;o (se actualizan cada hora).</span>
+							<?php else: ?>
+								<i class="fa fa-circle" style="font-size:9px;margin-right:5px;color:<?php echo $nTrkEntregado ? '#2e9e44' : '#ee7f00'; ?>"></i>
+								<strong><?php echo htmlspecialchars( (string)$sTrkEstado, ENT_QUOTES, 'UTF-8' ); ?></strong>
+								<?php if( $sTrkChecked !== '' ): ?><small style="color:#999;">(<?php echo date( 'd/m H:i', strtotime( $sTrkChecked ) ); ?>)</small><?php endif; ?>
+							<?php endif; ?>
+						</div>
+						<?php if( count( $aTrkRegs ) ): ?>
+						<details style="font-size:12px;">
+							<summary style="cursor:pointer;color:#27a5d2;">Ver los <?php echo count( $aTrkRegs ); ?> registros</summary>
+							<ul style="list-style:none;margin:6px 0 0;padding:0;">
+							<?php foreach( $aTrkRegs as $eTrk ):
+								$sTrkD  = mb_strtoupper( $eTrk['d'] );
+								$bTrkOk = ( strpos( $sTrkD, 'ENTREGAD' ) !== false && !preg_match( '/\b(NO|SIN)\s+ENTREG/u', $sTrkD ) );
+								$bTrkKo = ( strpos( $sTrkD, 'ANULAD' ) !== false || strpos( $sTrkD, 'CANCELAD' ) !== false || strpos( $sTrkD, 'DEVOL' ) !== false || strpos( $sTrkD, 'DEVUELTO' ) !== false || preg_match( '/\b(NO|SIN)\s+ENTREG/u', $sTrkD ) );
+							?>
+								<li style="padding:2px 0;">
+									<i class="fa fa-circle" style="font-size:8px;margin-right:6px;color:<?php echo $bTrkOk ? '#2e9e44' : ( $bTrkKo ? '#c0392b' : '#9bb7cc' ); ?>"></i>
+									<?php echo htmlspecialchars( mb_convert_case( mb_strtolower( $eTrk['d'] ), MB_CASE_TITLE ), ENT_QUOTES, 'UTF-8' ); ?>
+									<?php if( $eTrk['f'] !== '' ): ?><small style="color:#999;"> — <?php echo htmlspecialchars( $eTrk['f'], ENT_QUOTES, 'UTF-8' ); ?></small><?php endif; ?>
+								</li>
+							<?php endforeach; ?>
+							</ul>
+						</details>
+						<?php endif; ?>
+						<?php endif; ?>
 
 						<?php if( $bHasDeliveryModule ): ?>
 						<!-- Separador -->

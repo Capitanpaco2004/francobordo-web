@@ -15,7 +15,7 @@
  * Ver memoria francobordo_seur_api.
  */
 class seurpunto {
-    var $code, $title, $description, $icon, $enabled, $sort_order, $tax_class, $quotes;
+    var $code, $title, $description, $icon, $enabled, $sort_order, $tax_class, $quotes, $_check;
 
     const CACHE_TTL = 21600; // 6 h
 

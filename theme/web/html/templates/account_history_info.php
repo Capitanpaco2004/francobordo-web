@@ -263,8 +263,30 @@
 						?>
 					<p><strong><?php echo $cexCarrier !== '' ? htmlspecialchars($cexCarrier) : $order->info['shipping_method']; ?></strong>
 						<?php
+						// SEUR: miSEUR SÍ localiza los envíos de la integración API (ECB nativo,
+						// verificado 2026-06-11) pero NO los de la integración vieja de Vstock
+						// (con ninguna clave). Botón: envío API (ref F+ecb) → página de SEUR
+						// con code+cp+email_tlf; envío viejo → NUESTRO desplegable seurTimeline.
+						if ($seurTrk && strpos((string) $seurTrk['referencia'], 'F') === 0 && !empty($seurTrk['ecb'])):
+							$seurBtnUrl = 'https://www.seur.com/miseur/mis-envios?code=' . rawurlencode($seurTrk['ecb'])
+							            . '&cp=' . rawurlencode(preg_replace('/\s+/', '', (string) ($order->delivery['postcode'] ?? '')))
+							            . '&email_tlf=' . rawurlencode(preg_replace('/\s+/', '', (string) ($order->customer['telephone'] ?? '')));
+						?>
+							<small class="localizaEnvio">
+								<a style="background: #ee7f00 !important;" class="Button" href="<?php echo $seurBtnUrl; ?>" target="_blank">
+									<i style="margin-right: 5px" class="fa fa-truck-moving" ></i><?php echo $sTextLocalizaEnvio; ?>
+								</a>
+							</small>
+						<?php elseif ($seurTrk): ?>
+							<small class="localizaEnvio">
+								<a style="background: #ee7f00 !important;" class="Button" href="javascript:void(0)"
+								   onclick="var d=document.querySelector('.seurTimeline')||document.querySelector('.seurEstadoEnvio');if(d){if(d.tagName==='DETAILS')d.open=true;d.scrollIntoView({behavior:'smooth',block:'center'});}return false;">
+									<i style="margin-right: 5px" class="fa fa-truck-moving" ></i><?php echo $sTextLocalizaEnvio; ?>
+								</a>
+							</small>
+						<?php
 						//Si tenemos un array y una url válida, motramos el banner.
-						if (!empty($aUrlEnvio) && !empty($aUrlEnvio[0]) && filter_var($aUrlEnvio[0][0], FILTER_VALIDATE_URL)): ?>
+						elseif (!empty($aUrlEnvio) && !empty($aUrlEnvio[0]) && filter_var($aUrlEnvio[0][0], FILTER_VALIDATE_URL)): ?>
 							<small class="localizaEnvio">
 								<a style="background: #ee7f00 !important;" class="Button" href="<?php echo $aUrlEnvio[0][0]; ?>" target="_blank">
 									<i style="margin-right: 5px" class="fa fa-truck-moving" ></i><?php echo $sTextLocalizaEnvio; ?>

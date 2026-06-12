@@ -4,6 +4,55 @@ class shipping
 {
 	public $modules;
 
+	// ------------------------------------------------------------------
+	// Recargo de gastos de envío por grupo de cliente (SPPC).
+	// El porcentaje se configura por grupo en el admin: Clientes > Grupos
+	// de clientes (customers_groups.customers_group_shipping_surcharge,
+	// ej. 30 = +30%). Se escribe también en $GLOBALS[$clase]->quotes porque
+	// cheapest() y preselected() leen esa propiedad del módulo, no el
+	// retorno de quote(). Recogida en tienda excluida (no es un envío).
+	// ------------------------------------------------------------------
+	const FB_GROUP_SURCHARGE_EXCLUDED = array('retira', 'pickup');
+
+	private function fb_group_shipping_surcharge($class, $quotes)
+	{
+		global $customer_group_id;
+		static $pct_cache = array();
+
+		$group = (int)(isset($customer_group_id) ? $customer_group_id : (isset($_SESSION['sppc_customer_group_id']) ? $_SESSION['sppc_customer_group_id'] : 0));
+
+		if (!array_key_exists($group, $pct_cache)) {
+			$pct_cache[$group] = 0.0;
+			$rs = tep_db_query("select customers_group_shipping_surcharge from " . TABLE_CUSTOMERS_GROUPS . " where customers_group_id = '" . (int)$group . "'");
+			if ($row = tep_db_fetch_array($rs)) {
+				$pct_cache[$group] = max(0.0, (float)$row['customers_group_shipping_surcharge']) / 100.0;
+			}
+		}
+		$pct = $pct_cache[$group];
+
+		if ($pct <= 0
+			|| in_array($class, self::FB_GROUP_SURCHARGE_EXCLUDED)
+			|| !is_array($quotes)
+			|| !empty($quotes['error'])
+			|| empty($quotes['methods']) || !is_array($quotes['methods'])
+			|| !empty($quotes['fb_group_surcharged'])) {
+			return $quotes;
+		}
+
+		foreach ($quotes['methods'] as $k => $m) {
+			if (isset($m['cost']) && is_numeric($m['cost']) && $m['cost'] > 0) {
+				$quotes['methods'][$k]['cost'] = round($m['cost'] * (1 + $pct), 2);
+			}
+		}
+		$quotes['fb_group_surcharged'] = true;
+
+		if (isset($GLOBALS[$class]) && is_object($GLOBALS[$class])) {
+			$GLOBALS[$class]->quotes = $quotes;
+		}
+
+		return $quotes;
+	}
+
 	function __construct($module = '')
 	{
 		global $language, $PHP_SELF, $cart, $order, $baleares, $customer_id; // Agregamos la variable $baleares
@@ -157,7 +206,7 @@ class shipping
 			$size = sizeof($include_quotes);
 			for ($i = 0; $i < $size; $i++) {
 				$quotes = $GLOBALS[$include_quotes[$i]]->quote('');
-				if (is_array($quotes)) $quotes_array[] = $quotes;
+				if (is_array($quotes)) $quotes_array[] = $this->fb_group_shipping_surcharge($include_quotes[$i], $quotes);
 			}
 		}
 
@@ -208,7 +257,7 @@ class shipping
 			$size = count($include_quotes);
 			for ($i = 0; $i < $size; $i++) {
 				$quotes = $GLOBALS[$include_quotes[$i]]->quote($method);
-				if (is_array($quotes)) $quotes_array[] = $quotes;
+				if (is_array($quotes)) $quotes_array[] = $this->fb_group_shipping_surcharge($include_quotes[$i], $quotes);
 			}
 		}
 

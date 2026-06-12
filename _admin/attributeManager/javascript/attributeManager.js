@@ -780,8 +780,9 @@ function amAttrNameAffectedHtml(j) {
 }
 
 // Pulsar el lapiz: desbloquea el campo y muestra el desglose de productos afectados
-function amAttrNameEdit(oid, vid) {
-	var input = getElement('amValName_' + oid + '_' + vid);
+function amAttrNameEdit(oid, vid, lang) {
+	// 2 campos por valor (uno por idioma): el input se identifica con sufijo de idioma.
+	var input = getElement('amValName_' + oid + '_' + vid + '_' + lang);
 	var box   = getElement('amValAffected_' + oid + '_' + vid);
 	if(!input) return false;
 	if(!input.readOnly) { input.focus(); return false; }
@@ -859,4 +860,101 @@ function amAttrNameBlur(oid, vid, input) {
 		return false;
 	}
 	return amAttrNameSend(oid, vid, input);
+}
+
+//----------------------------
+// Editar el NOMBRE DE LA OPCION ("Modelo", "Talla"...) por idioma. Mismo flujo que los valores
+// (lapiz -> desbloquea + desglose de afectados via op=info_option; blur -> save_option).
+// Limite 32 chars: el nombre baja a QFacWin (EA15_ARTPROP.CNOMPROP VARCHAR(32)).
+//----------------------------
+function amOptNameEdit(oid, lang) {
+	var input = getElement('amOptName_' + oid + '_' + lang);
+	var box   = getElement('amOptAffected_' + oid);
+	if(!input) return false;
+	if(!input.readOnly) { input.focus(); return false; }
+
+	if(box) { box.style.display = 'block'; box.innerHTML = 'Cargando productos afectados...'; }
+	var data = new FormData();
+	data.append('oid', oid);
+	data.append('op', 'info_option');
+	fetch(amAttrNameEndpoint(), { method: 'POST', body: data, credentials: 'same-origin' })
+		.then(function(r){ return r.json(); })
+		.then(function(j){
+			if(box) box.innerHTML = (j && j.ok) ? amOptNameAffectedHtml(j) : ((j && j.error) ? j.error : 'No se pudo obtener la lista.');
+		})
+		.catch(function(){ if(box) box.innerHTML = 'Error de red al obtener la lista de productos.'; });
+
+	input.readOnly = false;
+	input.style.background = '#fff';
+	input.focus();
+	input.select();
+	return false;
+}
+
+function amOptNameAffectedHtml(j) {
+	var n = j.products || 0;
+	if(n <= 1)
+		return 'Solo este producto usa esta opcion. El cambio no afecta a ningun otro producto.';
+	var html = '<b>Atencion:</b> esta opcion la usan <b>' + n + ' productos</b>. Al renombrarla cambiara en TODOS:';
+	html += '<ul style="margin:3px 0 0 16px;padding:0;">';
+	var list = j.list || [];
+	for(var i=0;i<list.length;i++)
+		html += '<li>#' + list[i].id + ' &mdash; ' + amHtmlEscape(list[i].name) + '</li>';
+	if(j.more && j.more > 0)
+		html += '<li>&hellip; y ' + j.more + ' productos mas</li>';
+	html += '</ul>';
+	return html;
+}
+
+function amOptNameLock(oid, input) {
+	input.readOnly = true;
+	input.style.background = '#f3f3f3';
+	var box = getElement('amOptAffected_' + oid);
+	if(box) { box.style.display = 'none'; box.innerHTML = ''; }
+}
+
+function amOptNameSend(oid, input) {
+	var data = new FormData();
+	data.append('oid', oid);
+	data.append('op', 'save_option');
+	data.append('name', input.value);
+	var amLang = input.getAttribute('data-lang');
+	if(amLang) data.append('lang', amLang);
+	data.append('confirmed', 1); // el desglose de afectados ya se mostro al entrar en edicion
+	fetch(amAttrNameEndpoint(), { method: 'POST', body: data, credentials: 'same-origin' })
+		.then(function(r){ return r.json(); })
+		.then(function(j){
+			if(j && j.ok) {
+				input.setAttribute('data-orig', input.value);
+				input.style.background = '#d8f5d8';
+				setTimeout(function(){ amOptNameLock(oid, input); }, 700);
+			} else {
+				alert((j && j.error) ? j.error : 'No se pudo guardar el nombre.');
+				input.value = input.getAttribute('data-orig') || '';
+				amOptNameLock(oid, input);
+			}
+		})
+		.catch(function(){
+			alert('Error de red al guardar el nombre.');
+			input.value = input.getAttribute('data-orig') || '';
+			amOptNameLock(oid, input);
+		});
+	return false;
+}
+
+function amOptNameBlur(oid, input) {
+	if(input.readOnly) return false;
+	var v    = (input.value || '').replace(/^\s+|\s+$/g, '');
+	var orig = input.getAttribute('data-orig') || '';
+	if(v === '') {
+		alert('El nombre no puede estar vacio.');
+		input.value = orig;
+		amOptNameLock(oid, input);
+		return false;
+	}
+	if(v === orig) {
+		amOptNameLock(oid, input);
+		return false;
+	}
+	return amOptNameSend(oid, input);
 }

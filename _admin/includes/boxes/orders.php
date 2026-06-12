@@ -2,6 +2,7 @@
 <!-- orders //-->
 <?php echo tep_admin_files_boxes(FILENAME_ORDERS, '<i class="bullet"></i> Listado de pedidos'); ?>
 <?php echo tep_admin_files_boxes('facturas.php', '<i class="bullet"></i> Listado de facturas'); ?>
+<?php echo tep_admin_files_boxes('profesionales_pendientes.php', '<i class="bullet"></i> Profesionales Pendientes'); ?>
 <?php echo tep_admin_files_boxes(FILENAME_CREATE_ORDER, '<i class="bullet"></i> Crear Pedido'); ?>
 <?php echo tep_admin_files_boxes('holding_orders.php', '<i class="bullet"></i> ' . BOX_CUSTOMERS_ORDERS_CHECK); ?>
 <?php echo tep_admin_files_boxes(FILENAME_ORDERS_STATUS, '<i class="bullet"></i> ' . BOX_LOCALIZATION_ORDERS_STATUS); ?>
