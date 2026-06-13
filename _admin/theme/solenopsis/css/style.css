@@ -46,7 +46,7 @@ table thead{ background: #f8f8f8; color: #0a0a0a; }
 /* # Login
 ================================================== */
 #logn:after,#logn:before{background-image: url(images.png);}
-body.logoff, body.login, body.password_forgotten, body.login_2fa{background: #0093ff; padding: 20px;}
+body.logoff, body.login, body.password_forgotten, body.login_2fa, body.password_reset{background: #0093ff; padding: 20px;}
 body.login_2fa #logn{padding-bottom: 90px;}
 #logn-denox{position: fixed; top: 50%; left: 0px; background: url(logo.png) no-repeat center; background-size: contain; width: 200px; height: 100px; right: 0px; margin: -310px auto 0px;}
 #logn-msct{width: 180px; height: 248px; background: url(imagen-capitan.png) no-repeat center; background-size: contain; position: absolute; z-index: 2; left: -160px;}

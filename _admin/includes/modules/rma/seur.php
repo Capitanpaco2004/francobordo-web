@@ -82,6 +82,14 @@ function seurSaveBin($id_rma, $bin, $prefix, $ext) {
     return (int) $id_rma . '/' . $name;
 }
 
+/** Estado de seguimiento de un envío/recogida SEUR (seur_tracking, cron horario). */
+function seurTrackEstado($ref) {
+    $ref = trim((string) $ref);
+    if ($ref === '') return null;
+    $q = tep_db_query("SELECT estado_desc, entregado, last_checked FROM seur_tracking WHERE referencia = '" . tep_db_input($ref) . "' LIMIT 1");
+    return tep_db_num_rows($q) ? tep_db_fetch_array($q) : null;
+}
+
 /** Puntos SEUR cercanos a un CP (usa la caché del módulo de envío del catálogo). */
 function seurPuntosCercanos($cp, $city = '') {
     if (!class_exists('seurpunto')) {
@@ -107,7 +115,7 @@ function rmaSeurGenerateLabel() {
     $fecha = trim((string) ($_POST['fecha'] ?? ''));
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $fecha)) $fecha = seur::proximoDiaLaborable();
     $pudo  = trim((string) ($_POST['seur_pudo'] ?? ''));
-    $pudoName = '';
+    $pudoName = ''; $pudoHours = '';
 
     if ($mode === 'punto') {
         if ($pudo === '') {
@@ -115,12 +123,22 @@ function rmaSeurGenerateLabel() {
             tep_redirect(tep_href_link('rma.php', 'action=view&id=' . $id));
         }
         foreach (seurPuntosCercanos($rma['customers_postcode'], $rma['customers_city']) as $p) {
-            if ($p['id'] === $pudo) { $pudoName = $p['name']; break; }
+            if ($p['id'] === $pudo) {
+                $pudoName  = $p['name'] . ' - ' . $p['address'] . ' (' . $p['cp'] . ' ' . $p['city'] . ')';
+                $pudoHours = (string) ($p['hours'] ?? '');
+                break;
+            }
         }
         // El punto pudo elegirse desde el self-service web con otro CP (el de entrega
         // del pedido): si no está entre los cercanos, usar el nombre registrado.
         if ($pudoName === '' && trim((string) ($rma['seur_pudo_id'] ?? '')) === $pudo) {
             $pudoName = trim((string) ($rma['seur_pudo_name'] ?? ''));
+            // El cliente lo eligio buscando en OTRO CP: el horario se recupera de la
+            // cache de puntos de ese CP (va embebido en el nombre como "(NNNNN ").
+            if (preg_match('/\((\d{5}) /', $pudoName, $mCp)) {
+                $pp = class_exists('seurpunto') ? seurpunto::puntoById($pudo, $mCp[1]) : false;
+                if ($pp) $pudoHours = (string) ($pp['hours'] ?? '');
+            }
         }
     }
 
@@ -161,6 +179,7 @@ function rmaSeurGenerateLabel() {
         'fecha_recogida'  => ($mode === 'domicilio') ? $fecha : null,
         'pudo_id'         => ($mode === 'punto') ? $pudo : null,
         'pudo_name'       => ($mode === 'punto') ? $pudoName : null,
+        'pudo_hours'      => ($mode === 'punto' && $pudoHours !== '') ? $pudoHours : null,
         'label_format'    => 'pdf',
         'label_path'      => $labelPath ? (DIR_FS_CATALOG . 'images/rma/' . $labelPath) : null,
         'qr_path'         => $qrPath ? (DIR_FS_CATALOG . 'images/rma/' . $qrPath) : null,
@@ -216,6 +235,14 @@ function rmaSeurEmailLabel() {
 
     if ($mailTo !== '' && is_file($path)) {
         $idFmt = str_pad((string) $s['id_rma'], 10, '0', STR_PAD_LEFT);
+        $instrucciones = '<p>Le rogamos que siga las siguientes instrucciones:</p>'
+            . '<p>El producto debe enviarse correctamente. Le recordamos que el producto debe llegarnos en perfecto estado, '
+            . 'con el embalaje original sin pintadas, roturas ni pegatinas, y que debe venir acompañado de cualquier accesorio o manual, si lo hubiera.<br>'
+            . 'Nunca envíe el producto directamente en la caja original.<br>'
+            . 'Usted dispone de <strong>7 días</strong> para hacernos llegar el producto.</p>'
+            . '<p>Una vez que el producto llegue a nuestro almacén, será comprobado por nuestro personal, que verificará que no presente '
+            . 'señales de uso, y se procederá al reembolso correspondiente mediante el método que haya solicitado.</p>';
+
         if (!empty($s['pudo_id'])) {
             // Devolución desde punto: QR incrustado + etiqueta adjunta
             $qrImg = '';
@@ -225,15 +252,23 @@ function rmaSeurEmailLabel() {
             $html = '<p>Hola ' . htmlspecialchars($name) . ',</p>'
                   . '<p>Para la devolución de su RMA <strong>' . $idFmt . '</strong>, lleve el paquete al punto SEUR:</p>'
                   . '<p><strong>' . htmlspecialchars($s['pudo_name'] ?: $s['pudo_id']) . '</strong></p>'
+                  . (!empty($s['pudo_hours'])
+                      ? '<p style="font-size:13px;color:#555">Horario: ' . htmlspecialchars(str_ireplace(
+                            array('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'),
+                            array('lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'),
+                            $s['pudo_hours'])) . '</p>'
+                      : '')
                   . '<p>Muestre este código QR en el punto (no necesita imprimir nada):</p>'
                   . $qrImg
                   . '<p>También adjuntamos la etiqueta por si prefiere llevarla impresa y pegada en el paquete.</p>'
+                  . $instrucciones
                   . '<p>Gracias,<br>' . STORE_NAME . '</p>';
         } else {
             $html = '<p>Hola ' . htmlspecialchars($name) . ',</p>'
                   . '<p>Adjuntamos la etiqueta de SEUR para la devolución de su RMA <strong>' . $idFmt . '</strong>.</p>'
                   . '<p>Por favor, imprímala y péguela en el paquete. El mensajero de SEUR pasará a recogerlo'
                   . ($s['fecha_recogida'] ? ' el día <strong>' . date('d/m/Y', strtotime($s['fecha_recogida'])) . '</strong>' : '') . '.</p>'
+                  . $instrucciones
                   . '<p>Gracias,<br>' . STORE_NAME . '</p>';
         }
         // tep_mail() = PHPMailer (ruta de entrega real + adjunto). NO usar la clase email antigua.
@@ -331,6 +366,7 @@ function rmaSeurRenderBox($rmaDetail) {
                         <?php if ($s['pudo_id']): ?> · punto <code><?php echo htmlspecialchars($s['pudo_id']); ?></code> <?php echo htmlspecialchars($s['pudo_name'] ?? ''); ?><?php endif; ?>
                         <?php if ($s['fecha_recogida']): ?> · recogida <?php echo date('d/m/Y', strtotime($s['fecha_recogida'])); ?><?php endif; ?>
                         <?php if ($s['cancelled_at']): ?> · <em>anulada</em><?php endif; ?>
+                        <?php $trk = seurTrackEstado($s['ref']); if ($trk): ?> · <strong style="color:<?php echo $trk['entregado'] ? '#2e7d32' : '#0a6ebd'; ?>">📍 <?php echo htmlspecialchars($trk['estado_desc']); ?></strong><span style="color:#999;font-size:11px"> (<?php echo date('d/m H:i', strtotime($trk['last_checked'])); ?>)</span><?php endif; ?>
                         · <span style="color:#999;font-size:11px"><?php echo htmlspecialchars($s['entorno']); ?> · <?php echo htmlspecialchars($s['service_code'] . '/' . $s['product_code']); ?></span>
                         <br><span style="color:#777"><?php echo htmlspecialchars($s['date_added']); ?><?php if (!$s['ok'] && $s['mensaje_retorno']): ?> — <?php echo htmlspecialchars($s['mensaje_retorno']); ?><?php endif; ?></span>
                         <?php if ($s['ok']): ?>

@@ -32,5 +32,5 @@ define('TEXT_BOTTOM', '
 	<li>The subject of the email of the invoice after "Withdraw funds" must contain the ID of the withdrawal Example: 0001 + Date of the withdrawal</li>
 	<li><strong>Important.</strong> The minimum amount to withdraw is <strong>%s</strong> so if you need a lower transfer you should contact ' . STORE_OWNER_EMAIL_ADDRESS . ' to manage the withdrawal by our administrators/li>
 </ul>
-<p style="margin-top: 10px;"><a href="'.tep_href_link('information.php', 'info_id=' . AFFILLIATES_INFO_ID).'" target="_blank" style="color: #2faded; text-decoration: underline;">More information</a></p>
+<p style="margin-top: 10px;"><a href="'.tep_href_link('information.php', 'info_id=' . (defined('AFFILLIATES_INFO_ID') ? AFFILLIATES_INFO_ID : '0')).'" target="_blank" style="color: #2faded; text-decoration: underline;">More information</a></p>
 </div>');

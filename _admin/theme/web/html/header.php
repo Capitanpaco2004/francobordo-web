@@ -2,7 +2,7 @@
 use util\event;
 global $login_email_address;
 $bBody = false;
-if( in_array( basename( (string) $_SERVER['SCRIPT_NAME'] ), [ FILENAME_LOGIN, FILENAME_PASSWORD_FORGOTTEN, FILENAME_LOGOFF_ADMIN, 'login_2fa.php' ] ) ) {
+if( in_array( basename( (string) $_SERVER['SCRIPT_NAME'] ), [ FILENAME_LOGIN, FILENAME_PASSWORD_FORGOTTEN, FILENAME_LOGOFF_ADMIN, 'login_2fa.php', 'password_reset.php' ] ) ) {
 	$bBody = true;
 }
 ?>

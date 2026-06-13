@@ -175,6 +175,7 @@
 			<div class="sbmn">
 				<?php echo tep_admin_files_boxes('import-ram-altas.php', '<i class="bullet"></i> Importador'); ?>
 				<?php echo tep_admin_files_boxes('Actualizador_precios_ram.php', '<i class="bullet"></i> Actualizador precios'); ?>
+				<?php echo tep_admin_files_boxes('Actualizador_stock_ram.php', '<i class="bullet"></i> Actualizador stock'); ?>
 			</div>
 		</div>
 	</div>

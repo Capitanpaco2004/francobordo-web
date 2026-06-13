@@ -203,6 +203,10 @@
                 <?php if ($seurPts): ?>
                 <div class="cexSeur">
                     <p>Elige el punto SEUR donde dejarás el paquete (cercanos a tu CP <strong><?php echo htmlspecialchars($cexCp); ?></strong>):</p>
+                    <p><input type="text" id="seurRmaCpInput" maxlength="5" placeholder="Buscar en otro CP" class="rmaTextBox" style="width:150px" />
+                       <button type="button" id="seurRmaCpBtn" class="Button" data-searching="Buscando puntos&hellip;" style="padding:4px 12px">Buscar</button>
+                       <span id="seurRmaMsg" style="color:#a00;font-size:12px"></span></p>
+                    <input type="hidden" name="seur_pudo_cp" id="seurRmaCpHidden" value="<?php echo htmlspecialchars($cexCp); ?>" />
                     <?php /* Mapa Leaflet: lo inicializa el JS de la página anfitriona
                            (account_history_info) al marcar la opción — los <script> de
                            este HTML inyectado por AJAX no se ejecutan. Sin JS, queda

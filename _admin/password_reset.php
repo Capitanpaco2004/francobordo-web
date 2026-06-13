@@ -73,7 +73,7 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
     if ($error == false) {
         tep_db_query("update " . TABLE_ADMIN . " set admin_password = '" . tep_encrypt_password($password_new) . "', admin_modified = now(), password_reset_key = null, password_reset_date = null where admin_id = '" . (int) $check_admin['admin_id'] . "'");
         $messageStack->addSession('login', SUCCESS_PASSWORD_RESET, 'success');
-        tep_redirect(tep_href_link('login_admin.php'));
+        tep_redirect(tep_href_link(FILENAME_LOGIN_ADMIN, '', 'SSL'));
     }
 }
 
@@ -87,8 +87,8 @@ echo $messageStack->show(array('class' => 'warning', 'text' => TEXT_MAIN_RESET))
             <div id="logn-msct" class="msct1"></div>
             <a href="<?php echo FILENAME_LOGIN; ?>" title="Volver" id="logn-vlvr"></a>
             <input type="hidden" name="action" value="process">
-            <input type="password" name="password" value="" id="logn-pasw" style="top: 86px;" placeholder="Introduce contraseña">
-            <input type="password" name="confirmation" value="" id="logn-pasw" placeholder="Repite contraseña">
+            <input type="password" name="password" value="" id="logn-pasw" placeholder="Introduce contraseña">
+            <input type="password" name="confirmation" value="" id="logn-cnfr" placeholder="Repite contraseña">
 			<a title="Iniciar sesión" href="<?php echo tep_href_link( FILENAME_DEFAULT, '', 'SSL' ); ?>" id="logn-olvd">Iniciar sesión</a>
             <button id="logn-butn" class="bton-dflt" type="submit" name="enviar">Acceder</button>
         </form>

@@ -228,6 +228,7 @@ $excludedFilesFromLogin = [
 	'sm_feed_xml.php',                // SalesManago XML feed generator (token-gated internally)
 	FILENAME_LOGIN_ADMIN,
 	FILENAME_PASSWORD_FORGOTTEN,
+	'password_reset.php',             // Reset por enlace de email: el visitante no tiene sesion (valida key propia)
 	FILENAME_FORBIDDEN,
 	'ajax_funciones.php',
 	FILENAME_TOTP_VERIFY,

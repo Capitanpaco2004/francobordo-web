@@ -1,6 +1,5 @@
 <?php
 require 'includes/application_top.php';
-require_once dirname(__DIR__) . '/includes/vendor/autoload.php';
 
 set_time_limit(0);
 ini_set('memory_limit', '-1');
@@ -9,18 +8,20 @@ ini_set('max_execution_time', -1);
 /* ──────────────────────────────────────────────────────────────────────────
  * Actualizador de precios RAM Mounts
  *
- * Fuente: /import/Ram/1. Lista de Precios Generales.xlsx (hoja "Pricing"):
- *   A = RAM SKU · B = UPC · D = PVP (IVA incluido) · E = PVE (= COSTE; fórmula =D*42%).
- * Match: products_model (SKU) ↔ A; fallback por product_ean ↔ UPC-A→EAN-13.
- *   products_cost  = PVE.
+ * Fuente (2026-06-12, antes el xlsx de import/Ram): /descargas/gamp/MSI.csv
+ * (lo sube RAM por FTP a diario; el mismo fichero que usa el actualizador de stock).
+ *   Separador ';', cabecera "#;Cod Articulo;Descripcion;Cod EAN;PVP;DTO;Stock;Precio Coste;Cliente".
+ *   Col B (idx 1) = SKU · Col D (idx 3) = EAN (UPC-A) · Col E (idx 4) = PVP (IVA incluido,
+ *   coma decimal) · Col H (idx 7) = Precio Coste (= PVE, coma decimal).
+ * Match: products_model (SKU) ↔ Cod Articulo; fallback product_ean ↔ UPC-A→EAN-13.
+ *   products_cost  = Precio Coste.
  *   products_price = roundToNickel(PVP / 1,21).
  *   G1 (Profesionales) = roundToNickel(tiers de margen + piso cost×1,10).
  * RAM no tiene variantes → solo productos sueltos. Stock NO se toca.
  * Tope de variación 30% (excluye pack-vs-unidad / errores). PLAN/EXECUTE en transacción.
  * ────────────────────────────────────────────────────────────────────────── */
 
-const XLSX_DIR             = '/home/francobordo/public_html/import/Ram/';
-const XLSX_SHEET           = 'Pricing';
+const CSV_PATH             = '/home/francobordo/public_html/descargas/gamp/MSI.csv';
 const PRICE_DIFF_THRESHOLD = 0.005;
 const MAX_CHANGE_PCT_DEF   = 30;
 const IVA_ES               = 1.21;
@@ -39,7 +40,8 @@ function fmt4($v) { return number_format((float) $v, 4, '.', ''); }
 function ean13Checksum($p) { if (strlen($p) !== 12 || !ctype_digit($p)) return -1; $s = 0; for ($i = 0; $i < 12; $i++) { $d = (int) $p[$i]; $s += ($i % 2 === 0) ? $d : $d * 3; } return (10 - ($s % 10)) % 10; }
 function isValidEan13($e) { $e = trim((string) $e); if (strlen($e) !== 13 || !ctype_digit($e)) return false; return ean13Checksum(substr($e, 0, 12)) === (int) $e[12]; }
 function ramUpcToEan13($raw) { $d = preg_replace('/\D/', '', (string) $raw); if ($d === '') return ''; if (strlen($d) === 11) $d = '0' . $d; if (strlen($d) === 12) { $e = '0' . $d; return isValidEan13($e) ? $e : ''; } if (strlen($d) === 13) return isValidEan13($d) ? $d : ''; return ''; }
-function ramCellNum($cell) { if ($cell->getDataType() === \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_FORMULA) { $v = $cell->getOldCalculatedValue(); if ($v === null) { try { $v = $cell->getCalculatedValue(); } catch (Throwable $e) { $v = null; } } return is_numeric($v) ? (float) $v : null; } $v = $cell->getValue(); return is_numeric($v) ? (float) $v : null; }
+/** "86,410" (coma decimal) → 86.41; devuelve null si no es numérico. */
+function ramCsvNum($raw) { $s = str_replace(',', '.', trim((string) $raw)); return is_numeric($s) ? (float) $s : null; }
 
 $dryRun        = !isset($_GET['execute']);
 $applyExtremes = isset($_GET['apply_extremes']);
@@ -48,27 +50,23 @@ if ($maxChangePct < 0) $maxChangePct = 0;
 $maxChangeRatio = $maxChangePct / 100.0;
 $scope         = (($_GET['scope'] ?? 'all') === 'no_stock') ? 'no_stock' : 'all';
 
-function findLatestXlsx($dir) { $files = glob($dir . '*.xlsx'); if (!$files) return null; usort($files, fn($a, $b) => filemtime($b) - filemtime($a)); return $files[0]; }
-
-/** xlsx → ['by_sku'=>[SKU=>row], 'by_ean'=>[EAN=>row]]; row = ['sku','cost','pvp','ean']. */
-function parseXlsx($path) {
-    $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReader('Xlsx');
-    $reader->setReadDataOnly(true);
-    $reader->setLoadSheetsOnly([XLSX_SHEET]);
-    $ss = $reader->load($path);
-    $sh = $ss->getSheet(0);
+/** CSV MSI → ['by_sku'=>[SKU=>row], 'by_ean'=>[EAN=>row]]; row = ['sku','cost','pvp','ean']. */
+function parseCsv($path) {
+    $fh = fopen($path, 'r');
+    if (!$fh) return ['by_sku' => [], 'by_ean' => []];
     $bySku = []; $byEan = [];
-    foreach ($sh->getRowIterator(2) as $r) {
-        $ri  = $r->getRowIndex();
-        $sku = strtoupper(trim((string) $sh->getCell('A' . $ri)->getValue()));
-        if ($sku === '' || $sku === 'RAM SKU') continue;
-        $pvp = ramCellNum($sh->getCell('D' . $ri));
-        $pve = ramCellNum($sh->getCell('E' . $ri));
-        $ean = ramUpcToEan13($sh->getCell('B' . $ri)->getValue());
+    while (($r = fgetcsv($fh, 0, ';', '"', '\\')) !== false) {
+        $sku = strtoupper(trim((string) ($r[1] ?? '')));
+        if ($sku === '' || $sku === 'COD ARTICULO') continue;                // cabecera / vacías
+        if (!ctype_digit(trim((string) ($r[0] ?? '')))) continue;           // solo filas numeradas
+        $pvp = ramCsvNum($r[4] ?? '');                                       // PVP IVA incluido
+        $pve = ramCsvNum($r[7] ?? '');                                       // Precio Coste (= PVE)
+        $ean = ramUpcToEan13($r[3] ?? '');
         $row = ['sku' => $sku, 'cost' => $pve, 'pvp' => $pvp, 'ean' => $ean];
         $bySku[$sku] = $row;
         if ($ean !== '' && !isset($byEan[$ean])) $byEan[$ean] = $row;
     }
+    fclose($fh);
     return ['by_sku' => $bySku, 'by_ean' => $byEan];
 }
 
@@ -124,7 +122,7 @@ function applyPlan(array $plan) {
     foreach ($plan['inserts_g1_product'] as $u) tep_db_query("INSERT INTO products_groups (customers_group_id, products_id, customers_group_price, products_qty_blocks, products_min_order_qty) VALUES (" . G1_GROUP_ID . ", " . (int) $u['pid'] . ", " . fmt4($u['price']) . ", 1, 1)");
 }
 
-$xlsxPath = findLatestXlsx(XLSX_DIR);
+$csvPath = file_exists(CSV_PATH) ? CSV_PATH : null;
 ?>
 <?php require THEME . 'html/header.php'; ?>
 <style>
@@ -146,12 +144,12 @@ $xlsxPath = findLatestXlsx(XLSX_DIR);
 <h1>Actualizador de precios RAM Mounts</h1>
 <p>Modo: <span class="<?php echo $dryRun ? 'badge-dry' : 'badge-exec'; ?>"><?php echo $dryRun ? 'DRY RUN (no escribe)' : 'EJECUTANDO'; ?></span></p>
 <?php
-if (!$xlsxPath) { echo '<p style="color:red"><strong>No hay ningún .xlsx en ' . htmlspecialchars(XLSX_DIR) . '</strong></p></div>'; require THEME . 'html/footer.php'; require DIR_WS_INCLUDES . 'application_bottom.php'; exit; }
-echo '<p>Fichero: <code>' . htmlspecialchars(basename($xlsxPath)) . '</code> <span class="small">(modificado ' . date('Y-m-d H:i', filemtime($xlsxPath)) . ')</span></p>';
+if (!$csvPath) { echo '<p style="color:red"><strong>No existe ' . htmlspecialchars(CSV_PATH) . '</strong></p></div>'; require THEME . 'html/footer.php'; require DIR_WS_INCLUDES . 'application_bottom.php'; exit; }
+echo '<p>Fichero: <code>' . htmlspecialchars(CSV_PATH) . '</code> <span class="small">(modificado ' . date('Y-m-d H:i', filemtime($csvPath)) . ')</span></p>';
 
 $t0 = microtime(true);
-$xlsx = parseXlsx($xlsxPath);
-echo '<p>SKUs xlsx leídos: <strong>' . count($xlsx['by_sku']) . '</strong> <span class="small">(' . round(microtime(true) - $t0, 2) . 's)</span></p>';
+$xlsx = parseCsv($csvPath);
+echo '<p>SKUs CSV leídos: <strong>' . count($xlsx['by_sku']) . '</strong> <span class="small">(' . round(microtime(true) - $t0, 2) . 's)</span></p>';
 
 $mfgId = ramMfgId();
 $prods = loadProducts($mfgId, $scope);
@@ -180,7 +178,7 @@ if ($dryRun) {
     <?php if (!$applyExtremes && $maxChangeRatio > 0): ?>
     <li>⚠️ Productos EXTREMOS excluidos (&gt; <?php echo $maxChangePct; ?>%): <strong><?php echo count($plan['extremes']); ?></strong></li>
     <?php endif; ?>
-    <li class="small">Sin match en xlsx: <?php echo $plan['skipped_no_match']; ?> | sin coste/PVP válido: <?php echo $plan['skipped_no_cost']; ?> | sin cambio significativo: <?php echo $plan['skipped_unchanged']; ?></li>
+    <li class="small">Sin match en CSV: <?php echo $plan['skipped_no_match']; ?> | sin coste/PVP válido: <?php echo $plan['skipped_no_cost']; ?> | sin cambio significativo: <?php echo $plan['skipped_unchanged']; ?></li>
 </ul>
 <?php
 function renderTable($title, $rows, $cols, $limit = 300) {
@@ -206,7 +204,7 @@ renderTable('Cambios precio/coste', $plan['updates_product'], [
 renderTable('UPDATEs Grupo 1', $plan['updates_g1_product'], [['pid', fn($r) => $r['pid']], ['old', fn($r) => number_format($r['old'], 4), 'num'], ['new', fn($r) => number_format($r['new'], 4), 'num']]);
 renderTable('INSERTs Grupo 1', $plan['inserts_g1_product'], [['pid', fn($r) => $r['pid']], ['price', fn($r) => number_format($r['price'], 4), 'num']]);
 $unmatchedRows = array_map(fn($c) => ['code' => $c], array_values(array_unique($plan['unmatched_codes'])));
-renderTable('Códigos sin match en xlsx (informativo)', $unmatchedRows, [['code', fn($r) => $r['code']]]);
+renderTable('Códigos sin match en CSV (informativo)', $unmatchedRows, [['code', fn($r) => $r['code']]]);
 
 if (!$dryRun) {
     $t0 = microtime(true);

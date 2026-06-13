@@ -1789,7 +1789,7 @@ function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $fro
 		$mail->AddAttachment($attachFile['tmp_name'], $attachFile['name']);
 
 	$mail->Body    = $email_text;
-	$mail->AltBody = htmlentities($mail->Body);
+	$mail->AltBody = htmlentities((string) $mail->Body);
 
 	try {
 		$mail->send();

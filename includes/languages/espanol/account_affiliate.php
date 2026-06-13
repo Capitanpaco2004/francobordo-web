@@ -31,5 +31,5 @@ define('TEXT_BOTTOM', '
 	<li>El asunto del email de la factura después de "Retirar fondos" debe contener el ID de la retirada Ejemplo: 0001 + Fecha de la retirada</li>
 	<li><strong>Importante.</strong> El importe mínimo a retirar son <strong>%s</strong> por lo que en caso de necesitar una transfertencia inferior debereis contactar con ' . STORE_OWNER_EMAIL_ADDRESS . ' para gestionar la  retirada por parte de nuestros administradores</li>
 </ul>
-<p style="margin-top: 10px;"><a href="'.tep_href_link('information.php', 'info_id=' . AFFILLIATES_INFO_ID).'" target="_blank" style="color: #2faded; text-decoration: underline;">Más información</a></p>
+<p style="margin-top: 10px;"><a href="'.tep_href_link('information.php', 'info_id=' . (defined('AFFILLIATES_INFO_ID') ? AFFILLIATES_INFO_ID : '0')).'" target="_blank" style="color: #2faded; text-decoration: underline;">Más información</a></p>
 </div>');

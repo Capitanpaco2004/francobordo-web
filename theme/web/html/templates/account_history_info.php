@@ -597,6 +597,7 @@
 		div.dataset.seurInit = '1';
 		div.style.display = 'block';
 		var map = L.map(div);
+		div._seurMap = map;
 		L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(map);
 		var bounds = [], markers = {};
 		Array.prototype.forEach.call(sel.options, function (o) {
@@ -620,6 +621,47 @@
 		});
 		setTimeout(function () { map.invalidateSize(); }, 150);
 	}
+	function renderSeurPoints(data) {
+		var sel = document.getElementById('seurRmaSelect');
+		var div = document.getElementById('seurRmaMap');
+		if (!sel || !div) return;
+		sel.innerHTML = '';
+		(data.puntos || []).forEach(function (p) {
+			var o = document.createElement('option');
+			o.value = p.id;
+			o.setAttribute('data-lat', p.lat); o.setAttribute('data-lng', p.lng);
+			o.setAttribute('data-name', p.name);
+			o.setAttribute('data-addr', p.address + ' (' + p.cp + ' ' + p.city + ')');
+			o.textContent = p.name + ' \u2014 ' + p.address + ' (' + p.cp + ' ' + p.city + ')';
+			sel.appendChild(o);
+		});
+		if (div._seurMap) { div._seurMap.remove(); div._seurMap = null; }
+		delete div.dataset.seurInit;
+		div.innerHTML = '';
+		ensureLeaflet(initSeurRmaMap);
+	}
+	document.addEventListener('click', function (e) {
+		if (!e.target || e.target.id !== 'seurRmaCpBtn') return;
+		var btn = e.target;
+		var inp = document.getElementById('seurRmaCpInput');
+		var msg = document.getElementById('seurRmaMsg');
+		var hid = document.getElementById('seurRmaCpHidden');
+		var cp = ((inp && inp.value) || '').replace(/\D/g, '');
+		if (msg) msg.textContent = '';
+		if (cp.length !== 5) { if (msg) msg.textContent = 'Pon un CP de 5 d\u00edgitos'; return; }
+		var t0 = btn.textContent;
+		btn.textContent = btn.getAttribute('data-searching') || '...';
+		btn.disabled = true;
+		fetch('/seur_puntos.php?cp=' + cp).then(function (r) { return r.json(); }).then(function (d) {
+			btn.textContent = t0; btn.disabled = false;
+			if (!d.ok || !(d.puntos || []).length) { if (msg) msg.textContent = 'No hay puntos SEUR en ese CP'; return; }
+			if (hid) hid.value = cp;
+			renderSeurPoints(d);
+		}).catch(function () {
+			btn.textContent = t0; btn.disabled = false;
+			if (msg) msg.textContent = 'Error buscando, prueba de nuevo';
+		});
+	});
 	function maybeInit() {
 		var r = document.querySelector('input[name="cex_metodo"][value="seurpunto"]');
 		if (r && r.checked) ensureLeaflet(initSeurRmaMap);

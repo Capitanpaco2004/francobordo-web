@@ -481,7 +481,11 @@ class rma {
                         $f = DIR_FS_CATALOG . 'includes/modules/shipping/seurpunto.php';
                         if (is_file($f)) require_once $f;
                     }
-                    $p = class_exists('seurpunto') ? seurpunto::puntoById($pudo, $this->getDeliveryPostcode()) : false;
+                    // El punto pudo buscarse en OTRO CP (buscador del modal, como el
+                    // checkout): validar contra el CP de búsqueda; fallback CP de entrega.
+                    $cpBusq = preg_replace('/\D/', '', (string) ($aFields['seur_pudo_cp'] ?? ($_POST['seur_pudo_cp'] ?? '')));
+                    if (strlen($cpBusq) !== 5) $cpBusq = $this->getDeliveryPostcode();
+                    $p = class_exists('seurpunto') ? seurpunto::puntoById($pudo, $cpBusq) : false;
                     if ($p) {
                         $aFields['seur_pudo_id']   = $p['id'];
                         $aFields['seur_pudo_name'] = mb_substr($p['name'] . ' - ' . $p['address'] . ' (' . $p['cp'] . ' ' . $p['city'] . ')', 0, 96);

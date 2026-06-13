@@ -110,15 +110,37 @@ if ($prev) {
     out($resp);
 }
 
-/* ---- Datos del pedido web (dirección de ENTREGA) ---- */
-$st = $db->prepare("SELECT orders_id, delivery_name, delivery_company, delivery_street_address, delivery_suburb,
-                           delivery_city, delivery_postcode, delivery_state, delivery_country,
-                           customers_telephone, customers_email_address
-                    FROM orders WHERE orders_id=?");
-$st->bind_param('i', $oid);
-$st->execute();
-$o = $st->get_result()->fetch_assoc();
-if (!$o) out(array('ok' => false, 'error' => "pedido $oid no encontrado en la web"));
+/* ---- Datos del pedido web (dirección de ENTREGA) ----
+ * MODO MANUAL (pedidos QFac-nativos serie 26xxxxx, NO están en `orders`):
+ * el watcher pasa manual=1 + la dirección leída de Vstock PEDIDOS_CLIENTES
+ * (dname/dstreet/dcp/dcity/dstate/dcountry/dphone/demail). ref = Q{oid}. */
+$manual = (($_GET['manual'] ?? '') === '1');
+if ($manual) {
+    $o = array(
+        'delivery_name'           => trim((string) ($_GET['dname'] ?? '')),
+        'delivery_company'        => '',
+        'delivery_street_address' => trim((string) ($_GET['dstreet'] ?? '')),
+        'delivery_suburb'         => '',
+        'delivery_city'           => trim((string) ($_GET['dcity'] ?? '')),
+        'delivery_postcode'       => trim((string) ($_GET['dcp'] ?? '')),
+        'delivery_state'          => trim((string) ($_GET['dstate'] ?? '')),
+        'delivery_country'        => trim((string) ($_GET['dcountry'] ?? 'ES')),
+        'customers_telephone'     => trim((string) ($_GET['dphone'] ?? '')),
+        'customers_email_address' => trim((string) ($_GET['demail'] ?? '')),
+    );
+    if ($o['delivery_name'] === '' || $o['delivery_street_address'] === '' || $o['delivery_postcode'] === '') {
+        out(array('ok' => false, 'error' => 'manual=1 requiere dname, dstreet y dcp'));
+    }
+} else {
+    $st = $db->prepare("SELECT orders_id, delivery_name, delivery_company, delivery_street_address, delivery_suburb,
+                               delivery_city, delivery_postcode, delivery_state, delivery_country,
+                               customers_telephone, customers_email_address
+                        FROM orders WHERE orders_id=?");
+    $st->bind_param('i', $oid);
+    $st->execute();
+    $o = $st->get_result()->fetch_assoc();
+    if (!$o) out(array('ok' => false, 'error' => "pedido $oid no encontrado en la web"));
+}
 
 /* País → ISO-2: orders.delivery_country guarda el NOMBRE; resolver contra countries. */
 $iso = 'ES';
@@ -146,8 +168,8 @@ $dest = array(
 /* Entrega en punto SEUR (2shop): si el pedido eligió punto en el checkout,
  * servicio 1/48 (nac) ó 77/48 (intl) + pickupCentreCode en el receiver.
  * La dirección de entrega del pedido YA es la del punto (checkout_process). */
-$opts = array('ref' => 'F' . $oid, 'weight' => $kilos, 'bultos' => $bultos,
-              'observations' => 'Pedido web ' . $oid . ($alb !== '' ? ' / Albaran Vstock ' . $alb : ''));
+$opts = array('ref' => ($manual ? 'Q' : 'F') . $oid, 'weight' => $kilos, 'bultos' => $bultos,
+              'observations' => 'Pedido ' . ($manual ? 'QFac ' : 'web ') . $oid . ($alb !== '' ? ' / Albaran Vstock ' . $alb : ''));
 $st = $db->prepare("SELECT pudo_id, name FROM seur_pudo_orders WHERE orders_id=?");
 $st->bind_param('i', $oid);
 $st->execute();
@@ -156,6 +178,14 @@ if ($pudo = $st->get_result()->fetch_assoc()) {
     $opts['service'] = ($iso === 'ES') ? seur::SVC_NAC_2SHOP : seur::SVC_INT_2SHOP;     // 1 / 77
     $opts['product'] = ($iso === 'ES') ? seur::PRD_NAC_2SHOP : seur::PRD_INT_2SHOP;     // 48
     $opts['observations'] .= ' / Punto SEUR ' . $pudo['pudo_id'];
+}
+
+/* SEUR 13:30 (servicio 9/2, solo nacional a domicilio): el watcher lo pide con
+ * svc=1330 cuando el albaran va con la agencia Vstock 'SEUR 13:30'. */
+if (!isset($dest['pickupCentreCode']) && (($_GET['svc'] ?? '') === '1330') && $iso === 'ES') {
+    $opts['service'] = '9';
+    $opts['product'] = '2';
+    $opts['observations'] .= ' / SEUR 13:30';
 }
 
 $ref = 'F' . $oid;
