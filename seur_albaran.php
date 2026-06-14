@@ -76,6 +76,7 @@ $alb    = trim((string) ($in['albaran'] ?? ''));
 $type   = strtoupper(trim((string) ($in['type'] ?? 'BOTH')));
 if (!in_array($type, array('ZPL', 'PDF', 'BOTH'), true)) $type = 'BOTH';
 $dry    = (($in['dry'] ?? '') === '1');
+$regen  = (($in['regen'] ?? '') === '1');  // regeneración desde el panel: ref nueva + sin reuse
 
 if ($oid <= 0) out(array('ok' => false, 'error' => 'oid requerido'));
 
@@ -90,7 +91,9 @@ if ($r = $db->query("SELECT config_value FROM seur_config WHERE config_key='env'
 }
 
 /* ---- Dedup: si ya hay envío OK no anulado para este albarán/pedido EN ESTE ENTORNO,
- *      devolver el existente (un envío de PRE no satisface el dedup en PRO) ---- */
+ *      devolver el existente (un envío de PRE no satisface el dedup en PRO).
+ *      En regeneración (regen=1) NO se deduplica: se fuerza un alta nueva con ref nueva. ---- */
+if (!$regen) {
 $st = $alb !== ''
     ? $db->prepare("SELECT * FROM seur_shipments WHERE albaran_id=? AND entorno=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1")
     : $db->prepare("SELECT * FROM seur_shipments WHERE orders_id=? AND entorno=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1");
@@ -109,24 +112,25 @@ if ($prev) {
     }
     out($resp);
 }
+}
 
 /* ---- Datos del pedido web (dirección de ENTREGA) ----
  * MODO MANUAL (pedidos QFac-nativos serie 26xxxxx, NO están en `orders`):
  * el watcher pasa manual=1 + la dirección leída de Vstock PEDIDOS_CLIENTES
  * (dname/dstreet/dcp/dcity/dstate/dcountry/dphone/demail). ref = Q{oid}. */
-$manual = (($_GET['manual'] ?? '') === '1');
+$manual = (($in['manual'] ?? '') === '1');   // $in = GET+POST: el panel regenera por POST
 if ($manual) {
     $o = array(
-        'delivery_name'           => trim((string) ($_GET['dname'] ?? '')),
+        'delivery_name'           => trim((string) ($in['dname'] ?? '')),
         'delivery_company'        => '',
-        'delivery_street_address' => trim((string) ($_GET['dstreet'] ?? '')),
+        'delivery_street_address' => trim((string) ($in['dstreet'] ?? '')),
         'delivery_suburb'         => '',
-        'delivery_city'           => trim((string) ($_GET['dcity'] ?? '')),
-        'delivery_postcode'       => trim((string) ($_GET['dcp'] ?? '')),
-        'delivery_state'          => trim((string) ($_GET['dstate'] ?? '')),
-        'delivery_country'        => trim((string) ($_GET['dcountry'] ?? 'ES')),
-        'customers_telephone'     => trim((string) ($_GET['dphone'] ?? '')),
-        'customers_email_address' => trim((string) ($_GET['demail'] ?? '')),
+        'delivery_city'           => trim((string) ($in['dcity'] ?? '')),
+        'delivery_postcode'       => trim((string) ($in['dcp'] ?? '')),
+        'delivery_state'          => trim((string) ($in['dstate'] ?? '')),
+        'delivery_country'        => trim((string) ($in['dcountry'] ?? 'ES')),
+        'customers_telephone'     => trim((string) ($in['dphone'] ?? '')),
+        'customers_email_address' => trim((string) ($in['demail'] ?? '')),
     );
     if ($o['delivery_name'] === '' || $o['delivery_street_address'] === '' || $o['delivery_postcode'] === '') {
         out(array('ok' => false, 'error' => 'manual=1 requiere dname, dstreet y dcp'));
@@ -165,30 +169,64 @@ $dest = array(
     'country'     => $iso,
 );
 
+/* OVERRIDES opcionales (regeneración "Anular y regenerar" desde _admin/seur_envios.php).
+ * Inertes en el flujo del watcher (no los envía). dcountry re-resuelve ISO. */
+if (($v = trim((string) ($in['dname']  ?? ''))) !== '') { $dest['name'] = $v; $dest['contactName'] = $v; }
+if (($v = trim((string) ($in['dstreet']?? ''))) !== '')   $dest['streetName'] = $v;
+if (($v = trim((string) ($in['dcity']  ?? ''))) !== '')   $dest['cityName']   = $v;
+if (($v = trim((string) ($in['dcp']    ?? ''))) !== '')   $dest['postalCode'] = $v;
+if (($v = trim((string) ($in['dphone'] ?? ''))) !== '')   $dest['phone']      = $v;
+if (($v = trim((string) ($in['demail'] ?? ''))) !== '')   $dest['email']      = $v;
+if (($v = trim((string) ($in['dcountry'] ?? ''))) !== '') {
+    if (strlen($v) === 2) { $iso = strtoupper($v); }
+    else {
+        $stc = $db->prepare("SELECT countries_iso_code_2 FROM countries WHERE countries_name=? LIMIT 1");
+        $stc->bind_param('s', $v); $stc->execute();
+        if ($rowc = $stc->get_result()->fetch_assoc()) $iso = strtoupper($rowc['countries_iso_code_2']);
+    }
+    $dest['country'] = $iso;
+}
+
 /* Entrega en punto SEUR (2shop): si el pedido eligió punto en el checkout,
  * servicio 1/48 (nac) ó 77/48 (intl) + pickupCentreCode en el receiver.
  * La dirección de entrega del pedido YA es la del punto (checkout_process). */
 $opts = array('ref' => ($manual ? 'Q' : 'F') . $oid, 'weight' => $kilos, 'bultos' => $bultos,
               'observations' => 'Pedido ' . ($manual ? 'QFac ' : 'web ') . $oid . ($alb !== '' ? ' / Albaran Vstock ' . $alb : ''));
-$st = $db->prepare("SELECT pudo_id, name FROM seur_pudo_orders WHERE orders_id=?");
-$st->bind_param('i', $oid);
-$st->execute();
-if ($pudo = $st->get_result()->fetch_assoc()) {
-    $dest['pickupCentreCode'] = $pudo['pudo_id'];
+$pudoId = ''; $pudoName = '';
+$pudoOver = preg_replace('/[^0-9A-Za-z]/', '', (string) ($in['pudo'] ?? ''));
+$noPunto  = (($in['nopunto'] ?? '') === '1');
+if ($pudoOver !== '') {                       // override explícito del panel
+    $pudoId   = $pudoOver;
+    $pudoName = trim((string) ($in['pname'] ?? ''));
+} elseif (!$noPunto) {                          // comportamiento normal: punto del checkout
+    $st = $db->prepare("SELECT pudo_id, name FROM seur_pudo_orders WHERE orders_id=?");
+    $st->bind_param('i', $oid);
+    $st->execute();
+    if ($row = $st->get_result()->fetch_assoc()) { $pudoId = (string) $row['pudo_id']; $pudoName = (string) $row['name']; }
+}
+if ($pudoId !== '') {
+    $dest['pickupCentreCode'] = $pudoId;
     $opts['service'] = ($iso === 'ES') ? seur::SVC_NAC_2SHOP : seur::SVC_INT_2SHOP;     // 1 / 77
     $opts['product'] = ($iso === 'ES') ? seur::PRD_NAC_2SHOP : seur::PRD_INT_2SHOP;     // 48
-    $opts['observations'] .= ' / Punto SEUR ' . $pudo['pudo_id'];
+    $opts['observations'] .= ' / Punto SEUR ' . $pudoId;
 }
 
 /* SEUR 13:30 (servicio 9/2, solo nacional a domicilio): el watcher lo pide con
  * svc=1330 cuando el albaran va con la agencia Vstock 'SEUR 13:30'. */
-if (!isset($dest['pickupCentreCode']) && (($_GET['svc'] ?? '') === '1330') && $iso === 'ES') {
+if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === '1330') && $iso === 'ES') {
     $opts['service'] = '9';
     $opts['product'] = '2';
     $opts['observations'] .= ' / SEUR 13:30';
 }
 
-$ref = 'F' . $oid;
+if ($regen) {
+    // ref nueva por regeneración: F{oid}R{n}/Q{oid}R{n} (n monotónico = nº envíos del pedido + 1).
+    $rc = $db->prepare("SELECT COUNT(*) c FROM seur_shipments WHERE orders_id=? AND tipo='envio'");
+    $rc->bind_param('i', $oid); $rc->execute();
+    $n = (int) ($rc->get_result()->fetch_assoc()['c'] ?? 0) + 1;
+    $opts['ref'] = $opts['ref'] . 'R' . $n;
+}
+$ref = $opts['ref'];  // 'F{oid}'/'Q{oid}' (+ 'R{n}' si regen) — DEBE coincidir con SEUR (el cron rastrea por esta ref)
 $shipment = seur::envioDesdePedido($dest, $opts);
 
 if ($dry) out(array('ok' => true, 'dry' => true, 'env' => $env, 'payload' => $shipment));
@@ -205,11 +243,11 @@ $bul  = seur::extraerBultos($res);
  * and date" PERO devuelve el shipmentCode del envío ya existente, lo reutilizamos
  * (mismo pedido grabado hoy: típicamente una reimpresión o un albarán repetido). */
 $recovered = false;
-if (!$res['ok'] && $code) {
+if (!$res['ok'] && $code && !$regen) {
     $recovered = true;
 }
 
-if (!$res['ok'] && !$code) {
+if (!$res['ok'] && (!$code || $regen)) {
     /* registrar el fallo para diagnóstico */
     $err = seur::primerError($res);
     $st = $db->prepare("INSERT INTO seur_shipments (id_rma, orders_id, albaran_id, tipo, entorno, service_code, product_code,
@@ -266,19 +304,23 @@ $trackingUrl = 'https://www.seur.com/miseur/mis-envios?code=' . rawurlencode($ec
              . '&cp=' . rawurlencode(preg_replace('/\s+/', '', (string) ($dest['postalCode'] ?? '')))
              . '&email_tlf=' . rawurlencode(preg_replace('/\s+/', '', (string) ($dest['phone'] ?? '')));
 $st = $db->prepare("INSERT INTO seur_shipments (id_rma, orders_id, albaran_id, tipo, entorno, shipment_code, ecb,
-                      parcel_number, service_code, product_code, ref, kilos, label_format, label_path, label_zpl_path,
+                      parcel_number, service_code, product_code, pudo_id, pudo_name, ref, kilos, label_format, label_path, label_zpl_path,
                       tracking_url, http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                    VALUES (0,?,?,'envio',?,?,?,?,?,?,?,?,?,?,?,?,?, '', 1, ?, ?, 'vstock-watcher', NOW())");
+                    VALUES (0,?,?,'envio',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, '', 1, ?, ?, 'vstock-watcher', NOW())");
 $fmt  = ($zplPath && $pdfPath) ? 'both' : ($zplPath ? 'zpl' : 'pdf');
 $http = (string) $res['http'];
 $req  = json_encode($reqShip, JSON_UNESCAPED_UNICODE);
-$st->bind_param('issssssssdsssssss', $oid, $alb, $env, $code, $ecb, $pn,
-                $shipment['serviceCode'], $shipment['productCode'], $ref, $kilos,
+$pudoIdDb   = ($pudoId !== '') ? $pudoId : null;
+$pudoNameDb = ($pudoName !== '') ? $pudoName : null;
+$st->bind_param('issssssssssdsssssss', $oid, $alb, $env, $code, $ecb, $pn,
+                $shipment['serviceCode'], $shipment['productCode'], $pudoIdDb, $pudoNameDb, $ref, $kilos,
                 $fmt, $pdfPath, $zplPath, $trackingUrl, $http, $req, $res['raw']);
 $st->execute();
+$newShipId = $db->insert_id;
 
 out(array(
     'ok' => true, 'dedup' => false, 'recovered' => $recovered, 'env' => $env,
+    'shipment_id' => $newShipId, 'ref' => $ref,
     'shipmentCode' => $code, 'ecb' => $ecb, 'parcelNumbers' => $bul['parcelNumbers'],
     'tracking_url' => $trackingUrl,
     'zpl'     => in_array($type, array('ZPL', 'BOTH')) ? $zpl : null,

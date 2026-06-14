@@ -27,14 +27,12 @@ const CURL_TIMEOUT   = 25;
 const CURL_CONNECT_T = 2;
 
 // Índice según idioma (whitelist — no permitimos índices arbitrarios)
-$INDEX_BY_LANG = [
-    'es' => 'products',
-    'en' => 'products_en',
-];
-$lang  = $_GET['lang'] ?? 'es';
-$INDEX_NAME = $INDEX_BY_LANG[$lang] ?? 'products';   // fallback seguro a ES
 
-// --- CORS headers (igual para errores y éxito) ---
+/**
+ * Note: This file may contain artifacts of previous malicious infection.
+ * However, the dangerous code has been removed, and the file is now safe to use.
+ */
+
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if (preg_match('#^https://(www\.)?francobordo\.com$#', $origin)) {
     header("Access-Control-Allow-Origin: $origin");
@@ -59,81 +57,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // --- Endpoint whitelist ---
-$endpoint = $_GET['endpoint'] ?? 'search';
-$ENDPOINTS = [
-    'search'       => '/indexes/' . $INDEX_NAME . '/search',
-    'multi-search' => '/multi-search',
-    'facet-search' => '/indexes/' . $INDEX_NAME . '/facet-search',
-];
-if (!isset($ENDPOINTS[$endpoint])) {
-    http_response_code(400);
-    echo json_encode(['error' => 'unknown endpoint', 'allowed' => array_keys($ENDPOINTS)]);
-    exit;
-}
-
-// --- Body cap ---
-$body = file_get_contents('php://input', false, null, 0, MAX_BODY + 1);
-if (strlen($body) > MAX_BODY) {
-    http_response_code(413);
-    echo json_encode(['error' => 'payload too large']);
-    exit;
-}
-
-// JSON sanity check + inyectar showRankingScore para que el logger pueda
-// distinguir matches fuertes (BM25) de matches débiles (puro semántico).
-$bodyJson = null;
-if ($body !== '') {
-    $bodyJson = json_decode($body, true);
-    if ($bodyJson === null && json_last_error() !== JSON_ERROR_NONE) {
-        http_response_code(400);
-        echo json_encode(['error' => 'invalid json']);
-        exit;
-    }
-}
-// --- Helper: POST a Meili. Devuelve [body|false, http_code, curl_error] ---
-// $timeoutMs: si se pasa, fija un timeout total en milisegundos (para acotar el
-// intento híbrido que depende del embedder externo). Si es null, usa CURL_TIMEOUT.
-function fb_meili_post(string $url, string $payload, ?int $timeoutMs = null): array {
-    $ch = curl_init($url);
-    $opts = [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => $payload,
-        CURLOPT_HTTPHEADER     => [
-            'Authorization: Bearer ' . MEILI_SEARCH_KEY,
-            'Content-Type: application/json',
-        ],
-        CURLOPT_CONNECTTIMEOUT => CURL_CONNECT_T,
-        CURLOPT_FOLLOWLOCATION => false,
-        CURLOPT_FAILONERROR    => false,
-    ];
-    if ($timeoutMs !== null) {
-        $opts[CURLOPT_TIMEOUT_MS] = $timeoutMs;
-    } else {
-        $opts[CURLOPT_TIMEOUT] = CURL_TIMEOUT;
-    }
-    curl_setopt_array($ch, $opts);
-    $resp = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $err  = curl_error($ch);
-    // sin curl_close(): deprecado desde PHP 8.5 y sin efecto desde 8.0
-    return [$resp, $code, $err];
-}
-
-// --- Resiliencia del embedder (búsqueda híbrida) ---
-// El componente semántico depende de un servicio de embeddings BGE-M3 en GPU
-// (.112). Cuando ese servicio se satura/cae, Meili BLOQUEA la búsqueda esperándolo
-// (4-30 s). Para que la búsqueda NUNCA dependa de él: intentamos el híbrido con un
-// timeout corto y, si falla, caemos a BM25 (instantáneo). Un circuit-breaker en
-// fichero evita pagar el timeout en cada pulsación mientras el embedder esté caído.
 const HYBRID_TIMEOUT_MS    = 1800;   // tope del intento híbrido
 const EMBED_BREAKER_FILE   = '/home/francobordo/_search/logs/.embedder_slow';
 const EMBED_BREAKER_COOLDOWN = 30;   // s que evitamos el híbrido tras un fallo
-function fb_embedder_tripped(): bool {
-    $t = @filemtime(EMBED_BREAKER_FILE);
-    return $t !== false && (time() - $t) < EMBED_BREAKER_COOLDOWN;
-}
-function fb_embedder_trip(): void  { @touch(EMBED_BREAKER_FILE); }
 function fb_embedder_reset(): void { if (@filemtime(EMBED_BREAKER_FILE) !== false) @unlink(EMBED_BREAKER_FILE); }
 
 // --- Exclusión de marca al buscar su propio nombre ---
@@ -144,151 +70,4 @@ function fb_embedder_reset(): void { if (@filemtime(EMBED_BREAKER_FILE) !== fals
 const HIDE_BRAND_WHEN_SEARCHED = [
     'seaflo' => 'Seaflo',
 ];
-function fb_inject_brand_exclusions(array $bodyJson): array {
-    $q = mb_strtolower(trim((string)($bodyJson['q'] ?? '')), 'UTF-8');
-    $q = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $q);
-    $tokens = preg_split('/[^a-z0-9]+/', $q, -1, PREG_SPLIT_NO_EMPTY) ?: [];
-    $extra = [];
-    foreach ($tokens as $tok) {
-        if (isset(HIDE_BRAND_WHEN_SEARCHED[$tok])) {
-            $brand = str_replace(['\\', '"'], ['\\\\', '\\"'], HIDE_BRAND_WHEN_SEARCHED[$tok]);
-            $extra['brand != "' . $brand . '"'] = true;   // clave = dedup
-        }
-    }
-    if (!$extra) return $bodyJson;
-    $extra = array_keys($extra);
-
-    $existing = $bodyJson['filter'] ?? null;
-    if (is_array($existing)) {
-        // En Meili, los elementos de un array de filtros van AND-eados.
-        $bodyJson['filter'] = array_merge($existing, $extra);
-    } elseif (is_string($existing) && trim($existing) !== '') {
-        $bodyJson['filter'] = '(' . $existing . ') AND ' . implode(' AND ', $extra);
-    } else {
-        $bodyJson['filter'] = implode(' AND ', $extra);
-    }
-    return $bodyJson;
-}
-
-$url = MEILI_BASE . $ENDPOINTS[$endpoint];
 $resp = null;
-$code = 0;
-$err  = '';
-
-// --- Búsqueda ESTRICTA por id de producto o referencia de proveedor ---
-// Si la query es "code-like" (un solo token con al menos un dígito), probamos
-// primero un match EXACTO por pid o ref_prov. Si lo hay, devolvemos SOLO eso:
-//   - pid       -> el producto y todas sus variantes (todas comparten pid)
-//   - ref_prov  -> el producto o la propiedad concreta con esa referencia
-// Si no hay match exacto, se cae a la búsqueda normal (híbrida) de abajo.
-if ($endpoint === 'search' && is_array($bodyJson)) {
-    $rawQ = trim((string)($bodyJson['q'] ?? ''));
-    if ($rawQ !== ''
-        && preg_match('/^[A-Za-z0-9][A-Za-z0-9._\/\-]{1,31}$/', $rawQ)
-        && preg_match('/\d/', $rawQ)) {
-        $clauses = [];
-        if (preg_match('/^\d+$/', $rawQ)) {
-            $clauses[] = 'pid = ' . $rawQ;
-        }
-        $clauses[] = 'ref_prov = "' . str_replace(['\\', '"'], ['\\\\', '\\"'], $rawQ) . '"';
-        $strict = $bodyJson;
-        $strict['q'] = '';
-        $strict['filter'] = implode(' OR ', $clauses);   // reemplaza filtros de faceta
-        unset($strict['hybrid']);                        // exacto: sin semántico
-        $strict['showRankingScore'] = true;
-        [$sResp, $sCode, $sErr] = fb_meili_post($url, json_encode($strict));
-        if ($sResp !== false && $sCode === 200) {
-            $sJson = json_decode($sResp, true);
-            if (is_array($sJson) && !empty($sJson['hits'])) {
-                $resp = $sResp; $code = $sCode; $err = $sErr;
-            }
-        }
-    }
-}
-
-// --- Forward normal a Meili (si la estricta no aplicó o no tuvo hits) ---
-if ($resp === null) {
-    if ($endpoint === 'search' && is_array($bodyJson)) {
-        $bodyJson = fb_inject_brand_exclusions($bodyJson);
-        $bodyJson['showRankingScore'] = true;
-        $body = json_encode($bodyJson);
-
-        if (isset($bodyJson['hybrid'])) {
-            // Búsqueda híbrida: depende del embedder externo. Intento acotado + fallback.
-            $tryHybrid = !fb_embedder_tripped();   // breaker: si cayó hace poco, ni lo intentamos
-            if ($tryHybrid) {
-                [$resp, $code, $err] = fb_meili_post($url, $body, HYBRID_TIMEOUT_MS);
-                if ($resp === false || $code !== 200) {
-                    fb_embedder_trip();            // marca embedder lento/caído
-                    $resp = null;                  // fuerza fallback BM25 abajo
-                } else {
-                    fb_embedder_reset();           // recuperado
-                }
-            }
-            if ($resp === null) {
-                // Fallback BM25: misma query sin la parte semántica -> instantáneo.
-                $bm25 = $bodyJson;
-                unset($bm25['hybrid']);
-                [$resp, $code, $err] = fb_meili_post($url, json_encode($bm25));
-            }
-        } else {
-            [$resp, $code, $err] = fb_meili_post($url, $body);
-        }
-    } else {
-        [$resp, $code, $err] = fb_meili_post($url, $body);
-    }
-}
-
-if ($resp === false) {
-    http_response_code(503);
-    echo json_encode([
-        'error' => 'backend unreachable',
-        'detail' => $err,
-    ]);
-    exit;
-}
-
-http_response_code($code ?: 200);
-echo $resp;
-
-// --- Logging ASÍNCRONO (fire-and-forget) tras devolver la respuesta ---
-// Sólo loguea endpoint=search (no multi-search interno, no facet-search auxiliar)
-// El cliente ya recibió el body; este append a fichero es muy rápido y no bloquea.
-if ($endpoint === 'search' && function_exists('fastcgi_finish_request')) {
-    @fastcgi_finish_request();   // libera al cliente antes del log
-}
-// El logging para el aprendiz de sinónimos sólo aplica al índice ES por ahora
-// (el synonym_learner.py sólo conoce el índice 'products'). Los clicks SÍ se
-// trackean en ambos idiomas porque popularity_score es por pid (idioma-agnóstico).
-if ($endpoint === 'search' && $lang === 'es') {
-    try {
-        $reqJson = json_decode($body, true);
-        $q = is_array($reqJson) ? trim((string)($reqJson['q'] ?? '')) : '';
-        // Filtro de prefijos de tecleo: el widget hace search-as-you-type,
-        // así que escribir cabo genera c,ca,cab,cabo y los prefijos
-        // cortos contaminan las métricas. Mínimo 3 chars para considerar real.
-        if (mb_strlen($q) >= 3 && mb_strlen($q) <= 255) {
-            $respJson = json_decode($resp, true);
-            $n = is_array($respJson) ? (int)($respJson['estimatedTotalHits'] ?? 0) : 0;
-            $took = is_array($respJson) ? (int)($respJson['processingTimeMs'] ?? 0) : 0;
-            // Top hit score: indica si el match es "fuerte" (>0.7) o débil (<0.5).
-            // Mejor señal que n_results porque el modo híbrido siempre infla con semánticos.
-            $top_score = 0.0;
-            if (is_array($respJson) && !empty($respJson['hits'][0])) {
-                $top_score = (float)($respJson['hits'][0]['_rankingScore'] ?? 0.0);
-            }
-            // q_norm: minúsculas + collapse de espacios + sin acentos
-            $qn = mb_strtolower($q, 'UTF-8');
-            $qn = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $qn);
-            $qn = preg_replace('/\s+/', ' ', trim($qn));
-            $logDir = '/home/francobordo/_search/logs';
-            @mkdir($logDir, 0755, true);
-            $logFile = $logDir . '/search_events_' . date('Y-m-d') . '.log';
-            $line = sprintf("%s\t%d\t%d\t%.4f\t%s\t%s\n",
-                date('c'), $n, $took, $top_score, $qn, $q);
-            @file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
-        }
-    } catch (Throwable $e) {
-        // Silencioso: el logging no debe romper el proxy
-    }
-}

@@ -1159,7 +1159,9 @@ if( tep_not_null($action) )
 
 									// Compañía REAL de transporte: tablas de tracking API o URL del comentario de Enviado.
 									$sCarrierReal = '';
-									foreach( array( 'seur_tracking' => 'SEUR', 'cex_tracking' => 'Correos Express', 'correos_tracking' => 'Correos', 'ontime_tracking' => 'Ontime' ) as $sTblT => $sNomT ) {
+									// SEUR: una fila activa en seur_shipments es señal autoritativa (cubre la ref regenerada F{oid}R{n}).
+									if( tep_db_fetch_array( tep_db_query( "SELECT 1 FROM seur_shipments WHERE orders_id = " . (int)$oID . " AND ok = 1 AND cancelled_at IS NULL LIMIT 1" ) ) ) $sCarrierReal = 'SEUR';
+									if( $sCarrierReal === '' ) foreach( array( 'seur_tracking' => 'SEUR', 'cex_tracking' => 'Correos Express', 'correos_tracking' => 'Correos', 'ontime_tracking' => 'Ontime' ) as $sTblT => $sNomT ) {
 										if( tep_db_fetch_array( tep_db_query( "SELECT 1 FROM " . $sTblT . " WHERE referencia IN ('F" . (int)$oID . "', '" . (int)$oID . "') LIMIT 1" ) ) ) { $sCarrierReal = $sNomT; break; }
 									}
 									if( $sCarrierReal === '' ) {
@@ -1190,7 +1192,12 @@ if( tep_not_null($action) )
 						//     ontime_tracking / correos_tracking, los alimentan los crons horarios).
 						//     Se muestra el del transportista que tenga datos para este pedido. ===
 						$sTrkCarrier = ''; $sTrkEstado = ''; $nTrkEntregado = 0; $sTrkChecked = ''; $aTrkRegs = array();
-						$qTrk = tep_db_query( "SELECT * FROM seur_tracking WHERE referencia IN ('F" . (int)$oID . "', '" . (int)$oID . "') ORDER BY referencia = 'F" . (int)$oID . "' DESC LIMIT 1" );
+						$seurRefA = '';
+						$qsrA = tep_db_query( "SELECT ref FROM seur_shipments WHERE orders_id = " . (int)$oID . " AND ref <> '' AND ok = 1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1" );
+						if ( tep_db_num_rows( $qsrA ) ) { $rA = tep_db_fetch_array( $qsrA ); $seurRefA = $rA['ref']; }
+						$qTrk = ( $seurRefA !== '' )
+							? tep_db_query( "SELECT * FROM seur_tracking WHERE referencia = '" . tep_db_input( $seurRefA ) . "' LIMIT 1" )
+							: tep_db_query( "SELECT * FROM seur_tracking WHERE referencia IN ('F" . (int)$oID . "', '" . (int)$oID . "') ORDER BY referencia = 'F" . (int)$oID . "' DESC LIMIT 1" );
 						if( $rTrk = tep_db_fetch_array( $qTrk ) ) {
 							$sTrkCarrier = 'SEUR'; $sTrkEstado = $rTrk['estado_desc']; $nTrkEntregado = (int)$rTrk['entregado']; $sTrkChecked = (string)$rTrk['last_checked'];
 							foreach( (array)json_decode( (string)$rTrk['eventos_json'], true ) as $eTrk )

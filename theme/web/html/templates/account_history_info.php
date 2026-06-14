@@ -250,7 +250,15 @@
 						// Referencia 'F{oid}' (integración API) o '{oid}' a pelo (integración
 						// vieja de Vstock) — se prueba la F primero.
 						$seurTrk = null;
-						$seurTrkQ = tep_db_query("SELECT * FROM seur_tracking WHERE referencia IN ('F" . (int) $_GET['order_id'] . "', '" . (int) $_GET['order_id'] . "') ORDER BY referencia = 'F" . (int) $_GET['order_id'] . "' DESC LIMIT 1");
+						// Resolver la ref SEUR vigente del pedido: la integración API guarda fila en
+						// seur_shipments (tras regenerar, la ref lleva sufijo R{n}); la integración
+						// vieja de Vstock no tiene fila y usa ref = oid / F+oid.
+						$seurRefW = '';
+						$qsrW = tep_db_query("SELECT ref FROM seur_shipments WHERE orders_id = " . (int) $_GET['order_id'] . " AND ref <> '' AND ok = 1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1");
+						if (tep_db_num_rows($qsrW)) { $rW = tep_db_fetch_array($qsrW); $seurRefW = $rW['ref']; }
+						$seurTrkQ = ($seurRefW !== '')
+							? tep_db_query("SELECT * FROM seur_tracking WHERE referencia = '" . tep_db_input($seurRefW) . "' LIMIT 1")
+							: tep_db_query("SELECT * FROM seur_tracking WHERE referencia IN ('F" . (int) $_GET['order_id'] . "', '" . (int) $_GET['order_id'] . "') ORDER BY referencia = 'F" . (int) $_GET['order_id'] . "' DESC LIMIT 1");
 						if (tep_db_num_rows($seurTrkQ)) $seurTrk = tep_db_fetch_array($seurTrkQ);
 						$cexUrlSeg = !empty($aUrlEnvio[0][0]) ? $aUrlEnvio[0][0] : '';
 						$cexCarrier = '';

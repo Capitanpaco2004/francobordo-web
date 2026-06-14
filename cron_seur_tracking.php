@@ -152,7 +152,7 @@ while ($row = tep_db_fetch_array($q)) {
 $q = tep_db_query(
     "SELECT t.referencia, o.delivery_postcode, o.delivery_city FROM seur_tracking t " .
     "JOIN " . TABLE_ORDERS . " o ON o.orders_id = CAST(IF(t.referencia LIKE 'F%', SUBSTRING(t.referencia, 2), t.referencia) AS UNSIGNED) " .
-    "WHERE t.referencia REGEXP '^F?[0-9]+$' AND t.entregado = 0 " .
+    "WHERE t.referencia REGEXP '^F?[0-9]+(R[0-9]+)?$' AND t.entregado = 0 " .
     "AND t.estado_desc NOT LIKE '%ANULAD%' AND t.estado_desc NOT LIKE '%CANCELAD%' " .
     "AND t.date_added > NOW() - INTERVAL " . (int) $days . " DAY LIMIT " . (int) $maxRefresh
 );
@@ -226,7 +226,7 @@ $content = array();
 $q = tep_db_query(
     "SELECT t.referencia, t.fecha_entrega FROM seur_tracking t " .
     "INNER JOIN " . TABLE_ORDERS . " o ON o.orders_id = CAST(IF(t.referencia LIKE 'F%', SUBSTRING(t.referencia, 2), t.referencia) AS UNSIGNED) " .
-    "WHERE t.referencia REGEXP '^F?[0-9]+$' AND t.entregado = 1 AND o.orders_status = 5"
+    "WHERE t.referencia REGEXP '^F?[0-9]+(R[0-9]+)?$' AND t.entregado = 1 AND o.orders_status = 5"
 );
 while ($row = tep_db_fetch_array($q)) {
     $oid = (substr($row['referencia'], 0, 1) === 'F') ? (int) substr($row['referencia'], 1) : (int) $row['referencia'];
