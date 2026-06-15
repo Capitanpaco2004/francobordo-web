@@ -55,6 +55,7 @@ class seurpunto {
         15=>13.71, 20=>16.54, 25=>19.35, 30=>22.19, 40=>29.17, 50=>35.06,
     );
     const TARIFA_EXTRA_KG = array('PEN'=>0.36, 'BAL'=>0.58);  // €/kg por encima de 50 kg
+    const MAX_KG = 20;   // SEUR 2shop/punto de recogida: tope de peso por envío
 
     /** Coste SEUR (sin IVA) según peso (kg) y zona ('BAL' Baleares / 'PEN' resto). */
     public static function costePorPeso($kg, $zona) {
@@ -84,8 +85,13 @@ class seurpunto {
         // sin stock inmediato (decisión 2026-06-09: el punto custodia el paquete,
         // la promesa de plazo es menos crítica que en entrega a domicilio 24h).
 
-        // Precio por peso y zona (tarifa SEUR, sin margen). Baleares = CP 07xxx.
+        // Peso del carrito. SEUR 2shop no admite envíos de más de MAX_KG (20 kg):
+        // no ofrecer punto de recogida para carritos más pesados (irían a domicilio).
         $kg   = (float) (isset($shipping_weight) ? $shipping_weight : $cart->show_weight());
+        if ($kg > self::MAX_KG) {
+            $this->enabled = false;
+            return array();
+        }
         $zona = (strncmp($cp, '07', 2) === 0) ? 'BAL' : 'PEN';
         $base = self::costePorPeso($kg, $zona);   // coste sin IVA
 

@@ -19,6 +19,7 @@ $f_liquid    = isset($_GET['liquid']) ? (int)$_GET['liquid'] : 0;       // 1 = s
 $f_pvp_min   = isset($_GET['pvp_min']) && $_GET['pvp_min'] !== '' ? (float)$_GET['pvp_min'] : 0.0;
 $f_buy_before = trim((string)($_GET['buy_before'] ?? ''));
 $f_inc_no_buy = isset($_GET['inc_no_buy']) ? 1 : 1; // default: incluir productos sin compra registrada
+$f_modif_before = trim((string)($_GET['modif_before'] ?? '')); // oferta modificada antes de
 $f_rule_id   = isset($_GET['rule_id']) ? (int)$_GET['rule_id'] : 0;
 $f_order     = $_GET['order'] ?? 'priority';
 $f_dir       = strtolower($_GET['dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
@@ -63,6 +64,13 @@ if ($f_buy_before !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $f_buy_before)) 
     } else {
         $where[] = "v.ultima_compra <= '{$bb}'";
     }
+}
+// Filtro: oferta (specials cgid=0) modificada en/antes de fecha. Solo productos con oferta.
+if ($f_modif_before !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $f_modif_before)) {
+    $mb = tep_db_input($f_modif_before);
+    $where[] = "EXISTS (SELECT 1 FROM specials s WHERE s.products_id=p.products_id AND s.status=1
+                        AND s.customers_group_id=0
+                        AND COALESCE(s.specials_last_modified, s.specials_date_added) <= '{$mb} 23:59:59')";
 }
 
 // Filtro rule_id: solo variantes cuya regla GANADORA sea exactamente esa.
@@ -125,6 +133,7 @@ $order_map = [
     'margin'      => "CASE WHEN {$pvp_effective} > 0 THEN (({$pvp_effective} - COALESCE(p.products_cost,0)) / {$pvp_effective}) ELSE -9999 END {$DIR}",
     'imp_lost'    => "(v.stock_variant * {$pvp_effective}) {$DIR}",
     'coste_stock' => "(v.stock_variant * COALESCE(NULLIF(p.products_cost,0), 0)) {$DIR}",
+    'modif'       => "(SELECT COALESCE(s.specials_last_modified, s.specials_date_added) FROM specials s WHERE s.products_id=p.products_id AND s.status=1 AND s.customers_group_id=0 ORDER BY s.specials_id DESC LIMIT 1) IS NULL ASC, (SELECT COALESCE(s.specials_last_modified, s.specials_date_added) FROM specials s WHERE s.products_id=p.products_id AND s.status=1 AND s.customers_group_id=0 ORDER BY s.specials_id DESC LIMIT 1) {$DIR}",
 ];
 $order_sql = $order_map[$f_order] ?? $order_map['priority'];
 
@@ -158,7 +167,10 @@ $rows_sql = "
            {$pvp_effective} AS pvp_var,
            pov.products_options_values_name AS variant_name,
            (SELECT s.specials_new_products_price FROM specials s
-            WHERE s.products_id=p.products_id AND s.status=1 LIMIT 1) AS special_price
+            WHERE s.products_id=p.products_id AND s.status=1 LIMIT 1) AS special_price,
+           (SELECT COALESCE(s.specials_last_modified, s.specials_date_added) FROM specials s
+            WHERE s.products_id=p.products_id AND s.status=1 AND s.customers_group_id=0
+            ORDER BY s.specials_id DESC LIMIT 1) AS special_modif
     FROM products p
     JOIN qfac_sales_velocity v ON v.products_id=p.products_id
     LEFT JOIN products_attributes pa
@@ -378,6 +390,13 @@ function order_link($key, $label, $f_order, $f_dir) {
       </div>
     </div>
     <div class="col-md-2">
+      <div class="form-floating">
+        <input type="date" name="modif_before" id="modif_before" class="form-control"
+               value="<?=htmlspecialchars($f_modif_before)?>">
+        <label for="modif_before" style="font-size:11px">Oferta modif. ≤ fecha</label>
+      </div>
+    </div>
+    <div class="col-md-2">
       <select name="order" class="form-select">
         <option value="priority"    <?=$f_order=='priority'?'selected':''?>>Prioridad (stock×días)</option>
         <option value="stock"       <?=$f_order=='stock'?'selected':''?>>Más stock</option>
@@ -457,6 +476,7 @@ function order_link($key, $label, $f_order, $f_dir) {
         <th class="text-end" title="Coste con IVA. Tooltip = sin IVA."><?=order_link('cost','Coste',$f_order, $f_dir)?><br><small class="as-iva-tag">c/IVA</small></th>
         <th class="text-end" title="Margen sobre venta sin IVA = (PVP − Coste) / PVP"><?=order_link('margin','Margen',$f_order, $f_dir)?><br><small class="as-iva-tag">%</small></th>
         <th class="text-end">Special<br><small class="as-iva-tag">c/IVA</small></th>
+        <th class="text-center" title="Fecha de última modificación / alta de la oferta (público)"><?=order_link('modif','Oferta',$f_order, $f_dir)?><br><small class="as-iva-tag">modif.</small></th>
         <th class="text-end" title="Descuento sugerido por regla aplicable">Desc.<br><small class="as-iva-tag">sug.</small></th>
         <th class="text-end" title="PVP propuesto con IVA = PVP × (1 - descuento) × (1 + IVA)">PVP sug.<br><small class="as-iva-tag">c/IVA</small></th>
         <th class="text-end" title="Margen tras descuento = (PVP sug − Coste) / PVP sug">Margen<br><small class="as-iva-tag">tras dto.</small></th>
@@ -598,6 +618,16 @@ function order_link($key, $label, $f_order, $f_dir) {
             <span class="as-special" title="Sin IVA: <?=fmt_n($r['special_price'],2)?> € · IVA <?=fmt_n($tax_rate,0)?>%"><?=fmt_n($special_iva,2)?></span>
             <?php if ($is_auto): ?><span class="as-badge-auto" title="Oferta generada por motor auto_specials">AUTO</span><?php endif; ?>
           <?php else: ?>—<?php endif; ?>
+        </td>
+        <td class="text-center as-num" style="font-size:11px;white-space:nowrap">
+          <?php
+            if (!empty($r['special_modif'])) {
+                $ts = strtotime((string)$r['special_modif']);
+                echo '<span title="' . htmlspecialchars((string)$r['special_modif']) . '">' . date('d/m/y', $ts) . '</span>';
+            } else {
+                echo '<span style="color:#cbd5e1">—</span>';
+            }
+          ?>
         </td>
         <td class="text-end as-num">
           <span class="as-disc-cell"
