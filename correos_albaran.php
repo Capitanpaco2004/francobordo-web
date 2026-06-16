@@ -11,14 +11,28 @@
  * Standalone (no pasa por application_top): configure.php + mysqli + clase correos.
  * Protegido por token. Entorno: siempre 'pro' (no hay sandbox con labels).
  *
+ * Diseño anti-doble-facturación (revisión 2026-06-15):
+ *   1) GET_LOCK por pedido → serializa peticiones concurrentes del mismo oid.
+ *   2) Dedup por orders_id SIEMPRE (1 pedido web = 1 albarán = 1 preregistro
+ *      N-bultos). Excluye envíos anulados (cancelled_at) para permitir reenvío.
+ *   3) Persistencia TEMPRANA: en cuanto el preregistro crea el envío en Correos,
+ *      se inserta la fila (ok=0) con shipment_code y el JSON del preregistro
+ *      (que lleva TODOS los packageCodes) ANTES de pedir etiquetas. Si el script
+ *      muere luego, el dedup encuentra esa fila y NO vuelve a preregistrar
+ *      (reintento idempotente: solo re-pide la etiqueta sobre los mismos códigos).
+ *   4) ok=1 SOLO si hay etiqueta efectiva. Sin etiqueta → ok=0 + ok:false para
+ *      que el watcher reintente.
+ *
  * Parámetros (GET o POST):
  *   token   (obligatorio)
  *   oid     (obligatorio) orders_id del pedido web
  *   kilos   peso TOTAL en kg (def. 1)
- *   bultos  nº de bultos (def. 1; el peso se reparte)
- *   albaran id del albarán Vstock (ALB_ID) — para dedup e histórico
+ *   bultos  nº de bultos (def. 1; el peso se reparte, el último absorbe el resto)
+ *   albaran id del albarán Vstock (ALB_ID) — histórico
  *   type    ZPL | PDF | BOTH (def. BOTH)
- *   dry     1 = no crea nada, devuelve el payload que se enviaría
+ *   mode    dom | ofi (def. dom). ofi requiere parámetro 'oficina'
+ *   oficina código de oficina (obligatorio si mode=ofi)
+ *   dry     1 = no crea nada, devuelve el payload (con PII redactada)
  *
  * Respuesta JSON: { ok, dedup, shipmentCode, packageCodes, tracking_url, zpl, pdf_b64, error }
  *
@@ -27,6 +41,8 @@
 header('Content-Type: application/json; charset=utf-8');
 error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
 ini_set('display_errors', '0');
+@ini_set('max_execution_time', '200');   // > suma de timeouts curl (preregistro + 2 etiquetas)
+mysqli_report(MYSQLI_REPORT_OFF);         // PHP 8.1+: no lanzar excepciones; comprobamos retornos a mano
 
 define('CORREOS_ALB_TOKEN', 'correosalb_e7c41f92b5');
 
@@ -50,42 +66,176 @@ $alb    = trim((string) ($in['albaran'] ?? ''));
 $type   = strtoupper(trim((string) ($in['type'] ?? 'BOTH')));
 if (!in_array($type, array('ZPL', 'PDF', 'BOTH'), true)) $type = 'BOTH';
 $dry    = (($in['dry'] ?? '') === '1');
+$mode   = strtolower(trim((string) ($in['mode'] ?? 'dom')));
+$oficina = trim((string) ($in['oficina'] ?? ''));
+$manual = (($in['manual'] ?? '') === '1');   // pedido QFac-nativo (26xxxxx): direccion en params, no en 'orders'
+$deliveryMethod = ($mode === 'ofi') ? 'OFUAOF' : 'DOUAOF';  // COR Oficina vs COR Domicilio
 
 if ($oid <= 0) out(array('ok' => false, 'error' => 'oid requerido'));
+if ($mode === 'ofi' && $oficina === '') out(array('ok' => false, 'error' => 'mode=ofi requiere el parametro oficina (codigo de oficina Correos)'));
 
-$db = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
-if ($db->connect_errno) out(array('ok' => false, 'error' => 'db: ' . $db->connect_error));
-$db->set_charset('utf8');
+/* =========================================================================
+ * Helpers
+ * ========================================================================= */
 
-/* ---- Dedup: si ya hay envío OK no anulado para este albarán/pedido, devolverlo ---- */
-$st = $alb !== ''
-    ? $db->prepare("SELECT * FROM correos_shipments WHERE albaran_id=? AND tipo='envio' AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1")
-    : $db->prepare("SELECT * FROM correos_shipments WHERE orders_id=? AND tipo='envio' AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1");
-if ($alb !== '') $st->bind_param('s', $alb); else $st->bind_param('i', $oid);
-$st->execute();
-$prev = $st->get_result()->fetch_assoc();
-if ($prev) {
-    $resp = array('ok' => true, 'dedup' => true, 'shipmentCode' => $prev['shipment_code'],
-                  'packageCodes' => array($prev['package_code']), 'tracking_url' => $prev['tracking_url'],
-                  'zpl' => null, 'pdf_b64' => null);
-    if (in_array($type, array('ZPL', 'BOTH')) && $prev['label_zpl_path'] && is_file($prev['label_zpl_path'])) {
-        $resp['zpl'] = file_get_contents($prev['label_zpl_path']);
-    }
-    if (in_array($type, array('PDF', 'BOTH')) && $prev['label_path'] && is_file($prev['label_path'])) {
-        $resp['pdf_b64'] = base64_encode(file_get_contents($prev['label_path']));
-    }
-    out($resp);
+/** Quita secuencias UTF-8 de 4 bytes (emoji…) para que el INSERT no falle en
+ *  columnas utf8 de 3 bytes bajo el modo STRICT de MySQL/MariaDB. */
+function correos_no4b($s) {
+    return preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $s);
 }
 
-/* ---- Datos del pedido web (dirección de ENTREGA) ---- */
-$st = $db->prepare("SELECT orders_id, delivery_name, delivery_company, delivery_street_address, delivery_suburb,
-                           delivery_city, delivery_postcode, delivery_state, delivery_country,
-                           customers_telephone, customers_email_address
-                    FROM orders WHERE orders_id=?");
+/** Extrae TODOS los packageCodes del JSON de preregistro guardado en la fila. */
+function correos_pkgcodes_from_row(array $row) {
+    $codes = array();
+    if (!empty($row['response_json'])) {
+        $j = json_decode($row['response_json'], true);
+        $pk = $j['data']['shipments'][0]['packages'] ?? null;
+        if (is_array($pk)) foreach ($pk as $p) if (!empty($p['packageCode'])) $codes[] = (string) $p['packageCode'];
+    }
+    if (!$codes && !empty($row['package_code'])) $codes = array($row['package_code']);
+    return $codes;
+}
+
+/** Pide etiquetas (ZPL térmica + PDF respaldo) sobre packageCodes ya creados y
+ *  las guarda en disco privado. Idempotente: no crea envíos, solo etiquetas. */
+function correos_build_labels($c, array $pkgCodes, $oid, $type) {
+    $zpl = null; $pdfBin = null; $errs = array();
+    if (in_array($type, array('ZPL', 'BOTH'), true)) {
+        $labZ = $c->getLabel($pkgCodes, array('labelFormat' => 3, 'labelPrintMode' => 2));  // 3=ZPL, modo 2=etiquetadora 14,5x10
+        if ($labZ['ok'] && !empty($labZ['data']['zpl'])) {
+            $z = base64_decode($labZ['data']['zpl'], true);
+            if ($z !== false && $z !== '') $zpl = $z;
+        } else {
+            $errs[] = 'zpl:' . correos::primerError($labZ);
+        }
+    }
+    // PDF SIEMPRE como respaldo de reimpresión (aunque type=ZPL).
+    $labP = $c->getLabel($pkgCodes, array('labelFormat' => 2));
+    if ($labP['ok'] && !empty($labP['pdf_bin'])) $pdfBin = $labP['pdf_bin'];
+    else $errs[] = 'pdf:' . correos::primerError($labP);
+
+    $dir = '/home/francobordo/correos_labels/' . $oid . '/';
+    if (!is_dir($dir)) @mkdir($dir, 0750, true);
+    $suf = substr(md5($oid . '_' . implode('', $pkgCodes) . '_' . microtime(true)), 0, 8);
+    $zplPath = null; $pdfPath = null;
+    if ($zpl !== null    && @file_put_contents($dir . "correos_{$oid}_{$suf}.zpl", $zpl)    !== false) $zplPath = $dir . "correos_{$oid}_{$suf}.zpl";
+    if ($pdfBin !== null && @file_put_contents($dir . "correos_{$oid}_{$suf}.pdf", $pdfBin) !== false) $pdfPath = $dir . "correos_{$oid}_{$suf}.pdf";
+    return array($zplPath, $pdfPath, $zpl, $pdfBin, implode('; ', $errs));
+}
+
+/** Construye la respuesta de éxito a partir de una fila de correos_shipments. */
+function correos_resp_from_row(array $row, $type) {
+    $resp = array(
+        'ok' => true, 'dedup' => true,
+        'shipmentCode' => $row['shipment_code'],
+        'packageCodes' => correos_pkgcodes_from_row($row),
+        'tracking_url' => $row['tracking_url'],
+        'zpl' => null, 'pdf_b64' => null,
+    );
+    if (in_array($type, array('ZPL', 'BOTH'), true) && !empty($row['label_zpl_path']) && is_file($row['label_zpl_path'])) {
+        $resp['zpl'] = file_get_contents($row['label_zpl_path']);
+    }
+    if (in_array($type, array('PDF', 'BOTH'), true) && !empty($row['label_path']) && is_file($row['label_path'])) {
+        $resp['pdf_b64'] = base64_encode(file_get_contents($row['label_path']));
+    }
+    return $resp;
+}
+
+/* =========================================================================
+ * Conexión BD
+ * ========================================================================= */
+$db = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
+if ($db->connect_errno) { error_log('correos_albaran db: ' . $db->connect_error); out(array('ok' => false, 'error' => 'db no disponible')); }
+$db->set_charset('utf8');
+
+/* ---- Lock por pedido: serializa peticiones concurrentes del mismo oid ---- */
+$lockName = 'corralb_' . $oid;
+$lockEsc  = $db->real_escape_string($lockName);
+$lr = $db->query("SELECT GET_LOCK('$lockEsc', 30) AS g");
+$got = ($lr && ($lrow = $lr->fetch_assoc()) && (int) $lrow['g'] === 1);
+if (!$got) out(array('ok' => false, 'error' => 'otra peticion en curso para este pedido; reintentar'));
+register_shutdown_function(function () use ($db, $lockEsc) { @$db->query("SELECT RELEASE_LOCK('$lockEsc')"); });
+
+/* ---- Dedup por orders_id SIEMPRE: 1 pedido = 1 preregistro N-bultos.
+ *      Considera filas con shipment_code (ok=1 ya etiquetada, u ok=0 a medio
+ *      etiquetar) que NO estén anuladas. ---- */
+$st = $db->prepare("SELECT * FROM correos_shipments
+                    WHERE orders_id=? AND tipo='envio' AND cancelled_at IS NULL
+                      AND shipment_code IS NOT NULL AND shipment_code<>''
+                    ORDER BY id DESC LIMIT 1");
 $st->bind_param('i', $oid);
 $st->execute();
-$o = $st->get_result()->fetch_assoc();
-if (!$o) out(array('ok' => false, 'error' => "pedido $oid no encontrado en la web"));
+$prev = $st->get_result()->fetch_assoc();
+
+if ($prev) {
+    // Ya existe el envío en Correos. NUNCA re-preregistrar.
+    $haveZpl = !empty($prev['label_zpl_path']) && is_file($prev['label_zpl_path']);
+    $havePdf = !empty($prev['label_path'])     && is_file($prev['label_path']);
+    $needZpl = in_array($type, array('ZPL', 'BOTH'), true) && !$haveZpl;
+    $needPdf = in_array($type, array('PDF', 'BOTH'), true) && !$havePdf;
+
+    if (!$needZpl && !$needPdf) {
+        out(correos_resp_from_row($prev, $type));   // etiqueta(s) ya disponible(s)
+    }
+
+    // Reintento idempotente: regenerar SOLO etiquetas sobre los packageCodes ya creados.
+    $pkgCodes = correos_pkgcodes_from_row($prev);
+    if (!$pkgCodes) out(array('ok' => false, 'dedup' => true, 'error' => 'fila previa sin packageCodes recuperables', 'shipmentCode' => $prev['shipment_code']));
+    $c = new correos('pro');
+    $c->setTimeout(60);
+    list($zplPath, $pdfPath, $zpl, $pdfBin, $labErr) = correos_build_labels($c, $pkgCodes, $oid, $type);
+    // No machacar un path bueno previo con NULL.
+    $newZpl = $zplPath ?: ($haveZpl ? $prev['label_zpl_path'] : null);
+    $newPdf = $pdfPath ?: ($havePdf ? $prev['label_path'] : null);
+    $labelOk = ($newZpl || $newPdf);
+    $fmt = ($newZpl && $newPdf) ? 'both' : ($newZpl ? 'zpl' : ($newPdf ? 'pdf' : ''));
+    $okVal = $labelOk ? 1 : (int) $prev['ok'];
+    $msg = correos_no4b(mb_substr('relabel; ' . $labErr, 0, 480));
+    $up = $db->prepare("UPDATE correos_shipments SET label_zpl_path=?, label_path=?, label_format=?, ok=?, mensaje_retorno=? WHERE id=?");
+    $rowId = (int) $prev['id'];
+    $up->bind_param('sssisi', $newZpl, $newPdf, $fmt, $okVal, $msg, $rowId);
+    $up->execute();
+
+    if ($labelOk) {
+        $row2 = $prev;
+        $row2['label_zpl_path'] = $newZpl; $row2['label_path'] = $newPdf;
+        out(correos_resp_from_row($row2, $type));
+    }
+    out(array('ok' => false, 'dedup' => true, 'error' => 'envio ya creado pero etiqueta falla; reintentar', 'labelError' => $labErr,
+              'shipmentCode' => $prev['shipment_code']));
+}
+
+/* ---- Datos de ENTREGA ----
+ * MODO MANUAL (pedidos QFac-nativos serie 26xxxxx, NO están en `orders`): el watcher
+ * pasa manual=1 + la dirección leída de Vstock PEDIDOS_CLIENTES
+ * (dname/dstreet/dcp/dcity/dstate/dcountry/dphone/demail). ref = Q{oid}. Patrón SEUR. */
+if ($manual) {
+    $o = array(
+        'orders_id'               => $oid,
+        'delivery_name'           => trim((string) ($in['dname'] ?? '')),
+        'delivery_company'        => '',
+        'delivery_street_address' => trim((string) ($in['dstreet'] ?? '')),
+        'delivery_suburb'         => '',
+        'delivery_city'           => trim((string) ($in['dcity'] ?? '')),
+        'delivery_postcode'       => trim((string) ($in['dcp'] ?? '')),
+        'delivery_state'          => trim((string) ($in['dstate'] ?? '')),
+        'delivery_country'        => trim((string) ($in['dcountry'] ?? 'ESP')),
+        'customers_telephone'     => trim((string) ($in['dphone'] ?? '')),
+        'customers_email_address' => trim((string) ($in['demail'] ?? '')),
+    );
+    if ($o['delivery_name'] === '' || $o['delivery_street_address'] === '' || $o['delivery_postcode'] === '') {
+        out(array('ok' => false, 'error' => 'manual=1 requiere dname, dstreet y dcp'));
+    }
+} else {
+    $st = $db->prepare("SELECT orders_id, delivery_name, delivery_company, delivery_street_address, delivery_suburb,
+                               delivery_city, delivery_postcode, delivery_state, delivery_country,
+                               customers_telephone, customers_email_address
+                        FROM orders WHERE orders_id=?");
+    $st->bind_param('i', $oid);
+    $st->execute();
+    $o = $st->get_result()->fetch_assoc();
+    if (!$o) out(array('ok' => false, 'error' => "pedido $oid no encontrado en la web"));
+}
 
 /* País → ISO-3 (Correos exige alfa-3: ESP...). orders.delivery_country guarda el NOMBRE. */
 $iso3 = 'ESP';
@@ -99,30 +249,54 @@ if ($cty !== '' && strlen($cty) > 3) {
     $iso3 = strtoupper($cty);
 }
 if ($iso3 !== 'ESP') {
-    // Salida internacional por Correos: requiere producto/aduanas distintos. De momento solo nacional.
     out(array('ok' => false, 'error' => "pedido $oid con destino $iso3: el envío Correos por API solo cubre nacional (ESP) de momento"));
 }
+
+/* Nombre/contacto de destino con fallback simétrico (M8) */
+$destName = trim((string) $o['delivery_name']);
+if ($destName === '') $destName = trim((string) $o['delivery_company']);
+if ($destName === '') out(array('ok' => false, 'error' => "pedido $oid sin nombre ni empresa de entrega"));
 
 $cp   = trim($o['delivery_postcode']);
 $prov = preg_match('/^\d{5}$/', $cp) ? substr($cp, 0, 2) : '';
 $gramos = (int) round($kilos * 1000);
-$ref = 'F' . $oid;
+$ref = ($manual ? 'Q' : 'F') . $oid;   // Q{oid}=QFac-nativo, F{oid}=pedido web
 
-/* Bultos: peso repartido */
+/* Bultos: peso repartido; el último absorbe el resto para que la suma == total (M4) */
 $packages = array();
-$porBulto = max(1, (int) floor($gramos / $bultos));
+$base = intdiv($gramos, $bultos);
+if ($base < 1) $base = 1;
+$acumulado = 0;
 for ($i = 1; $i <= $bultos; $i++) {
-    $packages[] = array('packageId' => (string) $i, 'packageWeightGrams' => (string) $porBulto);
+    $w = ($i < $bultos) ? $base : max(1, $gramos - $acumulado);
+    $acumulado += $w;
+    $packages[] = array('packageId' => (string) $i, 'packageWeightGrams' => (string) $w);
 }
+$totalWeight = array_sum(array_map(function ($p) { return (int) $p['packageWeightGrams']; }, $packages));
+
+$addressee = array(
+    'name'          => $destName,
+    'company'       => trim((string) $o['delivery_company']),
+    'address'       => trim($o['delivery_street_address'] . ' ' . (string) $o['delivery_suburb']),
+    'locality'      => trim($o['delivery_city']),
+    'cp'            => $cp,
+    'province'      => $prov,
+    'country'       => 'ESP',
+    'contactPerson' => $destName,
+    'contactPhone'  => trim((string) $o['customers_telephone']),
+    'email'         => trim((string) $o['customers_email_address']),
+    'language'      => 'spa',
+);
+if ($mode === 'ofi') $addressee['chosenOffice'] = $oficina;
 
 $shipment = array(
     'product'        => 'PAFXB',          // Paq Estándar
-    'deliveryMethod' => 'DOUAOF',         // entrega a domicilio
+    'deliveryMethod' => $deliveryMethod,  // dom=DOUAOF / ofi=OFUAOF (param mode)
     'contractNumber' => correos::CONTRACT,
     'clientNumber'   => correos::CLIENT_NUMBER,
     'labellerCode'   => correos::LABELLER,
     'packagesNumber' => (string) $bultos,
-    'totalWeight'    => (string) $gramos,
+    'totalWeight'    => (string) $totalWeight,
     'shipmentReference1' => $ref,
     'sender' => array(
         'name'          => correos::FB_NOMBRE,
@@ -139,23 +313,18 @@ $shipment = array(
         'doiNumber'     => correos::FB_NIF,
         'language'      => 'spa',
     ),
-    'addressee' => array(
-        'name'          => trim($o['delivery_name']) ?: trim($o['delivery_company']),
-        'company'       => trim((string) $o['delivery_company']),
-        'address'       => trim($o['delivery_street_address'] . ' ' . (string) $o['delivery_suburb']),
-        'locality'      => trim($o['delivery_city']),
-        'cp'            => $cp,
-        'province'      => $prov,
-        'country'       => 'ESP',
-        'contactPerson' => trim($o['delivery_name']),
-        'contactPhone'  => trim((string) $o['customers_telephone']),
-        'email'         => trim((string) $o['customers_email_address']),
-        'language'      => 'spa',
-    ),
-    'packages' => $packages,
+    'addressee' => $addressee,
+    'packages'  => $packages,
 );
 
-if ($dry) out(array('ok' => true, 'dry' => true, 'payload' => $shipment));
+if ($dry) {
+    // No volcar PII en pruebas (el watcher --dry solo necesita la estructura).
+    $safe = $shipment;
+    foreach (array('name', 'company', 'address', 'contactPerson', 'contactPhone', 'email') as $k) {
+        if (!empty($safe['addressee'][$k])) $safe['addressee'][$k] = '***';
+    }
+    out(array('ok' => true, 'dry' => true, 'payload' => $safe));
+}
 
 /* ---- Preregistro ---- */
 $c = new correos('pro');
@@ -169,58 +338,62 @@ $pkgCodes = array();
 if ($code !== '' && !empty($sh['packages'])) {
     foreach ($sh['packages'] as $p) if (!empty($p['packageCode'])) $pkgCodes[] = (string) $p['packageCode'];
 }
+if ($code === '' && $sh && !empty($sh['shipmentCode'])) {
+    error_log('correos_albaran oid=' . $oid . ' preregistro con error parcial, shipmentCode=' . $sh['shipmentCode'] . ' err=' . json_encode($sh['error'] ?? null));
+}
 
 if ($code === '' || !$pkgCodes) {
     $err = correos::primerError($pre);
     $st = $db->prepare("INSERT INTO correos_shipments (id_rma, orders_id, albaran_id, tipo, entorno, producto, ref, kilos,
                           http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
                         VALUES (0,?,?,'envio','pro','PAFXB',?,?,?,?,0,?,?, 'vstock-watcher', NOW())");
-    $http = (string) $pre['http'];
-    $req  = json_encode($reqShip, JSON_UNESCAPED_UNICODE);
-    $st->bind_param('issdssss', $oid, $alb, $ref, $kilos, $http, $err, $req, $pre['raw']);
+    $http   = (string) $pre['http'];
+    $req    = correos_no4b(json_encode($reqShip, JSON_UNESCAPED_UNICODE));
+    $errCut = correos_no4b(mb_substr((string) $err, 0, 480));
+    $raw    = correos_no4b((string) $pre['raw']);
+    $st->bind_param('issdssss', $oid, $alb, $ref, $kilos, $http, $errCut, $req, $raw);
     $st->execute();
     out(array('ok' => false, 'error' => $err, 'http' => $pre['http']));
 }
 
-/* ---- Etiquetas: ZPL (térmica) + PDF (respaldo). Labels usa el packageCode. ---- */
-$zpl = null; $pdfBin = null;
-if (in_array($type, array('ZPL', 'BOTH'))) {
-    $labZ = $c->getLabel($pkgCodes, array('labelFormat' => 3));   // 3=ZPL, modo A4=1 (combo validado con 2 dio 500)
-    if ($labZ['ok'] && !empty($labZ['data']['zpl'])) {
-        $z = base64_decode($labZ['data']['zpl'], true);
-        if ($z !== false && $z !== '') $zpl = $z;
-    }
-}
-$labP = $c->getLabel($pkgCodes, array('labelFormat' => 2));
-if ($labP['ok'] && !empty($labP['pdf_bin'])) $pdfBin = $labP['pdf_bin'];
-
-/* Guardar etiquetas en dir privado (fuera de public_html) */
-$dir = '/home/francobordo/correos_labels/' . $oid . '/';
-if (!is_dir($dir)) @mkdir($dir, 0750, true);
-$zplPath = null; $pdfPath = null;
-$suf = substr(md5($code . microtime(true)), 0, 8);
-if ($zpl !== null    && @file_put_contents($dir . "correos_{$oid}_{$suf}.zpl", $zpl)    !== false) $zplPath = $dir . "correos_{$oid}_{$suf}.zpl";
-if ($pdfBin !== null && @file_put_contents($dir . "correos_{$oid}_{$suf}.pdf", $pdfBin) !== false) $pdfPath = $dir . "correos_{$oid}_{$suf}.pdf";
-
-/* URL pública de seguimiento REAL para el cliente (localizador web, por código de bulto) */
+/* ---- PERSISTENCIA TEMPRANA (B1): el envío YA existe en Correos. Guardar la fila
+ *      AHORA (ok=0, sin etiqueta) para que cualquier muerte posterior no provoque
+ *      un segundo preregistro. response_json lleva todos los packageCodes. ---- */
 $trackingUrl = 'https://www.correos.es/es/es/herramientas/localizador/envios/detalle?tracking-number=' . rawurlencode($pkgCodes[0]);
-
-$st = $db->prepare("INSERT INTO correos_shipments (id_rma, orders_id, albaran_id, tipo, entorno, shipment_code, package_code,
-                      producto, ref, kilos, label_format, label_path, label_zpl_path, tracking_url, http_code,
-                      mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                    VALUES (0,?,?,'envio','pro',?,?,'PAFXB',?,?,?,?,?,?,?, '', 1, ?, ?, 'vstock-watcher', NOW())");
-$fmt  = ($zplPath && $pdfPath) ? 'both' : ($zplPath ? 'zpl' : 'pdf');
 $http = (string) $pre['http'];
-$req  = json_encode($reqShip, JSON_UNESCAPED_UNICODE);
-$raw = $pre['raw'];
-$st->bind_param('issssdsssssss', $oid, $alb, $code, $pkgCodes[0], $ref, $kilos,
-                $fmt, $pdfPath, $zplPath, $trackingUrl, $http, $req, $raw);
-$st->execute();
+$req  = correos_no4b(json_encode($reqShip, JSON_UNESCAPED_UNICODE));
+$raw  = correos_no4b((string) $pre['raw']);
+$pkg0 = $pkgCodes[0];
+$ins = $db->prepare("INSERT INTO correos_shipments (id_rma, orders_id, albaran_id, tipo, entorno, shipment_code, package_code,
+                       producto, ref, kilos, tracking_url, http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
+                     VALUES (0,?,?,'envio','pro',?,?,'PAFXB',?,?,?,?,'',0,?,?, 'vstock-watcher', NOW())");
+$ins->bind_param('issssdssss', $oid, $alb, $code, $pkg0, $ref, $kilos, $trackingUrl, $http, $req, $raw);
+if (!$ins->execute()) {
+    error_log('correos_albaran oid=' . $oid . ' INSERT temprano fallo: ' . $db->error . ' shipmentCode=' . $code);
+    out(array('ok' => false, 'error' => 'preregistro creado pero no se pudo persistir (revisar manualmente, shipmentCode=' . $code . ')',
+              'shipmentCode' => $code, 'packageCodes' => $pkgCodes));
+}
+$rowId = (int) $db->insert_id;
+
+/* ---- Etiquetas: ZPL (térmica) + PDF (respaldo). ---- */
+list($zplPath, $pdfPath, $zpl, $pdfBin, $labErr) = correos_build_labels($c, $pkgCodes, $oid, $type);
+$labelOk = ($zplPath || $pdfPath);
+$fmt = ($zplPath && $pdfPath) ? 'both' : ($zplPath ? 'zpl' : ($pdfPath ? 'pdf' : ''));
+$okVal = $labelOk ? 1 : 0;
+$msg = correos_no4b(mb_substr((string) $labErr, 0, 480));
+$up = $db->prepare("UPDATE correos_shipments SET label_zpl_path=?, label_path=?, label_format=?, ok=?, mensaje_retorno=? WHERE id=?");
+$up->bind_param('sssisi', $zplPath, $pdfPath, $fmt, $okVal, $msg, $rowId);
+$up->execute();
+
+if (!$labelOk) {
+    out(array('ok' => false, 'dedup' => false, 'error' => 'preregistro OK pero la etiqueta falla; reintentar (idempotente)',
+              'labelError' => $labErr, 'shipmentCode' => $code, 'packageCodes' => $pkgCodes, 'tracking_url' => $trackingUrl));
+}
 
 out(array(
     'ok' => true, 'dedup' => false,
     'shipmentCode' => $code, 'packageCodes' => $pkgCodes,
     'tracking_url' => $trackingUrl,
-    'zpl'     => in_array($type, array('ZPL', 'BOTH')) ? $zpl : null,
-    'pdf_b64' => in_array($type, array('PDF', 'BOTH')) && $pdfBin !== null ? base64_encode($pdfBin) : null,
+    'zpl'     => in_array($type, array('ZPL', 'BOTH'), true) ? $zpl : null,
+    'pdf_b64' => in_array($type, array('PDF', 'BOTH'), true) && $pdfBin !== null ? base64_encode($pdfBin) : null,
 ));

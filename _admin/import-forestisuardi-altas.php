@@ -590,6 +590,13 @@ function findOrCreateOptionValue($mysqli, $nameEs, $nameEn = null) {
     return $newId;
 }
 
+/** Recorta el nombre base para que el sufijo de desambiguación sobreviva el límite de 64
+ *  (sql_mode no estricto trunca en silencio el final, llevándose el sufijo). */
+function fsFitName($base, $suffix, $max = 64) {
+    if (mb_strlen($base . $suffix, 'UTF-8') <= $max) return $base . $suffix;
+    return mb_substr($base, 0, $max - mb_strlen($suffix, 'UTF-8'), 'UTF-8') . $suffix;
+}
+
 function loadJson($path) {
     if (!file_exists($path)) return null;
     $j = json_decode((string) file_get_contents($path), true);
@@ -897,10 +904,16 @@ foreach ($groups as $pk => $g) {
                     'es' => mb_substr($buildLab($attrEs), 0, 64, 'UTF-8'),
                 ];
             }
+            $ovsUsados = [];   // guardia anti-colisión pa-dupe por producto (ver francobordo_pa_duplicates)
             foreach ($items as $code => $it) {
                 $delta  = round($it['_PRICE'] - $cheap['_PRICE'], 4);
                 $prefix = $delta < 0 ? '-' : '+';
                 $valueId = findOrCreateOptionValue($mysqli, $labels[$code]['es'], $labels[$code]['it']);
+                if (isset($ovsUsados[$valueId])) {
+                    // este OV ya se usó para otra variante de ESTE producto -> forzar OV desambiguado por código
+                    $valueId = findOrCreateOptionValue($mysqli, fsFitName($labels[$code]['es'], ' · ' . $code), fsFitName($labels[$code]['it'], ' · ' . $code));
+                }
+                $ovsUsados[$valueId] = true;
                 $qprovv = $mysqli->real_escape_string($code);
                 if (!$mysqli->query("INSERT INTO products_attributes SET
                     products_id=$pid, options_id=" . VARIANT_OPTION_ID . ", options_values_id=$valueId,

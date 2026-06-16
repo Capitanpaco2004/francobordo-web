@@ -166,7 +166,7 @@ if (!defined('FILENAME_PRODUCT_INFO')) define('FILENAME_PRODUCT_INFO', 'product_
                                   cus.customers_email_address email
                            from   " . TABLE_CUSTOMERS_BASKET . " cb,
                                   " . TABLE_CUSTOMERS . " cus
-							inner join rgpd_account_term rgat on(rgat.customers_id = cus.customers_id and rgat.id_term_pivacy_trade = 2)
+							inner join (select distinct customers_id from rgpd_account_term where id_term_pivacy_trade = 2) rgat on rgat.customers_id = cus.customers_id
                            where  cb.customers_basket_date_added <= '" . $bdate . "' and
                          		    cb.customers_basket_date_added > '" . $ndate . "' and
                                   cus.customers_id not in ('" . implode(", ", $cust_ses_ids) . "') and
@@ -487,7 +487,7 @@ if (!defined('FILENAME_PRODUCT_INFO')) define('FILENAME_PRODUCT_INFO', 'product_
                                         cus.customers_email_address email
                               from      " . TABLE_CUSTOMERS_BASKET . " cb,
                                         " . TABLE_CUSTOMERS . " cus
-							inner join rgpd_account_term rgat on(rgat.customers_id = cus.customers_id and rgat.id_term_pivacy_trade = 2)
+							inner join (select distinct customers_id from rgpd_account_term where id_term_pivacy_trade = 2) rgat on rgat.customers_id = cus.customers_id
                               where     cb.customers_id = cus.customers_id  and
                                         cus.customers_id = '".$cid."'
                               order by  cb.customers_basket_date_added desc ");
@@ -567,7 +567,12 @@ if (!defined('FILENAME_PRODUCT_INFO')) define('FILENAME_PRODUCT_INFO', 'product_
 
 		        if( EMAIL_USE_HTML == 'true' ) 
 				{
-					 $mline .= '<a href="' . tep_catalog_href_link(FILENAME_PRODUCT_INFO, 'products_id='. $inrec['pid']) . '"><img src="http://www.francobordo.com/images/productos/'.$inrec2['products_image'] .'" border="0" alt="'.$inrec2['name'].'" width="150" height="150"><br>'.$inrec['qty'] . ' x ' . $inrec2['name'] . '</a>' . "\n";
+					 $rcs_purl = 'https://www.francobordo.com/product_info.php?products_id=' . $inrec['pid'];
+					 $rcs_img  = 'https://www.francobordo.com/images/productos/' . $inrec2['products_image'];
+					 $mline .= '<tr>'
+						 . '<td width="86" valign="top" style="padding:10px 0;border-bottom:1px solid #ededed;"><a href="' . $rcs_purl . '"><img src="' . $rcs_img . '" alt="' . htmlspecialchars($inrec2['name']) . '" width="70" border="0" style="width:70px;height:auto;max-height:80px;display:block;border:1px solid #e0e0e0;border-radius:4px;"></a></td>'
+						 . '<td valign="middle" style="padding:10px 0 10px 12px;border-bottom:1px solid #ededed;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#333333;"><a href="' . $rcs_purl . '" style="color:#2781bb;text-decoration:none;">' . $inrec2['name'] . '</a><br><span style="color:#888888;font-size:12px;">Cantidad: ' . $inrec['qty'] . '</span></td>'
+						 . '</tr>';
 				}else{
 					$mline .= $inrec['qty'] . ' x ' . $inrec2['name'] . "\n";
 				}
@@ -578,23 +583,29 @@ if (!defined('FILENAME_PRODUCT_INFO')) define('FILENAME_PRODUCT_INFO', 'product_
 		      // includes/languages/english/recover_cart_sales.php file
 		      $cquery = tep_db_query("select * from orders where customers_id = '".$cid."'" );
 
-          $email = '<span style="font-family: Verdana, Arial, sans-serif; font-size: 11px;">';
-		      $email .= EMAIL_TEXT_1;
-		      $email .= EMAIL_TEXT_2;
-
+          $email = '';
 		      if( EMAIL_USE_HTML == 'true' ) {
-			      $email .= EMAIL_TEXT_ACCOUNT . ' <a href="' . tep_catalog_href_link('account.php', '', 'SSL') . '">' . tep_catalog_href_link('account.php', '', 'SSL')  . '</a>' . "\n\n";
-			      //$email .= EMAIL_TEXT_SHOPPINGCART . ' <a href="' . tep_catalog_href_link(FILENAME_CATALOG_SHOPPING_CART, '') . '">' . tep_catalog_href_link(FILENAME_CATALOG_SHOPPING_CART, '', 'SSL')  . '</a>' . "\n\n";
+		        $email  = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f4;"><tr><td align="center" style="padding:16px;">';
+		        $email .= '<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e6e6e6;font-family:Arial,Helvetica,sans-serif;">';
+		        $email .= '<tr><td style="padding:18px 24px;border-bottom:3px solid #2781bb;"><a href="https://www.francobordo.com/"><img src="https://www.francobordo.com/theme/web/logo-trans.png" alt="Francobordo.com" border="0" style="height:40px;display:block;border:0;"></a></td></tr>';
+		        $email .= '<tr><td style="padding:22px 24px;color:#333333;">';
+		        $email .= '<p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#333333;">Estimado cliente,</p>';
+		        $email .= '<p style="margin:0 0 14px;font-size:15px;line-height:1.65;color:#333333;">Vimos que hace unos d&iacute;as dejaste algunos productos en tu cesta de <a href="https://www.francobordo.com/" style="color:#2781bb;">Francobordo.com</a> y no llegaste a finalizar el pedido. &iquest;Tuviste alg&uacute;n problema o duda? Estamos encantados de ayudarte &mdash; ll&aacute;manos al <strong>916 528 858</strong>.</p>';
+		        $email .= '<table cellpadding="0" cellspacing="0" border="0" align="center" style="margin:22px auto;"><tr><td align="center">';
+		        $email .= '<!--[if mso]><v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="https://www.francobordo.com/account.php" style="height:46px;v-text-anchor:middle;width:300px;" arcsize="13%" stroke="f" fillcolor="#2781bb"><w:anchorlock/><center style="color:#ffffff;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;white-space:nowrap;">Finalizar mi compra</center></v:roundrect><![endif]-->';
+		        $email .= '<!--[if !mso]><!--><a href="https://www.francobordo.com/account.php" target="_blank" style="background-color:#2781bb;border-radius:6px;color:#ffffff;display:inline-block;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;line-height:46px;text-align:center;text-decoration:none;width:300px;white-space:nowrap;">Finalizar mi compra</a><!--<![endif]-->';
+		        $email .= '</td></tr></table>';
+		        $email .= '<p style="margin:18px 0 4px;font-size:15px;font-weight:bold;color:#2781bb;border-bottom:1px solid #e6e6e6;padding-bottom:6px;">Productos en tu cesta</p>';
+		        $email .= '<table width="100%" cellpadding="0" cellspacing="0" border="0">' . $mline . '</table>';
+		        $email .= '<div style="margin-top:22px;padding-top:14px;border-top:1px solid #e6e6e6;font-size:14px;line-height:1.7;color:#666666;">Reciba un cordial saludo,<br><span style="color:#333333;">Departamento de Atenci&oacute;n al Cliente</span><br>Tel&eacute;fono: 916 528 858 &nbsp;&middot;&nbsp; <a href="mailto:info@francobordo.com" style="color:#2781bb;">info@francobordo.com</a><br><a href="https://www.francobordo.com" style="color:#2781bb;">www.francobordo.com</a></div>';
+		        $email .= '</td></tr></table></td></tr></table>';
 		      } else {
-			      $email .= EMAIL_TEXT_ACCOUNT . ' ' . tep_catalog_href_link('account.php', '', 'SSL') . "\n\n";
-			      //$email .= EMAIL_TEXT_SHOPPINGCART . ' ' . tep_catalog_href_link(FILENAME_CATALOG_ACCOUNT, '', 'SSL') . "\n\n";
-			    }
-
-	        $email .= EMAIL_TEXT_3 . "\n\n" . $mline . "\n\n" . EMAIL_TEXT_4 . "\n\n";
-    	
-		    
-		      //$email .= "\n\n". $_POST['message'];
-		      $email .= '</span>';
+		        $email  = "Estimado cliente,\n\n";
+		        $email .= "Vimos que dejaste productos en tu cesta de Francobordo.com sin finalizar el pedido. Llamanos al 916 528 858 si necesitas ayuda.\n\n";
+		        $email .= "Finalizar tu compra: https://www.francobordo.com/account.php\n\n";
+		        $email .= "Productos en tu cesta:\n" . $mline . "\n";
+		        $email .= "Reciba un cordial saludo,\nDepartamento de Atencion al Cliente\nTelefono: 916 528 858 - info@francobordo.com\nhttps://www.francobordo.com\n";
+		      }
 		      $custname = $inrec['fname']." ".$inrec['lname'];
 
 		      $outEmailAddr = '"' . $custname . '" <' . $inrec['email'] . '>';

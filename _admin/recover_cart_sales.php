@@ -9,14 +9,18 @@
 
 // Delete Entry Begin
 if (($_GET['action'] ?? '')=='delete') {
-   $reset_query_raw = "delete from " . TABLE_CUSTOMERS_BASKET . " where customers_id=" . $_GET[customer_id] . " AND customers_basket_date_added = " . $_GET[dateadded];
-   tep_db_query($reset_query_raw); 
+   $del_customer_id = (int)($_GET['customer_id'] ?? 0);
+   $del_dateadded   = (int)($_GET['dateadded'] ?? 0);
+   $del_tdate       = (int)($_GET['tdate'] ?? 0);
 
-   $reset_query_raw2 = "delete from " . TABLE_CUSTOMERS_BASKET_ATTRIBUTES . " where customers_id=" . $_GET[customer_id]; 
+   $reset_query_raw = "delete from " . TABLE_CUSTOMERS_BASKET . " where customers_id=" . $del_customer_id . " AND customers_basket_date_added = " . $del_dateadded;
+   tep_db_query($reset_query_raw);
+
+   $reset_query_raw2 = "delete from " . TABLE_CUSTOMERS_BASKET_ATTRIBUTES . " where customers_id=" . $del_customer_id;
    tep_db_query($reset_query_raw2);
 
-   tep_redirect(tep_href_link(FILENAME_RECOVER_CART_SALES, 'delete=1&customer_id='. $_GET['customer_id'] . '&tdate=' . $_GET['tdate'])); 
-} 
+   tep_redirect(tep_href_link(FILENAME_RECOVER_CART_SALES, 'delete=1&customer_id='. $del_customer_id . '&tdate=' . $del_tdate));
+}
 
 if ($_GET['delete'] ?? '') {
    $messageStack->add(MESSAGE_STACK_CUSTOMER_ID . $_GET['customer_id'] . MESSAGE_STACK_DELETE_SUCCESS, 'success'); 
@@ -197,7 +201,7 @@ if (is_array($custid) && count($custid) > 0 ) {  ?>
                     <td class='dataTableContent' align='right'  width='10%' nowrap>" . $tpprice_formated . "</td>
                  </tr>";
 		$mline .= '<table width="100%" border="0" cellspacing="0" cellpadding="5"><tr><td style="background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; font-size:16px; padding:5px 10px 5px 10px; font-weight: bold; color:#2781bb" colspan="2">'.$inrec['qty'] . ' x ' . $inrec2['name'] . "</td></tr>";
-		$mline .= '<tr><td style="background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; font-size:12px; padding:5px 10px 5px 10px; width:120px"><a href="'. tep_catalog_href_link(FILENAME_CATALOG_PRODUCT_INFO, 'products_id='. $inrec['pid']) . '">'. tep_image('http://pruebas.francobordo.com/includes/modules/kiss_image_thumbnailer/thumbs/200x200_' . $inrec2['image'], $inrec2['name'], 100, 100) .'</a>';
+		$mline .= '<tr><td style="background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; font-size:12px; padding:5px 10px 5px 10px; width:120px"><a href="'. tep_catalog_href_link(FILENAME_CATALOG_PRODUCT_INFO, 'products_id='. $inrec['pid']) . '">'. tep_image('https://www.francobordo.com/images/productos/' . $inrec2['image'], $inrec2['name'], 100, 100) .'</a>';
 	
 		if( EMAIL_USE_HTML == 'true' )
 			$mline .= '</td><td style="background-color:#ffffff; font-family:Arial, Helvetica, sans-serif; font-size:12px; padding:5px; text-align:left; color:#333333"><a href="' . tep_catalog_href_link(FILENAME_CATALOG_PRODUCT_INFO, 'products_id='. $inrec['pid']) . '" style="color:#333333">' . $inrec2['name'] . "</a></td></tr></table>\n";
@@ -307,9 +311,9 @@ else	 //we are NOT doing an e-mail to some customers
                                 cus.customers_email_address email
                          from   " . TABLE_CUSTOMERS_BASKET . " cb,
                                 " . TABLE_CUSTOMERS . " cus
-						 inner join rgpd_account_term rgat on(rgat.customers_id = cus.customers_id and rgat.id_term_pivacy_trade = 2)
                          where  cb.customers_basket_date_added <= '" . $bdate . "' and
                          		  cb.customers_basket_date_added > '" . $ndate . "' and
+                                exists (select 1 from rgpd_account_term rgat where rgat.customers_id = cus.customers_id and rgat.id_term_pivacy_trade = 2) and
                                 cus.customers_id not in ('" . implode(", ", $cust_ses_ids) . "') and
                                 cb.customers_id = cus.customers_id order by cb.customers_basket_date_added desc,
                                 cb.customers_id ");
@@ -509,6 +513,21 @@ else	 //we are NOT doing an e-mail to some customers
                     <td class='dataTableContent' align='right'  vAlign='top' width='10%' nowrap>" . $tpprice_formated . "</td>
                  </tr>";
 	 }
+  }
+
+  // FIX 2026-06-16: el bucle "<= $knt" + el guard is_array() nunca volcaba el ULTIMO cliente
+  // (ni lo sumaba al gran total). Lo volcamos aqui, replicando el flush interno de arriba.
+  $totalAll += $tprice;
+  if ($curcus != "" && !$skip) {
+    $cline .= "       </td>
+                      <tr>
+                        <td class='dataTableContent' align='right' colspan='8'><b>" . TABLE_CART_TOTAL . "</b>" . $currencies->format($tprice) . "</td>
+                      </tr>
+                      <tr>
+                        <td colspan='6' align='right'><a href=" . tep_href_link(FILENAME_RECOVER_CART_SALES,"action=delete&customer_id=" . $curcus . "&tdate=" . $tdate . "&sdate=" . $sdate. "&dateadded=" . $curcus_date_added) . ">" . tep_image_button('button_delete.gif', IMAGE_DELETE) . "</a>
+                        </td>
+                      </tr>\n";
+    echo $cline;
   }
   $totalAll_formated = $currencies->format($totalAll);
   $cline = "<tr></tr><td class='dataTableContent' align='right' colspan='8'><hr align=right width=55><b>" . TABLE_GRAND_TOTAL . "</b>" . $totalAll_formated . "</td>

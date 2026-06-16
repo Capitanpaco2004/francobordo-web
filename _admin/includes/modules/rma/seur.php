@@ -295,14 +295,23 @@ function rmaSeurCancel() {
     if (!$s || empty($s['shipment_code']) || !empty($s['cancelled_at'])) { tep_redirect(tep_href_link('rma.php', 'action=view&id=' . (int) ($s['id_rma'] ?? 0))); }
 
     $seur = new seur($s['entorno'] ?: SEUR_ENV);
-    $seur->setTimeout(60);
+    $seur->setTimeout(20);   // intento rápido; si falla en DURO se ENCOLA y el cron reintenta
     $res = ($s['tipo'] === 'recogida')
         ? $seur->cancelCollection($s['shipment_code'])
         : $seur->cancelShipment($s['shipment_code']);
     $d = seur::payload($res);
     $desc = (is_array($d) && !empty($d[0]['description'])) ? $d[0]['description'] : seur::primerError($res);
-    tep_db_perform('seur_shipments', array('cancelled_at' => 'now()'), 'update', 'id = ' . $shipId);
-    seurNote($s['id_rma'], 'SEUR: ' . ($s['tipo'] === 'recogida' ? 'devolución' : 'envío') . ' ' . $s['shipment_code'] . ' anulado (' . $desc . ').');
+    $tipoTxt = ($s['tipo'] === 'recogida') ? 'devolución' : 'envío';
+    if (seur::cancelOk($res)) {
+        // Éxito (o "ya anulado/no existe"): marcar anulado.
+        tep_db_perform('seur_shipments', array('cancelled_at' => 'now()'), 'update', 'id = ' . $shipId);
+        seurNote($s['id_rma'], 'SEUR: ' . $tipoTxt . ' ' . $s['shipment_code'] . ' anulado (' . $desc . ').');
+    } else {
+        // Error DURO: el envío SIGUE VIVO en SEUR → NO marcar anulado. Encolar para que el
+        // cron de tracking reintente cada hora (antes se marcaba anulado a ciegas: bug).
+        tep_db_perform('seur_shipments', array('cancel_requested_at' => 'now()'), 'update', 'id = ' . $shipId);
+        seurNote($s['id_rma'], 'SEUR: la anulación de ' . $tipoTxt . ' ' . $s['shipment_code'] . ' NO se pudo completar ahora (' . $desc . '); el envío SIGUE ACTIVO. Se REINTENTARÁ automáticamente cada hora. Si urge, gestiónalo con SEUR.');
+    }
     tep_redirect(tep_href_link('rma.php', 'action=view&id=' . (int) $s['id_rma']));
 }
 

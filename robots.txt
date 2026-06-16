@@ -14,6 +14,7 @@ Disallow: /ext/
 Disallow: /chat/
 Disallow: /lists/
 Disallow: /feeds/
+Allow: /fm-feeds/francobordo.txt
 Disallow: /fm-feeds/
 Disallow: /googlesitemap/
 Disallow: /html2pdf/
@@ -108,3 +109,66 @@ Crawl-delay: 30
 # Honeypot (anadido 2026-05-19) — cualquier IP que visite esto se autobanea 7d
 User-agent: *
 Disallow: /admin-panel-secret/
+
+#
+# === Crawlers de IA / motores de respuesta (anadido 2026-06-15) ===
+# Doc oficial OpenAI: https://developers.openai.com/api/docs/bots
+# OAI-SearchBot : nos hace aparecer y ser CITADOS en las busquedas de ChatGPT. NO bloquear.
+# ChatGPT-User  : fetch en vivo cuando un usuario navega desde ChatGPT.
+# GPTBot        : crawler de ENTRENAMIENTO. Permitido para reforzar el reconocimiento de marca.
+#                 OPT-OUT del entrenamiento: mover SOLO GPTBot a un grupo propio con "Disallow: /".
+# Mismas exclusiones funcionales que "User-agent: *" (checkout, cuenta, carrito, action=, honeypot).
+#
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: GPTBot
+Allow: /
+Disallow: /cgi-bin/
+Disallow: /emails/
+Disallow: /temp/
+Disallow: /ext/
+Disallow: /chat/
+Disallow: /lists/
+Disallow: /feeds/
+Disallow: /fm-feeds/
+Disallow: /googlesitemap/
+Disallow: /html2pdf/
+Disallow: /upload/
+Disallow: /feed/
+Disallow: /404.php
+Disallow: /popup_image.php
+Disallow: /popup_search_help.php
+Disallow: /account.php
+Disallow: /account_edit.php
+Disallow: /account_history.php
+Disallow: /account_history_info.php
+Disallow: /account_password.php
+Disallow: /add_checkout_success.php
+Disallow: /address_book.php
+Disallow: /address_book_process.php
+Disallow: /advanced_search.php
+Disallow: /advanced_search_result.php
+Disallow: /comparador.php
+Disallow: /checkout_confirmation.php
+Disallow: /checkout_payment.php
+Disallow: /checkout_payment_address.php
+Disallow: /checkout_process.php
+Disallow: /checkout_shipping.php
+Disallow: /checkout_shipping_address.php
+Disallow: /checkout_success.php
+Disallow: /contact_bean.php
+Disallow: /cookie_usage.php
+Disallow: /create_account.php
+Disallow: /create_account_success.php
+Disallow: /login.php
+Disallow: /password_forgotten.php
+Disallow: /product_thumb.php
+Disallow: /shopping_cart.php
+Disallow: /product_reviews_write.php
+Disallow: /index.php*
+Disallow: /*action=*
+Disallow: /admin-panel-secret/
+
+# Bytespider (ByteDance/TikTok AI) — agresivo, poco valor SEO (2026-06-16)
+User-agent: Bytespider
+Disallow: /

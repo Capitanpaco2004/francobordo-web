@@ -290,7 +290,28 @@ function FM_RS_google_categories_es_sp_wa($product) {
         1138 => 'Vehículos y recambios > Piezas y accesorios para vehículos > Accesorios y piezas para embarcaciones > Atracada y anclaje > Escaleras para muelle',
     ];
 
-    return $categories[$category_id] ?? '';
+    // Fallback (anadido 2026-06-15): evita google_product_category vacio (era ~16.5%, 6027 prods).
+    if (isset($categories[$category_id])) {
+        return $categories[$category_id];
+    }
+    // 2do nivel: por categoria TOP del arbol del producto (idioma del feed).
+    $lang = isset($GLOBALS['cur_feed']['language_id']) ? (int)$GLOBALS['cur_feed']['language_id'] : 3;
+    $path = $GLOBALS['categories'][$product['categories_id']][$lang] ?? [];
+    $top  = (is_array($path) && count($path)) ? trim((string)$path[0]) : '';
+    $top_map = [
+        'Electronica'              => 'Electrónica > Accesorios de electrónica náutica',
+        'Motores'                  => 'Vehículos y recambios > Piezas y accesorios para vehículos > Accesorios y piezas para embarcaciones > Motores y engranajes para embarcaciones',
+        'Submarinismo'             => 'Equipamiento deportivo > Deportes acuáticos > Buceo y buceo con esnórquel',
+        'Motonautica'              => 'Equipamiento deportivo > Deportes acuáticos',
+        'Deportes Nauticos'        => 'Equipamiento deportivo > Deportes acuáticos',
+        'Kayaks'                   => 'Equipamiento deportivo > Deportes acuáticos > Embarcación > Kayaking',
+        'Mantenimiento y Limpieza' => 'Vehículos y recambios > Piezas y accesorios para vehículos > Accesorios y piezas para embarcaciones > Cuidado para embarcaciones',
+    ];
+    if (isset($top_map[$top])) {
+        return $top_map[$top];
+    }
+    // Por defecto (Francobordo es 100% nautica): accesorios para embarcaciones.
+    return 'Vehículos y recambios > Piezas y accesorios para vehículos > Accesorios y piezas para embarcaciones';
 }
 
 function FM_RS_shipping_label($product) {

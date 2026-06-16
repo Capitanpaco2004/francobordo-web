@@ -5,8 +5,11 @@
  *   1) Allowlist hardcoded (LAN, self, casa, Redsys, Googlebot, Bingbot, Meta, Ahrefs, Petalbot)
  *   2) Allowlist DB (tabla scraper_allowlist) — añadible desde panel admin
  *   3) 403 inmediato si IP en scraper_blacklist (no expirada)
- *   4) Heurística: UAs del pool residencial (SM-G900P, Pixel 2, iPhone 11, Nexus 5) -> rate-limit
- *      Si la misma IP+UA-antiguo dispara >=5 hits en 60s -> auto-blacklist 24h + 403.
+ *   4a) CONDUCTUAL (agnóstico al UA): rate-limit del firehose /products_new.php.
+ *       >=15 hits / 10 min desde una IP -> auto-blacklist 24h (reason ratelimit_catalog).
+ *       Es la defensa durable: NO depende del User-Agent, así que aguanta la rotación de UAs.
+ *   4b) Heurística UA antiguo del pool residencial (SM-G900P, Pixel 2, iPhone 11, Nexus 5,
+ *       + macOS 10_12/13/14, Win7) -> rate-limit 5 hits/60s -> blacklist 24h (ratelimit_oldua).
  *
  * Robustez:
  *   - Toda la capa BD va en try/catch -> fail-open real (mysqli_report STRICT lanza excepciones,
@@ -83,19 +86,59 @@ try {
         _sg_deny_403();
     }
 
-    // (4) Heuristica UA antiguo + rate-limit
+    // --- Señales para las heuristicas (UA + script destino) ---
     $_sg_ua = $_SERVER["HTTP_USER_AGENT"] ?? "";
-    $_sg_old_ua_regex = "#(SM-G900P Build|Pixel 2 Build/OPD3|Nexus 5 Build/MRA58N|iPhone OS 11_0.*Chrome|Android 7\.0;\) AppleWebKit/537\.36 \(HTML, like Gecko\))#";
-    $_sg_declared_bot_regex = "#(PetalBot|AspiegelBot|Googlebot|bingbot|YandexBot|DuckDuckBot|FacebookExternalHit|meta-externalagent|Amazonbot|AhrefsBot|Slurp|SemrushBot|MJ12bot|DotBot|Applebot)#i";
+    $_sg_uae = mysqli_real_escape_string($_sg_link, substr($_sg_ua, 0, 500));
+    // Incluye crawlers IA DESEADOS (estrategia de visibilidad IA de francobordo): Anthropic/OpenAI/Perplexity.
+    // + crawlers Google deseados (search/Shopping-Merchant/AdsBot/inspeccion) que NO contienen "Googlebot"
+    //   y rastrean desde rangos fuera de la allowlist CIDR (74.125.x, 142.250.x) — 2026-06-15.
+    $_sg_declared_bot_regex = "#(PetalBot|AspiegelBot|Googlebot|GoogleOther|Storebot-Google|AdsBot-Google|Google-InspectionTool|APIs-Google|FeedFetcher-Google|bingbot|BingPreview|adidxbot|msnbot|YandexBot|DuckDuckBot|FacebookExternalHit|facebookexternalhit|meta-externalagent|Twitterbot|WhatsApp|Pinterest|LinkedInBot|TelegramBot|Discordbot|Slackbot|Amazonbot|AhrefsBot|Slurp|SemrushBot|MJ12bot|DotBot|Applebot|idealo|ClaudeBot|Claude-Web|anthropic-ai|GPTBot|OAI-SearchBot|ChatGPT-User|PerplexityBot)#i";
+    $_sg_is_declared = ($_sg_ua !== "" && preg_match($_sg_declared_bot_regex, $_sg_ua));
+    $_sg_script = basename($_SERVER["SCRIPT_NAME"] ?? "");
 
-    if ($_sg_ua === "" || !preg_match($_sg_old_ua_regex, $_sg_ua) || preg_match($_sg_declared_bot_regex, $_sg_ua)) {
+    // (4a) CONDUCTUAL (agnostico al UA): rate-limit del firehose de catalogo.
+    //      /products_new.php es el endpoint que la flota de scraping barre pagina a pagina
+    //      (page=1..35). Un humano rara vez lista novedades >15 veces en 10 min; un scraper si.
+    //      Esta regla NO depende del User-Agent -> aguanta la rotacion de UAs (la deteccion por
+    //      UA es carrera perdida). Exenta de allowlist (ya filtrada arriba) + bots declarados.
+    //      Umbral inicial: 15 hits / 10 min -> ban 24h. Ajustable (ver $_sg_cat_*).
+    $_sg_cat_window = "10 MINUTE";
+    $_sg_cat_thresh = 15;
+    if (!$_sg_is_declared && $_sg_script === "products_new.php") {
+        mysqli_query($_sg_link, "INSERT INTO scraper_observed (ip, reason, window_start, hits)
+            VALUES (\"$_sg_ipe\", \"catalog\", NOW(), 1)
+            ON DUPLICATE KEY UPDATE
+                hits = IF(window_start < NOW() - INTERVAL $_sg_cat_window, 1, hits + 1),
+                window_start = IF(window_start < NOW() - INTERVAL $_sg_cat_window, NOW(), window_start)");
+        $_sg_res = mysqli_query($_sg_link, "SELECT hits FROM scraper_observed WHERE ip = \"$_sg_ipe\" AND reason = \"catalog\" LIMIT 1");
+        $_sg_row = $_sg_res ? mysqli_fetch_assoc($_sg_res) : null;
+        if ($_sg_res) mysqli_free_result($_sg_res);
+        if ($_sg_row && (int)$_sg_row["hits"] >= $_sg_cat_thresh) {
+            mysqli_query($_sg_link, "INSERT INTO scraper_blacklist (ip, ua, reason, expires_at)
+                VALUES (\"$_sg_ipe\", \"$_sg_uae\", \"ratelimit_catalog\", DATE_ADD(NOW(), INTERVAL 24 HOUR))
+                ON DUPLICATE KEY UPDATE last_seen = NOW(), hits = hits + 1,
+                    expires_at = DATE_ADD(NOW(), INTERVAL 24 HOUR),
+                    ua = VALUES(ua),
+                    reason = IF(reason LIKE \"%ratelimit_catalog%\", reason, CONCAT(reason, \"+ratelimit_catalog\"))");
+            mysqli_query($_sg_link, "DELETE FROM scraper_observed WHERE ip = \"$_sg_ipe\" AND reason = \"catalog\"");
+            mysqli_close($_sg_link);
+            _sg_deny_403();
+        }
+    }
+
+    // (4b) Heuristica UA antiguo del pool residencial + rate-limit 5/60s.
+    //      Parche 2026-06-15: anadidos macOS Sierra/HighSierra/Mojave (10_12/13/14_0) y Win7,
+    //      la 2a generacion de UAs que adopto la flota. OJO: son UAs de escritorio cercanos a
+    //      usuarios reales -> van tras el gate de 5/60s (no ban instantaneo) para minimizar FP.
+    $_sg_old_ua_regex = "#(SM-G900P Build|Pixel 2 Build/OPD3|Nexus 5 Build/MRA58N|iPhone OS 11_0.*Chrome|Android 7\.0;\) AppleWebKit/537\.36 \(HTML, like Gecko\)|Mac OS X 10_1[234]_0\)|Windows NT 6\.1;)#";
+
+    if ($_sg_ua === "" || !preg_match($_sg_old_ua_regex, $_sg_ua) || $_sg_is_declared) {
         mysqli_close($_sg_link);
         return;
     }
 
     // Rate-limit atomico: INSERT ... ON DUPLICATE KEY UPDATE (sin race condition).
     // Si la ventana de 60s caduco, resetea hits=1 y window_start=NOW; si no, incrementa.
-    $_sg_uae = mysqli_real_escape_string($_sg_link, substr($_sg_ua, 0, 500));
     mysqli_query($_sg_link, "INSERT INTO scraper_observed (ip, reason, window_start, hits)
         VALUES (\"$_sg_ipe\", \"oldua\", NOW(), 1)
         ON DUPLICATE KEY UPDATE

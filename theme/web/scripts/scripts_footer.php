@@ -84,6 +84,9 @@
 	}
 </script>
 
+<!-- Trustpilot TrustBox loader (Review Collector). Carga asincrona, igual que la insignia de Google Customer Reviews de arriba. -->
+<script type="text/javascript" src="//widget.trustpilot.com/bootstrap/v5/tp.widget.bootstrap.min.js" async></script>
+
 <!--Doofinder script starts here -->
 <?php if (!isset($_SERVER['HTTP_USER_AGENT']) || stripos($_SERVER['HTTP_USER_AGENT'], 'Speed Insights') === false): ?>
 	<?php if( SEARCH_AUTOCOMPLETE_DOOFINDER_DENOX == 'Doofinder' ): ?>

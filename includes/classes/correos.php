@@ -283,10 +283,11 @@ class correos {
      * solos reintentando (2026-06-10: éxito al 3er intento). Se reintenta hasta 4
      * veces con pausa de 2s; se corta en cuanto llega "Anulado con éxito".
      * Éxito: data = {message:"Preregistro Anulado con éxito", errors:[]}. */
-    public function annulment($packageCode, $errorLang = 'spa') {
+    public function annulment($packageCode, $errorLang = 'spa', $maxTries = 4) {
         $payload = array('errorCodeLanguage' => $errorLang, 'packageCode' => (string) $packageCode);
         $r = null;
-        for ($i = 0; $i < 4; $i++) {
+        $n = max(1, (int) $maxTries);   // web: pocos intentos (no bloquear); cron: reintenta cada hora
+        for ($i = 0; $i < $n; $i++) {
             if ($i > 0) sleep(2);
             $r = $this->request(self::BASE_PREREGISTER, 'delivery/annulment', $payload, self::SCOPE_PREREGISTER);
             $msg = is_array($r['data'] ?? null)
@@ -381,17 +382,62 @@ class correos {
         );
     }
 
-    /** Último evento de una respuesta de seguimiento(); null si no hay. */
-    public static function ultimoEvento(array $resp) {
+    /** Timestamp ordenable (YmdHis) de un evento (fecEvento dd/mm/yyyy + horEvento). */
+    public static function eventoTs($e) {
+        $f = is_array($e) ? (string) ($e['fecEvento'] ?? '') : '';
+        $h = is_array($e) ? (string) ($e['horEvento'] ?? '') : '';
+        $fs = '00000000';
+        if (preg_match('#^(\d{2})/(\d{2})/(\d{4})$#', $f, $m)) $fs = $m[3] . $m[2] . $m[1];
+        $hs = preg_match('/^(\d{2}):(\d{2})(?::(\d{2}))?/', $h, $mm) ? ($mm[1] . $mm[2] . ($mm[3] ?? '00')) : '000000';
+        return $fs . $hs;
+    }
+
+    /** Eventos de una respuesta de seguimiento() ordenados cronológicamente
+     *  ASCENDENTE. El localizador canónico público NO garantiza el orden, así
+     *  que ordenar es imprescindible para leer el estado ACTUAL correctamente. */
+    public static function eventosOrdenados(array $resp) {
         $env = $resp['data'][0] ?? null;
-        if (!is_array($env) || empty($env['eventos']) || !is_array($env['eventos'])) return null;
-        return $env['eventos'][count($env['eventos']) - 1];
+        if (!is_array($env) || empty($env['eventos']) || !is_array($env['eventos'])) return array();
+        $evs = array_values($env['eventos']);
+        usort($evs, function ($a, $b) { return strcmp(correos::eventoTs($a), correos::eventoTs($b)); });
+        return $evs;
+    }
+
+    /** Último evento (CRONOLÓGICO) de una respuesta de seguimiento(); null si no hay. */
+    public static function ultimoEvento(array $resp) {
+        $evs = self::eventosOrdenados($resp);
+        return $evs ? $evs[count($evs) - 1] : null;
     }
 
     /** ¿El evento pertenece a la fase 4 ENTREGADO de la Matriz? */
     public static function esEntregado($evento) {
         $fase = is_array($evento) ? (string) ($evento['desFase'] ?? '') : '';
         return stripos($fase, 'ENTREGAD') !== false;   // "ENTREGADO" / "ENTREGADA"
+    }
+
+    /** ¿Algún evento del histórico está en fase ENTREGADO? Más robusto que mirar
+     *  solo el último evento (un ENTREGADO sin hora podría no quedar el último al
+     *  ordenar). ENTREGADO es terminal, así que "algún ENTREGADO" = entregado. */
+    public static function algunEntregado(array $resp) {
+        foreach (self::eventosOrdenados($resp) as $e) {
+            if (self::esEntregado($e)) return true;
+        }
+        return false;
+    }
+
+    /** ¿El envío entró en la FASE de DEVOLUCIÓN (return-to-sender)? Un envío
+     *  devuelto al remitente CIERRA en fase ENTREGADO (de vuelta a Francobordo),
+     *  así que esEntregado() daría falso positivo y completaría el pedido del
+     *  cliente cuando NUNCA lo recibió. Se detecta SOLO por la FASE 'DEVOLUCIÓN'
+     *  de la Matriz de Correos (fiable). NO se mira el texto del evento: avisos
+     *  pre-entrega tipo "...si no se retira será devuelto al remitente" aparecen
+     *  mientras el paquete SIGUE disponible para recoger, y casarían en falso
+     *  bloqueando un pedido que el cliente sí recogió luego. */
+    public static function huboDevolucion(array $resp) {
+        foreach (self::eventosOrdenados($resp) as $e) {
+            if (stripos((string) ($e['desFase'] ?? ''), 'DEVOLUC') !== false) return true;
+        }
+        return false;
     }
 
     /* ================================================================== *

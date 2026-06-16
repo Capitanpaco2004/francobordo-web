@@ -29,7 +29,8 @@ include 'includes/configure.php';
 require_once 'includes/classes/seur.php';
 
 $date = trim((string) ($in['date'] ?? ''));
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = date('Y-m-d');
+$pFrom = trim((string) ($in['from'] ?? ''));
+$pTo   = trim((string) ($in['to'] ?? ''));
 
 /* Entorno desde seur_config */
 $env = 'pre';
@@ -40,13 +41,34 @@ if (!$db->connect_errno) {
     }
 }
 
+/* Rango del manifiesto:
+ *  - date=YYYY-MM-DD      -> ese día (reimpresión puntual)
+ *  - from=..&to=..        -> rango explícito
+ *  - por defecto          -> TODO LO PENDIENTE de recoger (cubre fin de semana:
+ *    el repartidor no pasa sáb/dom, así que el lunes se entregan también los del
+ *    finde). dateFrom = registro más antiguo aún SIN recoger (estado SX010/sin
+ *    tracking), dateTo = hoy. Tope 7 días para no arrastrar nada anómalo. */
+$mTo = date('Y-m-d');
+if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+    $mFrom = $date; $mTo = $date;
+} elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', $pFrom) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $pTo)) {
+    $mFrom = $pFrom; $mTo = $pTo;
+} else {
+    $mFrom = $mTo;
+    if (!$db->connect_errno) {
+        $envEsc = $db->real_escape_string($env);
+        $qp = $db->query("SELECT MIN(DATE(s.date_added)) m FROM seur_shipments s LEFT JOIN seur_tracking t ON t.referencia = s.ref WHERE s.entorno = '$envEsc' AND s.tipo = 'envio' AND s.ok = 1 AND s.cancelled_at IS NULL AND (t.estado_code IS NULL OR t.estado_code = 'SX010') AND s.date_added > (NOW() - INTERVAL 7 DAY)");
+        if ($qp && ($rp = $qp->fetch_assoc()) && !empty($rp['m'])) $mFrom = $rp['m'];
+    }
+}
+
 $s = new seur($env);
 $s->setTimeout(60);
-$r = $s->deliveryManifest($date, $date);
+$r = $s->deliveryManifest($mFrom, $mTo);
 
 if (!empty($r['pdf_bin'])) {
     header('Content-Type: application/pdf');
-    header('Content-Disposition: attachment; filename="Manifiesto_SEUR_' . $date . ($env === 'pre' ? '_PRUEBAS' : '') . '.pdf"');
+    header('Content-Disposition: attachment; filename="Manifiesto_SEUR_' . $mFrom . ($mFrom !== $mTo ? '_a_' . $mTo : '') . ($env === 'pre' ? '_PRUEBAS' : '') . '.pdf"');
     header('Content-Length: ' . strlen($r['pdf_bin']));
     header('Cache-Control: private, no-store');
     echo $r['pdf_bin'];
@@ -55,7 +77,7 @@ if (!empty($r['pdf_bin'])) {
 
 header('Content-Type: application/json');
 if ((int) $r['http'] === 204) {
-    echo json_encode(array('ok' => false, 'error' => 'Sin envios SEUR registrados el ' . $date . ' (entorno ' . $env . ').'), JSON_UNESCAPED_UNICODE);
+    echo json_encode(array('ok' => false, 'error' => 'Sin envios SEUR pendientes (rango ' . $mFrom . ' a ' . $mTo . ')' . ' entorno' . ' (entorno ' . $env . ').'), JSON_UNESCAPED_UNICODE);
 } else {
     echo json_encode(array('ok' => false, 'error' => 'No se pudo generar el manifiesto (HTTP ' . $r['http'] . '): ' . seur::primerError($r)), JSON_UNESCAPED_UNICODE);
 }

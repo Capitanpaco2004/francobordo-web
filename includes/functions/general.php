@@ -1732,7 +1732,7 @@ function tep_customer_greeting()
  * @return bool
  * @throws Exception
  */
-function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $from_email_name, $from_email_address, $attachFile = false) {
+function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $from_email_name, $from_email_address, $attachFile = false, $bcc = '') {
 	// Mail
 	$mail = new PHPMailer(true);
 
@@ -1856,6 +1856,11 @@ function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $fro
 
 	$mail->Body    = $email_text;
 	$mail->AltBody = htmlentities($mail->Body);
+
+	// Trustpilot AFS: BCC opcional, solo si se pasa una direccion valida (lo usa checkout_process.php).
+	if ($bcc !== '' && filter_var($bcc, FILTER_VALIDATE_EMAIL)) {
+		$mail->AddBCC($bcc);
+	}
 
 	try {
 		$mail->send();

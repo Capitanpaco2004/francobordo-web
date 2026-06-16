@@ -428,6 +428,23 @@ class seur {
         return $this->request('pic/v1/collections/cancel', array('codes' => $codes), 'POST');
     }
 
+    /** ¿La anulación se puede dar por BUENA? Éxito HTTP, o error "suave" (el envío
+     *  ya estaba anulado / no existe → equivale a anulado). Un error DURO (sigue
+     *  vivo) devuelve false: NO se debe marcar cancelled_at (mismo criterio que el
+     *  panel _admin/seur_envios.php). */
+    public static function cancelOk(array $resp) {
+        if (!empty($resp['ok'])) return true;
+        // Error "suave" SOLO si viene del cuerpo de NEGOCIO (data[0].description).
+        // NO usar primerError(): un 404/WAF de transporte ("not found") dejaría VIVO
+        // el envío y lo marcaría anulado por error (reintroduciría el bug). Sin cuerpo
+        // de negocio → false → se encola y reintenta.
+        $d = self::payload($resp);
+        if (!is_array($d) || empty($d[0]['description'])) return false;
+        $desc = mb_strtolower((string) $d[0]['description']);
+        return (strpos($desc, 'no existe') !== false || strpos($desc, 'ya anulad') !== false
+             || strpos($desc, 'inexist') !== false || strpos($desc, 'not found') !== false);
+    }
+
     /** Próximo día laborable (L-V) en formato Y-m-d. Las recogidas con
      *  label=true se realizan siempre al día siguiente (indicación SEUR). */
     public static function proximoDiaLaborable($desde = null) {

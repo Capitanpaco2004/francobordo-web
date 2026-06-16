@@ -47,6 +47,11 @@
 				echo '<img src="theme/web/images/custom/17.png"/>';
 				echo '<img src="theme/web/images/custom/25.png"/>';
 				echo '<img src="theme/web/images/custom/20.png"/>';
+
+				// Trustpilot Review Collector (TrustBox) — unico widget disponible en el plan Free; CTA "Resenanos en Trustpilot".
+				echo '<div class="trustpilot-widget tp-footer" data-locale="es-ES" data-template-id="56278e9abfbbba0bdcd568bc" data-businessunit-id="5ec577c88fd1b600014daf93" data-style-height="52px" data-style-width="100%" data-token="4efb3c29-4e2d-4cbc-bb3a-94cc79e4d659">';
+					echo '<a href="https://es.trustpilot.com/review/francobordo.com" target="_blank" rel="noopener">Trustpilot</a>';
+				echo '</div>';
 			echo '</div>';
 
 			echo '<div class="righ">';

@@ -86,7 +86,10 @@
 		// Ciudad
 		if ($city_id == 0 && $city == '') {
 			$error = true;
-	        $messageStack->add('addressbook', ENTRY_CITY_ID_ERROR);
+	        // 'error', true → escribe en messages['addressbook'] para que check('addressbook')
+	        // bloquee el insert; sin el flag, el insert seguía con city='' y el trigger
+	        // address_book_city_guard lanzaba SIGNAL 45000 → Fatal 500 al cliente.
+	        $messageStack->add('addressbook', ENTRY_CITY_ID_ERROR, 'error', true);
 		}
 		// Si no contenemos errores
 		if( $messageStack->check('addressbook') == false )

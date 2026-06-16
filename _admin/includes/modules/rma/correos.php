@@ -205,16 +205,33 @@ function rmaCorreosCancel() {
     $s = tep_db_fetch_array($q);
     if (!$s || empty($s['package_code']) || !empty($s['cancelled_at'])) { tep_redirect(tep_href_link('rma.php', 'action=view&id=' . (int) ($s['id_rma'] ?? 0))); }
 
-    $c = new correos($s['entorno'] ?: 'pro');
-    $c->setTimeout(60);
-    $res = $c->annulment($s['package_code']);   // reintenta internamente (endpoint inestable)
+    // Todos los bultos del envío (multibulto): packageCodes de response_json o el package_code.
+    $pkgs = array();
+    $rj = json_decode((string) ($s['response_json'] ?? ''), true);
+    $pk = $rj['data']['shipments'][0]['packages'] ?? null;
+    if (is_array($pk)) foreach ($pk as $pp) if (!empty($pp['packageCode'])) $pkgs[] = (string) $pp['packageCode'];
+    if (!$pkgs) $pkgs = array((string) $s['package_code']);
+    $pkgs = array_values(array_unique($pkgs));
 
-    if (correos::annulmentOk($res)) {
+    // Intento RÁPIDO en la petición del admin (no bloquear). Si falla, se ENCOLA y el
+    // cron de tracking reintenta cada hora (el endpoint de anulación es inestable: M5).
+    $c = new correos($s['entorno'] ?: 'pro');
+    $c->setTimeout(12);                 // intento RÁPIDO acotado; el cron reintenta lo que falle
+    $allOk = true; $lastMsg = '';
+    foreach ($pkgs as $pc) {
+        $res = $c->annulment($pc, 'spa', 2);
+        if (!correos::annulmentOk($res)) {
+            $allOk = false;
+            $lastMsg = is_array($res['data'] ?? null) ? (string) ($res['data']['message'] ?? ($res['data']['error'] ?? '')) : ('HTTP ' . ($res['http'] ?? '?'));
+        }
+    }
+
+    if ($allOk) {
         tep_db_perform('correos_shipments', array('cancelled_at' => 'now()'), 'update', 'id = ' . $shipId);
         correosNote($s['id_rma'], 'Correos: devolución ' . $s['shipment_code'] . ' anulada.');
     } else {
-        $msg = is_array($res['data'] ?? null) ? (string) ($res['data']['message'] ?? ($res['data']['error'] ?? '')) : ('HTTP ' . ($res['http'] ?? '?'));
-        correosNote($s['id_rma'], 'Correos: ERROR al anular la devolución ' . $s['shipment_code'] . ' (' . $msg . '). Reintentar más tarde.');
+        tep_db_perform('correos_shipments', array('cancel_requested_at' => 'now()'), 'update', 'id = ' . $shipId);
+        correosNote($s['id_rma'], 'Correos: la anulación de ' . $s['shipment_code'] . ' no se pudo completar ahora (' . $lastMsg . '); se REINTENTARÁ automáticamente cada hora. Si urge, anular a mano.');
     }
     tep_redirect(tep_href_link('rma.php', 'action=view&id=' . (int) $s['id_rma']));
 }

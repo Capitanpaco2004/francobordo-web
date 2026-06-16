@@ -7,6 +7,7 @@ include('includes/application_top.php');
 include(DIR_WS_INCLUDES . 'functions/shortcodes.php');
 include(DIR_THEME_ROOT . 'functions/shortcodes.php');
 include(DIR_WS_LANGUAGES . $language . '/' . FILENAME_PRODUCT_INFO);
+include(DIR_WS_INCLUDES . 'jsonld_seo_patch.php'); // SEO JSON-LD: gtin13 + availability (2026-06-15)
 
 // Si no hay products_id en GET o POST, o viene vacío, redirigimos
 $products_id = $_GET['products_id'] ?? ($_POST['products_id'] ?? NULL);

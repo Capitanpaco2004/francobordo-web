@@ -297,6 +297,30 @@ Si pasados unos minutos no lo ha recibido, busque en la carpeta “Spam”, “C
     <span id="tsCheckoutOrderEstDeliveryDate"><?php echo date('Y-m-d', (strtotime("+48 Hours"))); ?></span>
 </div>
 
+<?php
+// --- Datos para Google Customer Reviews (anadido 2026-06-15) ---
+// Pais de envio real del pedido (ES por defecto; PT si va a Portugal)
+$sGcrCountry = 'ES';
+$qGcrC = tep_db_query("select delivery_country from " . TABLE_ORDERS . " where orders_id = '" . (int)$orders['orders_id'] . "' limit 1");
+if ($rGcrC = tep_db_fetch_array($qGcrC)) {
+    $sDc = strtolower(trim((string)$rGcrC['delivery_country']));
+    if (strpos($sDc, 'portug') !== false || $sDc === 'pt') { $sGcrCountry = 'PT'; }
+}
+// estimated_delivery_date robusto: $aEstimate2 puede ser array (year/month/day) o string 'Y-m-d'
+$sGcrEstDate = is_array($aEstimate2) ? ($aEstimate2['year'] . '-' . $aEstimate2['month'] . '-' . $aEstimate2['day']) : (string)$aEstimate2;
+// GTINs reales (EAN-13 GS1) de los productos del pedido -> resenas de PRODUCTO en Google
+$aGcrGtins = [];
+$qGcrP = tep_db_query("select distinct product_ean from " . TABLE_ORDERS_PRODUCTS . " where orders_id = '" . (int)$orders['orders_id'] . "' and product_ean is not null and product_ean <> ''");
+while ($rGcrP = tep_db_fetch_array($qGcrP)) {
+    $ean = trim((string)$rGcrP['product_ean']);
+    // 13 digitos, fuera de rangos restringidos (2x, 0[245] = EAN internos), digito de control valido
+    if (preg_match('/^[0-9]{13}$/', $ean) && !preg_match('/^(2|0[245])/', $ean)) {
+        $sum = 0;
+        for ($i = 0; $i < 12; $i++) { $d = (int)$ean[$i]; $sum += ($i % 2 === 0) ? $d : $d * 3; }
+        if (((10 - ($sum % 10)) % 10) === (int)$ean[12]) { $aGcrGtins[] = ['gtin' => $ean]; }
+    }
+}
+?>
 <script src="https://apis.google.com/js/platform.js?onload=renderOptIn" async defer></script>
 <script>
 	window.renderOptIn = function () {
@@ -307,8 +331,9 @@ Si pasados unos minutos no lo ha recibido, busque en la carpeta “Spam”, “C
 					"merchant_id": 7605527,
 					"order_id": "<?php echo (int)$orders['orders_id']; ?>",
 					"email": "<?php echo $sCustomersEmailAddress; ?>",
-					"delivery_country": "ES",
-					"estimated_delivery_date": "<?php echo $aEstimate2['year'] . '-' . $aEstimate2['month'] . '-' . $aEstimate2['day']; ?>",
+					"delivery_country": "<?php echo $sGcrCountry; ?>",
+					"estimated_delivery_date": "<?php echo $sGcrEstDate; ?>",
+					<?php if (!empty($aGcrGtins)) { echo '"products": ' . json_encode($aGcrGtins) . ','; } ?>
 				});
 		});
 	}

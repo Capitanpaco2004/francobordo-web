@@ -616,6 +616,13 @@ function findOrCreateOptionValue($mysqli, $nameEs, $nameEn = null) {
     return $newId;
 }
 
+/** Recorta el nombre base para que el sufijo de desambiguación sobreviva el límite de 64
+ *  (sql_mode no estricto trunca en silencio el final, llevándose el sufijo). */
+function osFitName($base, $suffix, $max = 64) {
+    if (mb_strlen($base . $suffix, 'UTF-8') <= $max) return $base . $suffix;
+    return mb_substr($base, 0, $max - mb_strlen($suffix, 'UTF-8'), 'UTF-8') . $suffix;
+}
+
 /** Traduce una etiqueta de variante EN→ES por segmentos ' / '; conserva los que llevan dígitos. */
 function osTranslateLabel($labelEn, $skipTranslation, &$cache) {
     if ($labelEn === '') return '';
@@ -1002,6 +1009,7 @@ foreach ($groups as $gid => $g) {
                 $rawLabels[$sku] = $lab;
                 $counts[$lab] = ($counts[$lab] ?? 0) + 1;
             }
+            $ovsUsados = [];   // guardia anti-colisión pa-dupe por producto (ver francobordo_pa_duplicates)
             foreach ($items as $sku => $it) {
                 if ($isShaft) {
                     $meta   = osClassifyOpts($it['opts'] ?? []);
@@ -1012,12 +1020,20 @@ foreach ($groups as $gid => $g) {
                     $labEs = osTranslateLabel($labEn, $skipTranslation, $labelTransCache);
                 }
                 $needsSku = ($labEn === '' || ($counts[$labEn] ?? 0) > 1);
-                $finalEn = mb_substr(($labEn === '' ? $sku : ($needsSku ? $labEn . ' · ' . $sku : $labEn)), 0, 64, 'UTF-8');
-                $finalEs = mb_substr(($labEs === '' ? $sku : ($needsSku ? $labEs . ' · ' . $sku : $labEs)), 0, 64, 'UTF-8');
+                // truncar la BASE antes de añadir el sufijo SKU para que éste sobreviva el límite de 64
+                $finalEn = ($labEn === '') ? mb_substr($sku, 0, 64, 'UTF-8') : ($needsSku ? osFitName($labEn, ' · ' . $sku) : mb_substr($labEn, 0, 64, 'UTF-8'));
+                $finalEs = ($labEs === '') ? mb_substr($sku, 0, 64, 'UTF-8') : ($needsSku ? osFitName($labEs, ' · ' . $sku) : mb_substr($labEs, 0, 64, 'UTF-8'));
 
                 $delta  = round($it['_PRICE'] - $cheap['_PRICE'], 4);
                 $prefix = $delta < 0 ? '-' : '+';
                 $valueId = findOrCreateOptionValue($mysqli, $finalEs, $finalEn);
+                if (isset($ovsUsados[$valueId])) {
+                    // backstop: este OV ya se usó para otra variante de ESTE producto -> desambiguar por SKU
+                    $finalEs = osFitName(($labEs !== '' ? $labEs : $sku), ' · ' . $sku);
+                    $finalEn = osFitName(($labEn !== '' ? $labEn : $sku), ' · ' . $sku);
+                    $valueId = findOrCreateOptionValue($mysqli, $finalEs, $finalEn);
+                }
+                $ovsUsados[$valueId] = true;
                 $qprovv = $mysqli->real_escape_string($sku);
                 $vEan = $it['ean'] !== '' ? $it['ean'] : '';
                 $qvEan = $mysqli->real_escape_string($vEan);

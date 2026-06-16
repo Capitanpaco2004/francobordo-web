@@ -167,6 +167,7 @@ RewriteRule ^oct8ne/frame/(.*)$ includes/vendor/oscdenox/addon-oct8ne/apps/front
 
 # OpenAI-compatible LLM proxy para Oct8ne (anadido 2026-05-19)
 RewriteRule ^v1/chat/completions$ v1-chat-completions.php [L,QSA]
+RewriteRule ^mcp/?$ mcp.php [L,QSA]
 # Acepta tambien la ruta estilo Azure OpenAI (deployment): mismo proxy
 RewriteRule ^openai/deployments/[^/]+/chat/completions$ v1-chat-completions.php [L,QSA]
 

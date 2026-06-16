@@ -127,7 +127,7 @@ $q = tep_db_query(
     "SELECT s.ref, s.tipo, MAX(o.delivery_postcode) AS cp, MAX(o.delivery_city) AS city FROM seur_shipments s " .
     "LEFT JOIN seur_tracking t ON t.referencia = s.ref " .
     "LEFT JOIN " . TABLE_ORDERS . " o ON o.orders_id = s.orders_id " .
-    "WHERE s.ok = 1 AND s.cancelled_at IS NULL AND s.entorno = '" . tep_db_input($env) . "' AND s.ref <> '' " .
+    "WHERE s.ok = 1 AND s.cancelled_at IS NULL AND s.cancel_requested_at IS NULL AND s.entorno = '" . tep_db_input($env) . "' AND s.ref <> '' " .
     "AND s.date_added > NOW() - INTERVAL " . (int) $days . " DAY AND $pendiente " .
     "GROUP BY s.ref ORDER BY COALESCE(MAX(t.last_checked), '2000-01-01') ASC LIMIT " . (int) $maxRefresh
 );
@@ -226,7 +226,9 @@ $content = array();
 $q = tep_db_query(
     "SELECT t.referencia, t.fecha_entrega FROM seur_tracking t " .
     "INNER JOIN " . TABLE_ORDERS . " o ON o.orders_id = CAST(IF(t.referencia LIKE 'F%', SUBSTRING(t.referencia, 2), t.referencia) AS UNSIGNED) " .
-    "WHERE t.referencia REGEXP '^F?[0-9]+(R[0-9]+)?$' AND t.entregado = 1 AND o.orders_status = 5"
+    "WHERE t.referencia REGEXP '^F?[0-9]+(R[0-9]+)?$' AND t.entregado = 1 AND o.orders_status = 5 " .
+    // No auto-completar (ni email) un pedido cuyo envío está pendiente de ANULAR (M5):
+    "AND NOT EXISTS (SELECT 1 FROM seur_shipments ss WHERE ss.orders_id = o.orders_id AND ss.cancel_requested_at IS NOT NULL AND ss.cancelled_at IS NULL)"
 );
 while ($row = tep_db_fetch_array($q)) {
     $oid = (substr($row['referencia'], 0, 1) === 'F') ? (int) substr($row['referencia'], 1) : (int) $row['referencia'];
@@ -254,6 +256,51 @@ if ($dry) {
     $imp->content = $content;
     $imp->saveData(); // status 3 + email + histórico + opiniones (idéntico a CEX/Ontime)
     echo $br . 'Auto-completados ' . count($content) . ' pedidos (email enviado).' . $br;
+}
+
+/* --- M5: reintento de anulaciones SEUR ENCOLADAS (cancel_requested_at) ---
+ * El módulo RMA / panel hace un intento y, si SEUR devuelve error DURO (el envío
+ * sigue vivo), encola aquí en vez de marcar anulado a ciegas. Reintentamos cada
+ * hora; alerta si lleva >24h sin lograrlo (p.ej. ya en tránsito → gestión manual). */
+$cancelOk = 0; $cancelPend = 0; $cancelAlert = 0;
+if (!$dry) {
+    $seur->setTimeout(15);
+    $cq = tep_db_query(
+        "SELECT id, id_rma, orders_id, tipo, shipment_code, cancel_requested_at FROM seur_shipments " .
+        "WHERE cancel_requested_at IS NOT NULL AND cancelled_at IS NULL AND ok = 1 AND entorno = '" . tep_db_input($env) . "'"
+    );
+    while ($cs = tep_db_fetch_array($cq)) {
+        if (empty($cs['shipment_code'])) continue;
+        $res = ($cs['tipo'] === 'recogida') ? $seur->cancelCollection($cs['shipment_code']) : $seur->cancelShipment($cs['shipment_code']);
+        $tt  = ($cs['tipo'] === 'recogida') ? 'devolucion' : 'envio';
+        if (seur::cancelOk($res)) {
+            tep_db_query("UPDATE seur_shipments SET cancelled_at = now() WHERE id = " . (int) $cs['id']);
+            $cancelOk++;
+            echo '  ✔ anulacion SEUR completada (reintento): ' . $cs['shipment_code'] . $br;
+            if ((int) $cs['id_rma'] > 0) {
+                $rr = tep_db_fetch_array(tep_db_query('SELECT status FROM ' . TABLE_RMA . ' WHERE id_rma = ' . (int) $cs['id_rma']));
+                tep_db_perform(TABLE_RMA_STATUS_HISTORY, array(
+                    'email_text' => '', 'notify' => 0, 'id_rma' => (int) $cs['id_rma'],
+                    'id_status' => $rr ? (int) $rr['status'] : 0, 'message' => '',
+                    'private_message' => 'SEUR: ' . $tt . ' ' . $cs['shipment_code'] . ' anulado (reintento automatico).',
+                    'date_added' => 'now()',
+                ));
+            } elseif ((int) $cs['orders_id'] > 0) {
+                tep_db_query("INSERT INTO " . TABLE_ORDERS_STATUS_HISTORY . " SET orders_id = " . (int) $cs['orders_id'] . ", orders_status_id = 5, date_added = now(), customer_notified = 0, comments = 'SEUR: " . $tt . " " . tep_db_input($cs['shipment_code']) . " anulado (reintento automatico).'");
+            }
+        } else {
+            $cancelPend++;
+            $dd   = seur::payload($res);
+            $derr = (is_array($dd) && !empty($dd[0]['description'])) ? $dd[0]['description'] : seur::primerError($res);
+            if (strtotime($cs['cancel_requested_at']) < time() - 86400) {
+                $cancelAlert++;
+                echo '  !!! ALERTA anulacion SEUR: ' . $cs['shipment_code'] . ' lleva >24h sin poder anular (' . $derr . ') -> gestionar a mano' . $br;
+            } else {
+                echo '  · anulacion SEUR pendiente (se reintenta): ' . $cs['shipment_code'] . ' (' . $derr . ')' . $br;
+            }
+        }
+    }
+    if ($cancelOk || $cancelPend) echo 'Anulaciones SEUR: ' . $cancelOk . ' ok / ' . $cancelPend . ' pend' . ($cancelAlert ? ' / ' . $cancelAlert . ' ALERTA' : '') . $br;
 }
 
 echo $br . 'FIN - ' . date('d/m/Y H:i:s') . $br;

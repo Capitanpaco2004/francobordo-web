@@ -41,7 +41,7 @@ define('PSMSG', 'Mensaje adicional a enviar: ');
 
 define('EMAIL_TEXT_LOGIN', 'Login en tu cuenta aqui:');
 define('EMAIL_SEPARATOR', '__');
-define('EMAIL_TEXT_SUBJECT', 'Aviso desde '.  STORE_NAME );
+define('EMAIL_TEXT_SUBJECT', '¿Te dejaste algo en tu cesta?');
 define('EMAIL_TEXT_SALUTATION', '<table width="600" border="0" cellspacing="0" cellpadding="8"><tr><td style="background-color:#2781bb;"><a href="http://www.francobordo.com/" target="_blank"><img border="0" src="http://www.francobordo.com/images/francobordo-logomail.gif" alt="Francobordo.com" /></a></td></tr><tr><td style="background-color:#f4f4f4; font-family:Arial, Helvetica, sans-serif; font-size:12px; padding:20px">Estimado ' );
 define('EMAIL_TEXT_NEWCUST_INTRO', "\n\n" . 'Gracias por visitar ' . STORE_NAME .
                                    ' y considerarnos para sus compras. ');
