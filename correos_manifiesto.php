@@ -62,15 +62,25 @@ if ($explicitDay !== '') {
     if (!$st) { error_log('correos_manifiesto prepare: ' . $db->error); out_json(array('ok' => false, 'error' => 'consulta no disponible')); }
     $st->bind_param('s', $explicitDay);
 } else {
+    // por defecto: HOY + dias no laborables inmediatamente anteriores (fin de semana),
+    // y SOLO lo pendiente (sin recoger: sin tracking o PRE-ADMISION/prerregistrado).
+    // El rango por finde evita que un envio atascado reaparezca cada dia.
+    $mFrom = date('Y-m-d'); $probe = strtotime($mFrom);
+    for ($i = 0; $i < 3; $i++) {
+        $prevTs = strtotime('-1 day', $probe);
+        if ((int) date('N', $prevTs) >= 6) { $mFrom = date('Y-m-d', $prevTs); $probe = $prevTs; }
+        else break;
+    }
     $st = $db->prepare("SELECT s.id, s.orders_id, s.albaran_id, s.shipment_code, s.package_code, s.producto, s.ref, s.kilos,
                                s.tracking_url, s.request_json, s.date_added
                         FROM correos_shipments s
                         LEFT JOIN correos_tracking t ON t.referencia = s.ref
                         WHERE s.tipo='envio' AND s.ok=1 AND s.entorno='pro' AND s.cancelled_at IS NULL
-                          AND s.date_added > (NOW() - INTERVAL 7 DAY)
+                          AND DATE(s.date_added) >= ?
                           AND (t.referencia IS NULL OR t.estado_desc LIKE '%ADMISI%' OR t.estado_desc LIKE '%rerregistr%')
                         ORDER BY s.id ASC");
     if (!$st) { error_log('correos_manifiesto prepare: ' . $db->error); out_json(array('ok' => false, 'error' => 'consulta no disponible')); }
+    $st->bind_param('s', $mFrom);
 }
 $st->execute();
 $res = $st->get_result();

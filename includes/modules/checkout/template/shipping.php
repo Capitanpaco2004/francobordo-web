@@ -33,7 +33,7 @@ if (isset($_SESSION['module_shipping_estimator'])) {
 						<div class="imge afixed">
 							<img src="<?php echo (isset($aQuote['icon']) && file_exists($sPathModule . '/images/' . $aQuote['icon']) ? $sPathModule . '/images/' . $aQuote['icon'] : $sPathModule . '/images/shipping_default.png'); ?>"/>
 						</div>
-						<div class="infr-wrp mfixed <?php echo ($aMethod['id'] == 'retira' || $aMethod['id'] == 'seurpunto') ? 'zindex' : ''; ?>">
+						<div class="infr-wrp mfixed <?php echo ($aMethod['id'] == 'retira' || $aMethod['id'] == 'seurpunto' || $aMethod['id'] == 'correosoficina') ? 'zindex' : ''; ?>">
 							<div class="titu">
 								<b data-title><?php echo $aQuote['module']; ?></b><br/>
 							</div>
@@ -109,6 +109,30 @@ if (isset($_SESSION['module_shipping_estimator'])) {
 										echo '</div>';
 									}
 									// Fin, selector de punto de recogida SEUR
+
+									// Inicio, selector de recogida en oficina de Correos (lista + mapa Leaflet)
+									if ($aMethod['id'] == 'correosoficina') {
+										$sCorOfiSel   = isset($_SESSION['correos_oficina_sel']['id']) ? $_SESSION['correos_oficina_sel']['id'] : '';
+										$sCorOfiPrice = $currencies->format(tep_add_tax($aMethod['cost'], isset($aQuote['tax']) ? $aQuote['tax'] : 0));
+										$sCorOfiCp    = htmlspecialchars(trim($order->delivery['postcode']));
+										$sCorOfiCity  = htmlspecialchars(trim($order->delivery['city']));
+										echo '<div class="selct" id="correosOfiBox">';
+										echo '<label>' . (defined('TEXT_SELECT_CORREOS_OFICINA') ? TEXT_SELECT_CORREOS_OFICINA : 'Elige tu oficina de Correos:') . '</label>';
+										echo '<div style="display:flex;gap:6px;margin:0 0 6px 0;align-items:center">';
+										echo '<input type="text" id="correosOfiCpInput" maxlength="5" inputmode="numeric" placeholder="' . (defined('TEXT_CORREOS_OFICINA_CP_PLACEHOLDER') ? htmlspecialchars(TEXT_CORREOS_OFICINA_CP_PLACEHOLDER) : 'Cód. postal') . '" value="' . $sCorOfiCp . '" style="width:130px;padding:6px;box-sizing:border-box">';
+										echo '<button type="button" id="correosOfiCpBtn" data-searching="' . (defined('TEXT_CORREOS_OFICINA_CP_SEARCHING') ? htmlspecialchars(TEXT_CORREOS_OFICINA_CP_SEARCHING) : 'Buscando oficinas…') . '" style="padding:6px 12px;cursor:pointer">' . (defined('TEXT_CORREOS_OFICINA_CP_SEARCH') ? htmlspecialchars(TEXT_CORREOS_OFICINA_CP_SEARCH) : 'Buscar oficinas') . '</button>';
+										echo '</div>';
+										echo '<input type="hidden" name="correos_oficina_cp" id="correosOfiCp" value="' . $sCorOfiCp . '">';
+										echo '<input type="hidden" name="correos_oficina_q" id="correosOfiCity" value="' . $sCorOfiCity . '">';
+										echo '<input type="hidden" id="correosOfiSelInit" value="' . htmlspecialchars($sCorOfiSel) . '">';
+										echo '<select name="correos_oficina" id="correosOfiSelect" data-price="' . $sCorOfiPrice . '">';
+										echo '<option value="" data-price="' . $sCorOfiPrice . '">' . (defined('TEXT_CORREOS_OFICINA_CP_SEARCHING') ? TEXT_CORREOS_OFICINA_CP_SEARCHING : 'Buscando oficinas…') . '</option>';
+										echo '</select>';
+										echo '<div id="correosOfiMsg" class="mensaje" style="display:none;margin-top:6px">' . (defined('TEXT_CORREOS_OFICINA_EMPTY') ? TEXT_CORREOS_OFICINA_EMPTY : 'No hay oficinas de Correos cercanas a tu código postal.') . '</div>';
+										echo '<div id="correosOfiMap" style="height:320px;margin-top:8px;border:1px solid #ccc;border-radius:4px;position:relative;z-index:1"></div>';
+										echo '</div>';
+									}
+									// Fin, selector de recogida en oficina de Correos
 								?>
 							</div>
 						</div>
@@ -311,6 +335,145 @@ if ($bSeurPudoMap):
 })();
 </script>
 <?php endif; ?>
+<?php
+// Inicio, recogida en oficina de Correos: Leaflet + mapa (solo si se pintó el selector)
+$bCorreosOfiMap = false;
+if (is_array($quotes)) {
+	foreach ($quotes as $aQ) { if (isset($aQ['id']) && $aQ['id'] == 'correosoficina') { $bCorreosOfiMap = true; break; } }
+}
+if ($bCorreosOfiMap):
+?>
+<?php if (empty($bSeurPudoMap)): // si SEUR estaba presente ya cargó Leaflet ?>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<?php endif; ?>
+<style>
+.chkc-mthh:not(:has(#correosoficina_correosoficina:checked)) #correosOfiBox { display: none; }
+</style>
+<script>
+(function () {
+	var coMap = null, coMarkers = {}, coLayer = null, coMapInited = false, coWired = false, coLoaded = false, coLast = [];
+	function radioChecked() { var r = document.getElementById('correosoficina_correosoficina'); return !!(r && r.checked); }
+
+	// Pinta el desplegable (textContent = seguro) y, si hay mapa, los marcadores (popup por DOM).
+	function renderOfis(ofis) {
+		ofis = ofis || []; coLast = ofis;
+		var elSel = document.getElementById('correosOfiSelect');
+		var elMsg = document.getElementById('correosOfiMsg');
+		if (elSel) {
+			var price = elSel.dataset.price || '';
+			var prev = document.getElementById('correosOfiSelInit');
+			var want = elSel.value || (prev ? prev.value : '');
+			elSel.innerHTML = '';
+			var o0 = document.createElement('option');
+			o0.value = ''; o0.textContent = '-- Selecciona una oficina --';
+			o0.setAttribute('data-price', price);
+			elSel.appendChild(o0);
+			ofis.forEach(function (o) {
+				var op = document.createElement('option');
+				op.value = o.id;
+				op.textContent = o.name + ' - ' + o.address + ' (' + o.cp + ' ' + o.city + ')';
+				op.setAttribute('data-price', price);
+				if (o.id === want) op.selected = true;
+				elSel.appendChild(op);
+			});
+			if (elMsg) elMsg.style.display = ofis.length ? 'none' : 'block';
+		}
+		coMarkers = {};
+		if (coLayer) coLayer.clearLayers();
+		if (!coMap || !coLayer) return;
+		var bounds = [];
+		ofis.forEach(function (o) {
+			if (!o.lat || !o.lng) return;
+			var div = document.createElement('div');
+			var st = document.createElement('strong'); st.textContent = o.name; div.appendChild(st);
+			div.appendChild(document.createElement('br'));
+			div.appendChild(document.createTextNode(o.address + ' · ' + o.cp + ' ' + o.city));
+			if (o.hours) { div.appendChild(document.createElement('br')); var sm = document.createElement('small'); sm.textContent = o.hours; div.appendChild(sm); }
+			div.appendChild(document.createElement('br'));
+			var a = document.createElement('a'); a.href = '#';
+			var ab = document.createElement('strong'); ab.textContent = '✓ Elegir esta oficina'; a.appendChild(ab);
+			a.addEventListener('click', function (e) { e.preventDefault(); window.correosOfiChoose(o.id); });
+			div.appendChild(a);
+			var m = L.marker([o.lat, o.lng]).bindPopup(div);
+			coLayer.addLayer(m); coMarkers[o.id] = m; bounds.push([o.lat, o.lng]);
+		});
+		if (bounds.length) coMap.fitBounds(bounds, { padding: [25, 25] });
+	}
+
+	function fetchOfis(cp, q) {
+		var elSel = document.getElementById('correosOfiSelect');
+		var city = document.getElementById('correosOfiCity');
+		var q = (typeof q !== 'undefined' && q !== null) ? q : (city && city.value ? city.value : ''); if (city) city.value = q; var qs = q ? '&q=' + encodeURIComponent(q) : '';
+		if (elSel) { elSel.innerHTML = ''; var ow = document.createElement('option'); ow.value = ''; ow.textContent = 'Buscando oficinas…'; elSel.appendChild(ow); }
+		return fetch('/correos_oficinas.php?cp=' + cp + qs, { credentials: 'same-origin' })
+			.then(function (r) { return r.json(); })
+			.then(function (j) {
+				var hid = document.getElementById('correosOfiCp');
+				if (j && j.ok) { if (hid) hid.value = j.cp; renderOfis(j.oficinas || []); }
+				else renderOfis([]);
+			})
+			.catch(function () { renderOfis([]); });
+	}
+
+	// Lista + buscador: NO dependen de Leaflet → el selector sigue usable aunque el mapa no cargue.
+	function ensureList() {
+		if (!radioChecked()) return;
+		if (!coWired) {
+			coWired = true;
+			var btn = document.getElementById('correosOfiCpBtn'), inp = document.getElementById('correosOfiCpInput');
+			function buscar() {
+				var cp = ((inp && inp.value) || '').replace(/\D/g, '');
+				if (cp.length !== 5) { if (inp) inp.focus(); return; }
+				if (btn) { btn.disabled = true; var lbl = btn.dataset.label || btn.textContent; btn.dataset.label = lbl; btn.textContent = btn.dataset.searching || 'Buscando…'; fetchOfis(cp, '').finally(function () { btn.disabled = false; btn.textContent = lbl; }); }
+				else fetchOfis(cp, '');
+			}
+			if (btn) btn.addEventListener('click', buscar);
+			if (inp) inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); buscar(); } });
+			var elSel = document.getElementById('correosOfiSelect');
+			if (elSel) elSel.addEventListener('change', function () { var m = coMarkers[this.value]; if (m && coMap) { coMap.setView(m.getLatLng(), 15); m.openPopup(); } });
+		}
+		if (!coLoaded) {
+			coLoaded = true;
+			var hid = document.getElementById('correosOfiCp');
+			var cp0 = ((hid && hid.value) || '').replace(/\D/g, '');
+			if (cp0.length === 5) fetchOfis(cp0);
+		}
+	}
+
+	// Mapa Leaflet: solo si la librería cargó. Si la CDN falla, la lista sigue operativa.
+	function ensureMap() {
+		var elMap = document.getElementById('correosOfiMap');
+		if (!elMap || typeof L === 'undefined' || !radioChecked()) return;
+		if (coMapInited) { coMap.invalidateSize(); return; }
+		if (elMap.offsetParent === null) { setTimeout(ensureMap, 200); return; }
+		coMapInited = true;
+		coMap = L.map(elMap).setView([40.4168, -3.7038], 6);
+		L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(coMap);
+		coLayer = L.layerGroup().addTo(coMap);
+		setTimeout(function () { if (coMap) coMap.invalidateSize(); }, 300);
+		renderOfis(coLast);   // dibuja los marcadores de lo ya cargado, sin re-fetch
+	}
+
+	window.correosOfiChoose = function (id) {
+		var elSel = document.getElementById('correosOfiSelect'); if (!elSel) return; elSel.value = id;
+		var radio = document.getElementById('correosoficina_correosoficina');
+		if (radio && !radio.checked) {
+			radio.checked = true;
+			var row = radio.closest('[data-method]');
+			if (row && row.parentNode) { var act = row.parentNode.querySelectorAll('.actv'); for (var i = 0; i < act.length; i++) act[i].classList.remove('actv'); row.classList.add('actv'); }
+		}
+		var m = coMarkers[id]; if (m && coMap) { coMap.setView(m.getLatLng(), 15); m.openPopup(); }
+	};
+
+	function coInit() { ensureList(); ensureMap(); }
+	document.addEventListener('click', function (e) { if (e.target && e.target.closest && e.target.closest('[data-method]')) setTimeout(coInit, 250); });
+	if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { setTimeout(coInit, 250); });
+	else setTimeout(coInit, 250);
+})();
+</script>
+<?php endif; ?>
+<?php // Fin, recogida en oficina de Correos ?>
 <?php // Fin, punto de recogida SEUR ?>
 
 <?php echo $boxCheckout->addressBook($sendto, CHECKOUT_SHIPPING_SELECT_ADDRESS, tep_href_link(FILENAME_CHECKOUT_SHIPPING . 'select_address/')); ?>

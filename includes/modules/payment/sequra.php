@@ -58,7 +58,7 @@ if(!class_exists('sequra')){
 			$this->signature   = 'sequra|sequra|' . self::VERSION . '|2.4';
 			$this->api_version = '1.0.0';
 			$this->debug       = false;
-			if(MODULE_PAYMENT_SEQURA_SANDBOX == 'True'){
+			if((defined('MODULE_PAYMENT_SEQURA_SANDBOX') ? MODULE_PAYMENT_SEQURA_SANDBOX : 'False') == 'True'){
 				define('MODULE_PAYMENT_SEQURA_ENDPOINT','https://sandbox.sequrapi.com/orders');
 			} else {
 				define('MODULE_PAYMENT_SEQURA_ENDPOINT','https://live.sequrapi.com/orders');
@@ -85,17 +85,17 @@ if(!class_exists('sequra')){
 			$this->text_confirmation_header = defined( 'MODULE_PAYMENT_SEQURA_TEXT_CONFIRMATION_HEADER' ) ? MODULE_PAYMENT_SEQURA_TEXT_CONFIRMATION_HEADER : '';
 			$this->text_confirmation_title = defined( 'MODULE_PAYMENT_SEQURA_TEXT_CONFIRMATION_TITLE' ) ? MODULE_PAYMENT_SEQURA_TEXT_CONFIRMATION_TITLE : '';
 			$this->enabled                         = $this->isEnabled();
-			$this->sort_order                      = MODULE_PAYMENT_SEQURA_SORT_ORDER;
+			$this->sort_order                      = (defined('MODULE_PAYMENT_SEQURA_SORT_ORDER') ? MODULE_PAYMENT_SEQURA_SORT_ORDER : 0);
 			$this->public_description = defined( 'MODULE_PAYMENT_SEQURA_TEXT_PUBLIC_DESCRIPTION' ) ? MODULE_PAYMENT_SEQURA_TEXT_PUBLIC_DESCRIPTION : '';
 			$this->mode                            = 'i1';
 			if ( is_object( $order ) ) {
 				$this->update_status();
 			}
-			if ( (int) MODULE_PAYMENT_SEQURA_ORDER_STATUS_ID > 0 ) {
+			if ( (int) (defined('MODULE_PAYMENT_SEQURA_ORDER_STATUS_ID') ? MODULE_PAYMENT_SEQURA_ORDER_STATUS_ID : 0) > 0 ) {
 				$this->order_status = MODULE_PAYMENT_SEQURA_ORDER_STATUS_ID;
 			}
 
-			$this->clave    = MODULE_PAYMENT_SEQURA_PASS;
+			$this->clave    = (defined('MODULE_PAYMENT_SEQURA_PASS') ? MODULE_PAYMENT_SEQURA_PASS : '');
 			$this->endpoint = MODULE_PAYMENT_SEQURA_ENDPOINT;
 			/*If onestepcheckout contrib redirect */
 			if ( $_SERVER['PHP_SELF'] == '/checkout.php' && ! isset( $_REQUEST['sequra_approved'] ) ) {

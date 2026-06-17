@@ -54,5 +54,5 @@ $strordreatrib = "";
 $strdircreatemporals = "/home/francobordo/qfac/";
 $strImportaModel = "N";
 $strNFRANQ = "N";
-$strdulimpor = "2026-06-15";
+$strdulimpor = "2026-06-16";
 ?>

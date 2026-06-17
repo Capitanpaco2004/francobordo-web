@@ -54,11 +54,15 @@ if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
 } elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', $pFrom) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $pTo)) {
     $mFrom = $pFrom; $mTo = $pTo;
 } else {
+    // por defecto: HOY + dias no laborables inmediatamente anteriores (fin de semana,
+    // el repartidor no pasa sab/dom). NO usar "pendiente mas antiguo": un envio con
+    // tracking atascado en SX010 anclaria el rango y reapareceria cada dia.
     $mFrom = $mTo;
-    if (!$db->connect_errno) {
-        $envEsc = $db->real_escape_string($env);
-        $qp = $db->query("SELECT MIN(DATE(s.date_added)) m FROM seur_shipments s LEFT JOIN seur_tracking t ON t.referencia = s.ref WHERE s.entorno = '$envEsc' AND s.tipo = 'envio' AND s.ok = 1 AND s.cancelled_at IS NULL AND (t.estado_code IS NULL OR t.estado_code = 'SX010') AND s.date_added > (NOW() - INTERVAL 7 DAY)");
-        if ($qp && ($rp = $qp->fetch_assoc()) && !empty($rp['m'])) $mFrom = $rp['m'];
+    $probe = strtotime($mTo);
+    for ($i = 0; $i < 3; $i++) {
+        $prevTs = strtotime('-1 day', $probe);
+        if ((int) date('N', $prevTs) >= 6) { $mFrom = date('Y-m-d', $prevTs); $probe = $prevTs; }
+        else break;
     }
 }
 

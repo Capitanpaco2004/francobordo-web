@@ -178,5 +178,12 @@
 				<?php echo tep_admin_files_boxes('Actualizador_stock_ram.php', '<i class="bullet"></i> Actualizador stock'); ?>
 			</div>
 		</div>
+			<div>
+				<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Tecnoseal <i class="fa fa-angle-right"></i></a>
+				<div class="sbmn">
+					<?php echo tep_admin_files_boxes('import-tecnoseal-altas.php', '<i class="bullet"></i> Importador'); ?>
+					<?php echo tep_admin_files_boxes('Actualizador_precios_tecnoseal.php', '<i class="bullet"></i> Actualizador precios'); ?>
+				</div>
+			</div>
 	</div>
 </div>

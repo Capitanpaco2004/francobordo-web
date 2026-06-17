@@ -5,7 +5,7 @@
 //  - SELECTs scoped al CSV (IN(...)) en lugar de cargar 33k productos + 41k atributos a memoria.
 //  - Comparaciones float con epsilon (evita UPDATEs espurios que invalidan caches).
 //  - sprintf %F (locale-independent) para los precios en SQL.
-//  - INSERTs/UPDATEs de specials con expires_date = NOW()+2 dias: si el cron deja de refrescar
+//  - INSERTs/UPDATEs de specials con expires_date = NOW()+15 dias: si el cron deja de refrescar
 //    una oferta (producto descontinuado en Minderest) caduca sola en 48h.
 //  - HTTP 500 (no 200) si CSV no existe o header invalido.
 //  - Retencion logs >90 dias al cierre.
@@ -25,7 +25,7 @@ date_default_timezone_set('Europe/Madrid');
 
 const FB_MINDEREST_PRICE_EPSILON        = 0.005;
 const FB_MINDEREST_DRIFT_PCT            = 1.0;   // log warning si csv.previous_price diverge >1% de bd.products_price
-const FB_MINDEREST_SPECIAL_EXPIRES_DAYS = 2;     // ofertas Minderest caducan si el cron deja de refrescarlas
+const FB_MINDEREST_SPECIAL_EXPIRES_DAYS = 15;     // ofertas Minderest caducan si el cron deja de refrescarlas
 const FB_MINDEREST_LOG_RETENTION_DAYS   = 90;
 const FB_MINDEREST_REQUIRED_COLS = [
     0  => 'id',

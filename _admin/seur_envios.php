@@ -101,10 +101,16 @@ if ($action !== '' && $shipId > 0) {
             } elseif ($action === 'reprint') {
                 $entity = ($s['tipo'] === 'recogida') ? 'COLLECTIONS' : 'SHIPMENTS';
                 $lopts = array('entity' => $entity);
-                if ($s['tipo'] !== 'recogida') $lopts['templateType'] = 'Z4_TWO_BODIES';
+                if ($s['tipo'] !== 'recogida') $lopts['templateType'] = 'GEOLABEL';
                 if (!empty($s['pudo_id'])) $lopts['qr'] = true;
                 $lab = $seur->getLabel($s['shipment_code'], ($s['tipo'] === 'recogida' ? 'PDF' : 'ZPL'), $lopts);
                 $zpl = $lab['label'] ?? '';
+                // Centra la GEOLABEL en el rollo 10x15 (mismo ajuste que seur_albaran.php seurAjustarZpl: baja Y 32 dots = ~4mm a la derecha + renombra el formato para saltar el cache de la Zebra)
+                if ($s['tipo'] !== 'recogida' && $zpl !== '') {
+                    $gdy = 32;
+                    $zpl = preg_replace_callback('/\^(F[OT])(\d+),(\d+)/', function ($m) use ($gdy) { $ny = (int) $m[3] - $gdy; if ($ny < 0) $ny = 0; return '^' . $m[1] . $m[2] . ',' . $ny; }, $zpl);
+                    if (preg_match('/\^DF([A-Z0-9_]{1,8})\.(\d+)/i', $zpl, $mm)) $zpl = str_replace($mm[1] . '.' . $mm[2], 'FBGS' . $gdy . '.' . $mm[2], $zpl);
+                }
                 if ($lab['ok'] && $zpl !== '' && $s['tipo'] !== 'recogida') {
                     tep_db_perform('seur_reprint_queue', array(
                         'shipment_id' => $shipId, 'orders_id' => (int) $s['orders_id'],

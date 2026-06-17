@@ -72,7 +72,8 @@ $manual = (($in['manual'] ?? '') === '1');   // pedido QFac-nativo (26xxxxx): di
 $deliveryMethod = ($mode === 'ofi') ? 'OFUAOF' : 'DOUAOF';  // COR Oficina vs COR Domicilio
 
 if ($oid <= 0) out(array('ok' => false, 'error' => 'oid requerido'));
-if ($mode === 'ofi' && $oficina === '') out(array('ok' => false, 'error' => 'mode=ofi requiere el parametro oficina (codigo de oficina Correos)'));
+// mode=ofi: si no llega 'oficina', se resuelve más abajo (correos_oficina_orders
+// = oficina elegida por el cliente en el checkout) o, en su defecto, auto por CP de destino.
 
 /* =========================================================================
  * Helpers
@@ -261,6 +262,26 @@ $cp   = trim($o['delivery_postcode']);
 $prov = preg_match('/^\d{5}$/', $cp) ? substr($cp, 0, 2) : '';
 $gramos = (int) round($kilos * 1000);
 $ref = ($manual ? 'Q' : 'F') . $oid;   // Q{oid}=QFac-nativo, F{oid}=pedido web
+
+/* mode=ofi (COR Oficina): resolver el código de oficina destino (chosenOffice). */
+if ($mode === 'ofi' && $oficina === '') {
+    // 1) pedido web: la oficina que eligió el cliente en el checkout
+    if (!$manual) {
+        $stOfi = $db->prepare("SELECT office_id FROM correos_oficina_orders WHERE orders_id=? LIMIT 1");
+        $stOfi->bind_param('i', $oid);
+        $stOfi->execute();
+        if ($rowOfi = $stOfi->get_result()->fetch_assoc()) $oficina = trim((string) $rowOfi['office_id']);
+    }
+    // 2) fallback: oficina más cercana al CP de destino (localizador público)
+    if ($oficina === '' && preg_match('/^\d{5}$/', $cp)) {
+        require_once __DIR__ . '/includes/modules/shipping/correosoficina.php';
+        $aOfis = correosoficina::oficinas($cp, trim((string) $o['delivery_city']), 1);
+        if (!empty($aOfis[0]['id'])) $oficina = (string) $aOfis[0]['id'];
+    }
+}
+if ($mode === 'ofi' && $oficina === '') {
+    out(array('ok' => false, 'error' => "mode=ofi: no se pudo determinar la oficina del pedido $oid (ni parametro, ni correos_oficina_orders, ni auto por CP $cp)"));
+}
 
 /* Bultos: peso repartido; el último absorbe el resto para que la suma == total (M4) */
 $packages = array();

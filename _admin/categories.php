@@ -1193,7 +1193,7 @@
 						if( $nLiquidacion == 1 && $nMinDiscount > 0 && $_POST['products_price'] > $nMinDiscount )
 						{
 							// Comprobamos si esta en oferta el producto
-							$aProductoOferta = tep_db_query( 'select s.specials_id, s.specials_new_products_price, s.specials_min_price, p.products_tax_class_id, p.products_price
+							$aProductoOferta = tep_db_query( 'select s.specials_id, s.specials_new_products_price, s.specials_min_price, s.specials_last_modified, s.specials_date_added, p.products_tax_class_id, p.products_price
 															  from specials s
 															  inner join products p on (p.products_id = s.products_id)
 															  where customers_group_id = 0 AND p.products_id = ' . (int)$products_id );
@@ -3023,7 +3023,7 @@
 															if( $_GET['pID'] )
 															{
 																// Comprobamos si esta en oferta el producto
-																$aProductoOferta = tep_db_query( 'select s.specials_id, s.specials_new_products_price, s.specials_min_price, p.products_tax_class_id, p.products_price
+																$aProductoOferta = tep_db_query( 'select s.specials_id, s.specials_new_products_price, s.specials_min_price, s.specials_last_modified, s.specials_date_added, p.products_tax_class_id, p.products_price
 																								  from specials s
 																								  inner join products p on (p.products_id = s.products_id)
 																								  where p.products_id = ' . (int)$_GET['pID'] );
@@ -3098,6 +3098,8 @@
 																	</script>';
 
 																	echo 'Este producto ya esta en oferta y su oferta es de ' . $sPrecioOferta .' (' . $sPrecioOfertaNOIVA . ' sin iva) (' . $sPorcentaje . '). - <a id="spec1" style="color: #5e9424; font-weight: bold; display: inline-block; padding: 2px;" href="javascript: void(0);" onclick="editarSpecials();">[Editar oferta]</a> | <a id="spec2" style="color: #e31717; font-weight: bold; display: inline-block; padding: 2px;" href="javascript:void(0);" onclick="eliminarSpecials();">[Eliminar oferta]</a>';
+																		$sFechaModif = ( !empty($aProductoOferta['specials_last_modified']) && substr($aProductoOferta['specials_last_modified'],0,4) !== '0000' ) ? $aProductoOferta['specials_last_modified'] : ( ( !empty($aProductoOferta['specials_date_added']) && substr($aProductoOferta['specials_date_added'],0,4) !== '0000' ) ? $aProductoOferta['specials_date_added'] : '' );
+																		echo '<br><span style="color:#666; font-size:12px;">Fecha &uacute;ltima modificaci&oacute;n: <b>' . ( $sFechaModif !== '' ? date('d/m/Y H:i', strtotime($sFechaModif)) : '(sin registrar)' ) . '</b></span>';
 																	echo '<input type="hidden" name="products_specials" id="products_specials" value="3" />';
 																	echo '<input type="hidden" name="products_specials_delete" id="products_specials_delete" value="" />';
 																	echo '<input type="hidden" name="sID" id="sID" value="' . $aProductoOferta['specials_id'] . '" />';

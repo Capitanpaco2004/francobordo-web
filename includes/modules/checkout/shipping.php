@@ -206,6 +206,28 @@ class Shipping
             }
             // Fin, punto de recogida SEUR
 
+            // Inicio, recogida en oficina de Correos: validar y fijar la oficina en sesión.
+            if ($module === 'correosoficina') {
+                $sCorOfi   = tep_db_prepare_input(isset($_POST['correos_oficina']) ? $_POST['correos_oficina'] : '');
+                $sCorOfiCp = preg_replace('/\D/', '', isset($_POST['correos_oficina_cp']) ? $_POST['correos_oficina_cp'] : '');
+                if (!preg_match('/^\d{5}$/', $sCorOfiCp)) $sCorOfiCp = $order->delivery['postcode'];
+                // La ciudad usada en la selección (correos_oficina_q) debe ir a la validación:
+                // así oficinaById geocodifica con el MISMO texto que el AJAX y comparte caché.
+                $sCorOfiQ = tep_db_prepare_input(isset($_POST['correos_oficina_q']) ? $_POST['correos_oficina_q'] : '');
+                $aCorOfi = ($sCorOfi != '' && class_exists('correosoficina'))
+                    ? \correosoficina::oficinaById($sCorOfi, $sCorOfiCp, $sCorOfiQ)
+                    : false;
+                if ($aCorOfi === false) {
+                    $this->messageError = defined('TEXT_ERROR_CORREOS_OFICINA') ? TEXT_ERROR_CORREOS_OFICINA : 'Por favor, elige la oficina de Correos donde quieres recoger tu pedido.';
+                    $this->redirect = tep_href_link(FILENAME_CHECKOUT_SHIPPING);
+                    return false;
+                }
+                $_SESSION['correos_oficina_sel'] = $aCorOfi;
+            } else {
+                unset($_SESSION['correos_oficina_sel']);
+            }
+            // Fin, recogida en oficina de Correos
+
             // Si existe
             if ((isset($GLOBALS[$module]) && is_object($GLOBALS[$module])) || $module == 'free') {
                 // Comprobamos si es gratis

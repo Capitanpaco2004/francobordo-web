@@ -266,6 +266,16 @@ class Process
         }
         // Fin, punto de recogida SEUR
 
+        // Inicio, recogida en oficina de Correos: NO se reescribe la dirección (el cliente es
+        // el addressee de OFUAOF); solo se anota la oficina elegida en el pedido.
+        if ($shipping['id'] == 'correosoficina_correosoficina' && !empty($_SESSION['correos_oficina_sel']['id'])) {
+            $aCorOfi = $_SESSION['correos_oficina_sel'];
+            $sCorOfiComment = 'Recoger en oficina de Correos: ' . $aCorOfi['id'] . ' - ' . $aCorOfi['name'] . ' (' . $aCorOfi['address'] . ', ' . $aCorOfi['cp'] . ' ' . $aCorOfi['city'] . ')';
+            $comments .= '<br>' . $sCorOfiComment;
+            $order->info['comments'] = trim((string) $order->info['comments'] . ($order->info['comments'] != '' ? '<br>' : '') . $sCorOfiComment);
+        }
+        // Fin, recogida en oficina de Correos
+
         // Isertamos orders — con reintento ante carrera de orders_id.
         // El id se genera con MAX(orders_id)+1 (línea ~168); si dos checkouts entran a
         // la vez leen el mismo MAX y colisionan en la PRIMARY KEY (Duplicate entry).
@@ -315,6 +325,25 @@ class Process
             unset($_SESSION['seur_pudo_sel']);
         }
         // Fin, punto de recogida SEUR
+
+        // Inicio, recogida en oficina de Correos: persistir la oficina para la API (chosenOffice)
+        if ($shipping['id'] == 'correosoficina_correosoficina' && !empty($_SESSION['correos_oficina_sel']['id'])) {
+            $aCorOfi = $_SESSION['correos_oficina_sel'];
+            $corOfiNo4b = function ($s) { return preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $s); };  // tabla utf8mb3: sin 4-byte
+            tep_db_perform('correos_oficina_orders', array(
+                'orders_id'  => (int) $insert_id,
+                'office_id'  => $aCorOfi['id'],
+                'name'       => $corOfiNo4b($aCorOfi['name']),
+                'address'    => $corOfiNo4b($aCorOfi['address']),
+                'postcode'   => $aCorOfi['cp'],
+                'city'       => $corOfiNo4b($aCorOfi['city']),
+                'lat'        => (float) $aCorOfi['lat'],
+                'lng'        => (float) $aCorOfi['lng'],
+                'date_added' => 'now()',
+            ));
+            unset($_SESSION['correos_oficina_sel']);
+        }
+        // Fin, recogida en oficina de Correos
 
         if (preg_match('/UPS \(UPS\)/i', $order->info['shipping_method'])) {
             $upsshipping->update_order($insert_id, $cartID);

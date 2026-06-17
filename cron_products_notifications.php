@@ -36,7 +36,7 @@
 				$aStock = tep_db_fetch_array( $aStock );
 				
 				// Si tiene stock
-				if( $aStock['products_stock_quantity'] > -900 )
+				if( $aStock['products_stock_quantity'] > 0 && $aStock['products_stock_quantity'] != 2000 )
 				{
 					// Descomponemos y obtenemos los products options
 					$aAttribs = explode( ',', $aStock['products_stock_attributes'] );
@@ -121,7 +121,7 @@
 			$aStock = tep_db_fetch_array( $aStock );
 			
 			// Si tiene stock
-			if( $aStock['products_quantity'] > 0 )
+			if( $aStock['products_quantity'] > 0 && $aStock['products_quantity'] != 2000 )
 			{
 				// Obtenemos los usuarios a notificar
 				$aClientes = tep_db_query( 'SELECT * FROM products_notifications WHERE products_id = ' . (int) $aStock['products_id'] );

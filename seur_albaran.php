@@ -30,13 +30,12 @@ ini_set('display_errors', '0');
 
 define('SEUR_ALB_TOKEN', 'seuralb_9d2f51c7a3e8');
 
-/* Plantilla de la etiqueta ZPL. Z4_TWO_BODIES = formato completo (remitente,
- * destinatario/punto, refs, obs) y cabe en el rollo de 8x20 cm de la Zebra del
- * almacén con un desplazamiento fino de -32 dots (~4 mm) que se inyecta como
- * ^LS en cada etiqueta (validado impreso 2026-06-10). GEOLABEL/NORMAL son de
- * 105 mm y se cortan en ese rollo. El PDF se mantiene en GEOLABEL (respaldo A4). */
-define('SEUR_ZPL_TEMPLATE', 'Z4_TWO_BODIES');
-define('SEUR_ZPL_LS', -32);
+/* Plantilla de la etiqueta ZPL. GEOLABEL es el formato oficial SEUR para el rollo
+ * 10x15 de la Zebra del almacen. SEUR la entrega ~8 mm volcada a la izquierda (Y
+ * alta); se centra con seurAjustarZpl() bajando SEUR_ZPL_DY dots la Y de los
+ * campos. El PDF se mantiene en GEOLABEL (respaldo A4). */
+define('SEUR_ZPL_TEMPLATE', 'GEOLABEL');
+define('SEUR_ZPL_DY', 32);  // GEOLABEL rollo 10x15: baja la Y de los campos 32 dots (~4 mm) para centrar (validado impreso 2026-06-16; bajar Y = mover a la DERECHA)
 
 $in = array_merge($_GET, $_POST);
 
@@ -264,13 +263,21 @@ if (!$res['ok'] && (!$code || $regen)) {
 
 /* Etiquetas (ZPL para térmica; PDF como respaldo/reimpresión) */
 $zpl = null; $pdfBin = null;
-/* Inyecta el ajuste ^LS en el bloque imprimible (el último ^XA: los primeros
- * suelen ser la descarga de plantilla/logo ~DG/^DF). */
+/* Centra la GEOLABEL en el rollo 10x15. SEUR la entrega ~8 mm volcada a la
+ * izquierda (Y alta); bajamos la Y de cada ^FO/^FT (clamp 0) para moverla a la
+ * DERECHA, y RENOMBRAMOS el formato almacenado (^DF/^XF): la Zebra cachea el
+ * formato por nombre y, si no, reusaria la version sin centrar. */
 function seurAjustarZpl($zpl) {
-    if ((int) SEUR_ZPL_LS === 0) return $zpl;
-    $pos = strrpos($zpl, '^XA');
-    if ($pos === false) return $zpl;
-    return substr($zpl, 0, $pos + 3) . '^LS' . (int) SEUR_ZPL_LS . substr($zpl, $pos + 3);
+    $dy = (int) SEUR_ZPL_DY;
+    if ($dy <= 0) return $zpl;
+    $zpl = preg_replace_callback('/\^(F[OT])(\d+),(\d+)/', function ($m) use ($dy) {
+        $ny = (int) $m[3] - $dy; if ($ny < 0) $ny = 0;
+        return '^' . $m[1] . $m[2] . ',' . $ny;
+    }, $zpl);
+    if (preg_match('/\^DF([A-Z0-9_]{1,8})\.(\d+)/i', $zpl, $m)) {
+        $zpl = str_replace($m[1] . '.' . $m[2], 'FBGS' . $dy . '.' . $m[2], $zpl);
+    }
+    return $zpl;
 }
 
 $labZ = $s->getLabel($code, 'ZPL', array('templateType' => SEUR_ZPL_TEMPLATE));

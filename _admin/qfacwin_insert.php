@@ -988,7 +988,7 @@ while ($data = fgetcsv($fp, filesize($filename), ";")) {
 
 				$strsql .= " CCODIART = '" . $row["CCODIART"] . "' , ";
 				$strsql .= " products_last_modified = now()  ";
-				$strsql .= " where  products_id = " . $idproducte . " ";
+				$strsql .= " where  products_id = " . $idproducte . " " . ( ($intcltrac == 116 && $pujarstock == true) ? " and not ( (products_quantity < 0 or products_quantity = 2000) and ( ('".$row["NESTOC"]."')+0 <= 0 ) )" : "" );
 				$result = mysqli_query($link, $strsql) or die ("update products_tmp " . mysqli_errno($link) . ": " . mysqli_error($link) . $crlf . $strsql);
 
 				//afegim relacio productes i categories
@@ -2265,7 +2265,7 @@ if ($traspassaratributs == true) {
 								//modifiquem les dades que pujen de QFACWIN
 								$strsql = "update " . $strnomdb . $strprefixtaules . "products_stock  set ";
 								$strsql .= " products_stock_quantity = " . $row["NSTOCAC"];
-								$strsql .= " where products_stock_id = " . $idantig;
+								$strsql .= " where products_stock_id = " . $idantig . ( ($intcltrac == 116) ? " and not ( (products_stock_quantity < 0 or products_stock_quantity = 2000) and ( ('".$row["NSTOCAC"]."')+0 <= 0 ) )" : "" );
 								$result = mysqli_query($link, $strsql) or die ("update 1 products_stock " . mysqli_errno($link) . ": " . mysqli_error($link) . $crlf . $strsql);
 
 							} //existeix
