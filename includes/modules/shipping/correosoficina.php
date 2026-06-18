@@ -13,12 +13,13 @@
  *
  * PRECIO = tarifa Paq Estándar 2026 × descuento de oficina (contrato S0133) × 1,10
  * (combustible) × 1,20 (margen). Tablas SIN IVA; el módulo añade IVA + redondeo 0,05.
- * Tope de peso 30 kg (máximo Paq Estándar). Ver memoria francobordo_correos_api.
+ * Tope de peso 40 kg (máximo Paq Estándar: tarifa tabulada a 30 kg + €/kg adicional
+ * por encima). Ver memoria francobordo_correos_api.
  */
 class correosoficina {
     var $code, $title, $description, $icon, $enabled, $sort_order, $tax_class, $quotes, $_check;
 
-    const MAX_KG = 30;   // Paq Estándar: máximo 30 kg por envío
+    const MAX_KG = 40;   // Paq Estándar: máximo 40 kg (tarifa hasta 30 kg + €/kg adicional)
 
     // Localizador PÚBLICO de oficinas (sin auth; ver correos_oficinas.php).
     const LOC_BASE  = 'https://api1.correos.es/digital-services/searchloc/api/v1/';
@@ -29,11 +30,11 @@ class correosoficina {
         global $customer_group_id;
 
         $this->code        = 'correosoficina';
-        $this->title       = defined('MODULE_SHIPPING_CORREOSOFICINA_TEXT_TITLE') ? MODULE_SHIPPING_CORREOSOFICINA_TEXT_TITLE : 'Correos Recoger en Oficina';
-        $this->description = defined('MODULE_SHIPPING_CORREOSOFICINA_TEXT_DESCRIPTION') ? MODULE_SHIPPING_CORREOSOFICINA_TEXT_DESCRIPTION : 'Entrega en oficina de Correos';
-        $this->sort_order  = defined('MODULE_SHIPPING_CORREOSOFICINA_SORT_ORDER') ? MODULE_SHIPPING_CORREOSOFICINA_SORT_ORDER : 99;
+        $this->title       = MODULE_SHIPPING_CORREOSOFICINA_TEXT_TITLE;
+        $this->description = MODULE_SHIPPING_CORREOSOFICINA_TEXT_DESCRIPTION;
+        $this->sort_order  = MODULE_SHIPPING_CORREOSOFICINA_SORT_ORDER;
         $this->icon        = DIR_WS_ICONS . 'correos.png';
-        $this->tax_class   = defined('MODULE_SHIPPING_CORREOSOFICINA_TAX_CLASS') ? MODULE_SHIPPING_CORREOSOFICINA_TAX_CLASS : 0;
+        $this->tax_class   = MODULE_SHIPPING_CORREOSOFICINA_TAX_CLASS;
         $this->enabled     = (defined('MODULE_SHIPPING_CORREOSOFICINA_STATUS') && MODULE_SHIPPING_CORREOSOFICINA_STATUS == 'True');
 
         // FASE PRUEBAS: gate por IP de origen (lista separada por comas). Vacío = todos.
@@ -61,6 +62,14 @@ class correosoficina {
     const TARIFA_CEUTAMEL = array(1=>19.81, 2=>20.59, 3=>21.83, 4=>22.44, 5=>23.08, 10=>26.17, 15=>29.75, 20=>35.35, 25=>40.95, 30=>46.55);
     const TARIFA_CANAR    = array(1=>24.62, 2=>25.61, 3=>27.37, 4=>28.50, 5=>29.61, 10=>35.71, 15=>46.76, 20=>60.80, 25=>74.83, 30=>88.87);
 
+    /* €/kg adicional (o fracción) por encima de 30 kg, SIN IVA = tarifa adicional base 2026
+     * × dto oficina (S0133) × 1,10 (combustible) × 1,20 (margen) — mismas reglas que las bandas.
+     * Base: Z3=0,57 · Z4=1,69 · Z5=3,99 €/kg. El DUA de islas es fijo por envío (no por kg). */
+    const ADIC_PEN      = 0.3658;   // Z3
+    const ADIC_BAL      = 1.1203;   // Z4 transporte
+    const ADIC_CEUTAMEL = 1.1203;   // Z4 transporte
+    const ADIC_CANAR    = 2.8074;   // Z5 transporte
+
     /** Zona por código postal (España): 35/38=Canarias, 51/52=Ceuta/Melilla, 07=Baleares, resto=Península. */
     public static function zonaPorCp($cp) {
         $cp = trim((string) $cp);
@@ -77,13 +86,16 @@ class correosoficina {
 
     /** Precio (transporte + DUA si isla) según peso (kg) y zona. */
     public static function costePorPeso($kg, $zona) {
-        $map = array('CANAR' => self::TARIFA_CANAR, 'CEUTAMEL' => self::TARIFA_CEUTAMEL, 'BAL' => self::TARIFA_BAL);
+        $map  = array('CANAR' => self::TARIFA_CANAR, 'CEUTAMEL' => self::TARIFA_CEUTAMEL, 'BAL' => self::TARIFA_BAL);
+        $adic = array('CANAR' => self::ADIC_CANAR, 'CEUTAMEL' => self::ADIC_CEUTAMEL, 'BAL' => self::ADIC_BAL);
         $tabla = isset($map[$zona]) ? $map[$zona] : self::TARIFA_PEN;
         $kg = (float) $kg; if ($kg <= 0) $kg = 1;
         foreach ($tabla as $maxkg => $precio) {
             if ($kg <= $maxkg) return $precio;
         }
-        return end($tabla);   // hasta 30 kg; por encima no se ofrece (ver quote)
+        // 30 < kg <= MAX_KG (40): tarifa de 30 kg + €/kg adicional (o fracción) de la zona.
+        $a = isset($adic[$zona]) ? $adic[$zona] : self::ADIC_PEN;
+        return end($tabla) + ceil($kg - 30) * $a;
     }
 
     public function quote($method = '') {

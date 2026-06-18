@@ -34,7 +34,7 @@ if( tep_db_num_rows( $aRows ) <= 0 ) {
 				</tbody>
 			</table>
 
-			<?php echo $aRowsSplit->showPaginateTable( tep_get_all_get_params( array('page') ), 'page', $sHtmlActionMasivo, 'solenopsis' ); ?>
+			<?php echo $aRowsSplit->showPaginateTable( tep_get_all_get_params( array('page') ), 'page', $sHtmlActionMasivo ?? '', 'solenopsis' ); ?>
 		</form>
 	</div>
 </div>

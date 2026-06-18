@@ -40,11 +40,24 @@ class delivery_estimate {
 		if( tep_db_num_rows( $check ) == 0 )
 			return false;
 
-		$sql = tep_db_query( "select date_purchased from " . TABLE_ORDERS . " where orders_id = '" . $orders_id . "'" );
+		$sql = tep_db_query( "select date_purchased, shipping_module from " . TABLE_ORDERS . " where orders_id = '" . $orders_id . "'" );
 		if( tep_db_num_rows( $sql ) == 0 )
 			return false;
 		$row = tep_db_fetch_array( $sql );
 		$datePurchased = $row['date_purchased'];
+
+		// SEUR 13:30 ('seurnacional') y SEUR 10 ('seurdiez'): entrega al SIGUIENTE DIA HABIL
+		// (24h), independientemente del stock. Ambos solo se ofrecen L-V; SEUR no entrega en
+		// sabado salvo servicio complementario (no contratado), asi que un pedido del VIERNES
+		// se entrega el LUNES. addDays(,1) salta sabados/domingos y festivos (BUSINESS_DAYS=True)
+		// -> viernes->lunes, jueves->viernes. Las reglas de stock de abajo no aplican.
+		$sm = (string)$row['shipping_module'];
+		if( strpos( $sm, 'seurnacional' ) === 0 || strpos( $sm, 'seurdiez' ) === 0 ) {
+			$estimated = $this->addDays( $datePurchased, 1 );
+			$rule = ( strpos( $sm, 'seurdiez' ) === 0 ) ? 'seur10_24h' : 'seur1330_24h';
+			tep_db_query( "insert into orders_delivery_estimate (orders_id, estimated_date, rule_applied, comment, is_manual, admin_user, email_sent, created_at) values ('" . $orders_id . "', '" . tep_db_input( $estimated ) . "', '" . tep_db_input( $rule ) . "', NULL, 0, NULL, 0, now())" );
+			return $estimated;
+		}
 
 		$sqlP = tep_db_query( "select orders_products_id, products_id, products_quantity from " . TABLE_ORDERS_PRODUCTS . " where orders_id = '" . $orders_id . "'" );
 

@@ -196,8 +196,17 @@ if (!$dry && $content) {
     $imp->saveData();   // status 3 + email + histórico + opiniones
 }
 
+/* "ya anulado"/"no existe" = éxito idempotente al re-anular un bulto ya anulado (multibulto-parcial
+ * desde el panel admin). Mismo patrón que correosCancelSoft del panel y seurCancelSoft. */
+function correosCronCancelSoft($desc) {
+    $d = mb_strtolower((string) $desc);
+    return (strpos($d, 'ya anulad') !== false || strpos($d, 'no existe') !== false
+         || strpos($d, 'inexist') !== false || strpos($d, 'not found') !== false
+         || strpos($d, 'no encontrado') !== false);
+}
+
 /* ---- M5: reintento de anulaciones ENCOLADAS (cancel_requested_at) ----
- * El módulo RMA hace un intento rápido y, si el endpoint inestable falla, encola
+ * El módulo RMA y el panel hacen un intento rápido y, si el endpoint inestable falla, encolan
  * aquí. Reintentamos cada hora hasta lograrlo; alerta si lleva >24h sin éxito. */
 $cancelOk = 0; $cancelPend = 0; $cancelAlert = 0;
 if (!$dry) {
@@ -205,7 +214,8 @@ if (!$dry) {
     $cq = tep_db_query(
         "SELECT id, id_rma, orders_id, tipo, shipment_code, package_code, response_json, cancel_requested_at
            FROM correos_shipments
-          WHERE cancel_requested_at IS NOT NULL AND cancelled_at IS NULL AND ok = 1"
+          WHERE cancel_requested_at IS NOT NULL AND cancelled_at IS NULL
+            AND shipment_code IS NOT NULL AND shipment_code <> ''"
     );
     while ($cs = tep_db_fetch_array($cq)) {
         $cpkgs = array();
@@ -216,14 +226,17 @@ if (!$dry) {
         $cpkgs = array_values(array_unique($cpkgs));
         if (!$cpkgs) continue;
 
-        // 4 intentos por pasada con timeout corto (15s): el endpoint de anulación es
-        // inestable pero falla RÁPIDO, así que varios intentos por pasada son baratos y
-        // resuelven en ~1-2h en vez de ~8h; el peor caso (timeouts) queda acotado a ~66s
-        // y los envíos encolados son raros (solo cancelaciones RMA fallidas). NOTA:
-        // multibulto-parcial (un bulto anulado, otro no) no es alcanzable hoy (cancel
-        // solo se expone en RMA = 1 bulto) → quedaría en ALERTA >24h, no roto en silencio.
+        // 4 intentos por pasada con timeout corto (15s): el endpoint de anulación es inestable
+        // pero falla RÁPIDO, así que varios intentos por pasada son baratos. Multibulto-parcial
+        // (un bulto ya anulado y otro no) SÍ es alcanzable desde el panel _admin/correos_envios.php
+        // → toleramos "ya anulado"/"no existe" como éxito idempotente (correosCronCancelSoft) para
+        // no quedar atascados en ALERTA >24h pese a estar realmente anulado en Correos.
         $allAnn = true;
-        foreach ($cpkgs as $cpc) { if (!correos::annulmentOk($c->annulment($cpc, 'spa', 4))) $allAnn = false; }
+        foreach ($cpkgs as $cpc) {
+            $ar = $c->annulment($cpc, 'spa', 4);
+            $am = is_array($ar['data'] ?? null) ? (string) ($ar['data']['message'] ?? ($ar['data']['error'] ?? '')) : '';
+            if (!correos::annulmentOk($ar) && !correosCronCancelSoft($am)) $allAnn = false;
+        }
 
         if ($allAnn) {
             tep_db_query("UPDATE correos_shipments SET cancelled_at = now() WHERE id = " . (int) $cs['id']);

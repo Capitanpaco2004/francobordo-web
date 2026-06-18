@@ -218,6 +218,14 @@ if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === '1330') && $iso
     $opts['observations'] .= ' / SEUR 13:30';
 }
 
+/* SEUR 10 / antes de las 10h (servicio 3/2, ES peninsular + Portugal continental):
+ * el watcher lo pide con svc=1000 cuando el albaran va con la agencia Vstock 'SEUR 10'. */
+if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === '1000') && ($iso === 'ES' || $iso === 'PT')) {
+    $opts['service'] = '3';
+    $opts['product'] = '2';
+    $opts['observations'] .= ' / SEUR 10';
+}
+
 if ($regen) {
     // ref nueva por regeneración: F{oid}R{n}/Q{oid}R{n} (n monotónico = nº envíos del pedido + 1).
     $rc = $db->prepare("SELECT COUNT(*) c FROM seur_shipments WHERE orders_id=? AND tipo='envio'");

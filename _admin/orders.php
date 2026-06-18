@@ -1819,6 +1819,15 @@ if (!empty($_GET['cID'])) {
 if (!empty($_GET['status'])) {
 	$where[] = "o.orders_status = " . (int)tep_db_prepare_input($_GET['status']);
 }
+if (!empty($_GET['ship'])) {
+	$sh = tep_db_prepare_input($_GET['ship']);
+	if ($sh === 'seururgente') {
+		// SEUR 13:30 (seurnacional) + SEUR 10 (seurdiez) = los urgentes a priorizar
+		$where[] = "o.shipping_module IN ('seurnacional_seurnacional', 'seurdiez_seurdiez')";
+	} else {
+		$where[] = "o.shipping_module = '" . tep_db_input($sh) . "'";
+	}
+}
 if (!empty($_GET['aID'])) {
 	$aID = tep_db_prepare_input($_GET['aID']);
 	$where[] = "o.amazon_id LIKE '%" . tep_db_input($aID) . "%'";
@@ -1913,7 +1922,7 @@ $orders_query = tep_db_query($orders_query_raw);
 					</li>
 					<li>
 						<?php echo tep_draw_form('status', FILENAME_ORDERS, '', 'get', 'style="position:relative; top: 2px;"'); ?>
-						<?php echo HEADING_TITLE_STATUS . ' ' . tep_draw_pull_down_menu('status', array_merge(array(array('id' => '', 'text' => TEXT_ALL_ORDERS)), $orders_statuses), '', 'onChange="this.form.submit();"'); ?></td>
+						<?php echo HEADING_TITLE_STATUS . ' ' . tep_draw_pull_down_menu('status', array_merge(array(array('id' => '', 'text' => TEXT_ALL_ORDERS)), $orders_statuses), (isset($_GET['status']) ? $_GET['status'] : ''), 'onChange="this.form.submit();"'); ?>&nbsp;&nbsp;<?php $aShipFilter = array(array('id'=>'','text'=>'Forma de envío: todas'), array('id'=>'seururgente','text'=>'SEUR urgentes (10h + 13:30)'), array('id'=>'seurdiez_seurdiez','text'=>'SEUR antes de las 10h'), array('id'=>'seurnacional_seurnacional','text'=>'SEUR antes 13:30h'), array('id'=>'seurpunto_seurpunto','text'=>'SEUR Punto de Recogida'), array('id'=>'seureuropack_seureuropack','text'=>'SEUR EuroPACK'), array('id'=>'tipsa_tipsa','text'=>'Mensajería (Tipsa)'), array('id'=>'correos_Normal','text'=>'Correos Domicilio'), array('id'=>'correosoficina_correosoficina','text'=>'Correos - Recoger en oficina'), array('id'=>'correoscert_Normal','text'=>'Correos Certificado'), array('id'=>'retira_retira','text'=>'Recogida en tienda'), array('id'=>'freeamount_freeamount','text'=>'Envío Gratis')); echo 'Forma de envío ' . tep_draw_pull_down_menu('ship', $aShipFilter, (isset($_GET['ship']) ? $_GET['ship'] : ''), 'onChange="this.form.submit();"'); ?></td>
 						<?php echo tep_hide_session_id(); ?>
 						<input style="visibility:hidden;height: 0px;width: 0px;float: right;" type="submit"/>
 						</form>

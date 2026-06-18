@@ -334,6 +334,8 @@ pov.products_options_values_id,
 IF (pa.products_attributes_ean IS NOT NULL AND pa.products_attributes_ean <>"" AND pa.products_attributes_ean <>"0", pa.products_attributes_ean, p.product_ean) as product_ean,
 IF (pa.reference IS NOT NULL AND pa.reference <>"", pa.reference, p.products_model) as products_model,
 (CASE
+WHEN s.status AND s.specials_new_products_price > 0 AND pa.price_prefix = "+" THEN (p.products_price + pa.options_values_price) * (s.specials_new_products_price / NULLIF(p.products_price,0))
+WHEN s.status AND s.specials_new_products_price > 0 AND pa.price_prefix = "-" THEN (p.products_price - pa.options_values_price) * (s.specials_new_products_price / NULLIF(p.products_price,0))
 WHEN pa.price_prefix = "+" THEN (p.products_price + pa.options_values_price)
 WHEN pa.price_prefix = "-" THEN (p.products_price - pa.options_values_price)
 ELSE IF(s.status, s.specials_new_products_price, p.products_price)

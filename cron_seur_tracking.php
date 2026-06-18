@@ -81,9 +81,13 @@ $seur->setTimeout(20);
  *  por texto, con guardas para "NO ENTREGADO"/"SIN ENTREGA"). */
 function seurEsEntregado($desc) {
     $d = mb_strtoupper((string) $desc);
-    if (strpos($d, 'ENTREGAD') === false) return false;
+    // Negativas primero (cubren tanto "ENTREGAD..." como "ENTREGA ...")
     if (preg_match('/\b(NO|SIN)\s+ENTREG/u', $d)) return false;
-    return true;
+    if (strpos($d, 'FALLID') !== false || strpos($d, 'NO REALIZ') !== false || strpos($d, 'IMPOSIBLE') !== false) return false;
+    // Positivas: ENTREGADO/ENTREGADA (incl. EN PUNTO / LOCKER) y "ENTREGA EFECTUADA/REALIZADA/COMPLETADA" (code LL003)
+    if (strpos($d, 'ENTREGAD') !== false) return true;
+    if (preg_match('/ENTREGA\s+(EFECTUAD|REALIZAD|COMPLETAD)/u', $d)) return true;
+    return false;
 }
 
 /** ¿Anulado? (LK522 "ENVIO ANULADO" / GI646 recogida cancelada). */

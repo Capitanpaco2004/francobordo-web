@@ -280,6 +280,7 @@ class shoppingCart {
 		// EOF QPBPP for SPPC
 		foreach (array_keys($this->contents) as $products_id) {
 			$qty = $this->contents[$products_id]['qty'];
+			$offer_ratio = 1.0; // default seguro: si no se resuelve el producto, el modificador NO se escala (comportamiento previo)
 
 			// BOF QPBPP for SPPC
 			if (tep_not_null($this->contents[$products_id]['discount_categories_id'] ?? '')) {
@@ -297,6 +298,9 @@ class shoppingCart {
 				$products_tax   = tep_get_tax_rate($product['products_tax_class_id']);
 				$products_price = $pf->computePrice($qty, $nof_other_items_in_cart_same_cat);
 				// EOF QPBPP for SPPC
+				// Oferta + variante: ratio de descuento (eff/full) para escalar el modificador de variante,
+				// de modo que la oferta se aplique como % sobre el precio de la variante (no como euros fijos).
+				$offer_ratio = ($pf->hasSpecialPrice() && $pf->getPrice() > 0) ? ($products_price / $pf->getPrice()) : 1.0;
 				$products_cost   = $product['products_cost'];
 				$products_weight = $product['products_weight'];
 
@@ -360,9 +364,9 @@ class shoppingCart {
 					// now loop through array $attribute_price to add up/substract attribute prices + weight
 					for ($n = 0; $n < count($attribute_price); $n++) {
 						if ($attribute_price[$n]['price_prefix'] == '-')
-							$this->total -= abs($currencies->calculate_price($attribute_price[$n]['options_values_price'], $products_tax, $qty));
+							$this->total -= abs($currencies->calculate_price($attribute_price[$n]['options_values_price'] * $offer_ratio, $products_tax, $qty));
 						else
-							$this->total += ($currencies->calculate_price($attribute_price[$n]['options_values_price'], $products_tax, $qty));
+							$this->total += ($currencies->calculate_price($attribute_price[$n]['options_values_price'] * $offer_ratio, $products_tax, $qty));
 
 						if ($attribute_price[$n]['weight_prefix'] == '-')
 							$this->weight -= $qty * $attribute_price[$n]['options_values_weight'];
@@ -430,6 +434,8 @@ class shoppingCart {
 					$nof_other_items_in_cart_same_cat = 0;
 				}
 				$products_price = $pf->computePrice($this->contents[$products_id]['qty'], $nof_other_items_in_cart_same_cat);
+				// Oferta + variante: ratio de descuento (eff/full) para escalar el modificador de variante.
+				$offer_ratio = ($pf->hasSpecialPrice() && $pf->getPrice() > 0) ? ($products_price / $pf->getPrice()) : 1.0;
 				// BOF add-weight-to-product-attributes with UPSxml mod
 
 				// determine total weight of attributes to add to weight of product
@@ -525,8 +531,8 @@ class shoppingCart {
 									 'cost'                   => $products['products_cost'],
 									 'quantity'               => $this->contents[$products_id]['qty'],
 									 'weight'                 => $products['products_weight'] + $attributes_total_weight,
-									 'final_price'            => ($products_price + $nAtribute),
-									 'price_format'           => $currencies->display_price(($products_price + $nAtribute), tep_get_tax_rate($products['products_tax_class_id']), $this->contents[$products_id]['qty']),
+									 'final_price'            => ($products_price + $nAtribute * $offer_ratio),
+									 'price_format'           => $currencies->display_price(($products_price + $nAtribute * $offer_ratio), tep_get_tax_rate($products['products_tax_class_id']), $this->contents[$products_id]['qty']),
 									 'tax_class_id'           => $products['products_tax_class_id'],
 									 'attributes_info'        => $attributes_info,
 									 'href'                   => tep_href_link(FILENAME_PRODUCT_INFO, 'products_id=' . $products_id),

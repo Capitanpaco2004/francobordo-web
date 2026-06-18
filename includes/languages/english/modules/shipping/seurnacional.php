@@ -13,8 +13,8 @@ http://www.extremaduraproductos.com
 Released under the GNU General Public License
  */
 
-define('MODULE_SEUR_NACIONAL_TEXT_TITLE', 'SEUR 13:30-Saturdays');
-define('MODULE_SEUR_NACIONAL_TEXT_DESCRIPTION', 'Delivery before 2pm and Saturdays Peninsula and Balearic Islands');
+define('MODULE_SEUR_NACIONAL_TEXT_TITLE', 'SEUR before 13:30h');
+define('MODULE_SEUR_NACIONAL_TEXT_DESCRIPTION', 'Delivery before 13:30h, Monday to Friday');
 /**
  * Comentado a petición de Marta para quitar el peso.
  * #THB-416-38558
@@ -22,7 +22,7 @@ define('MODULE_SEUR_NACIONAL_TEXT_DESCRIPTION', 'Delivery before 2pm and Saturda
  * @author Daniel Lucia <daniel.lucia@denox.es>
  */
 //define('MODULE_SEUR_NACIONAL_TEXT_WAY', 'SEUR antes 13:30h - Peso');
-define('MODULE_SEUR_NACIONAL_TEXT_WAY', 'SEUR antes 13:30h y sábados');
+define('MODULE_SEUR_NACIONAL_TEXT_WAY', 'SEUR before 13:30h (Mon-Fri)');
 define('MODULE_SEUR_NACIONAL_TEXT_UNITS', 'Kg');
 define('MODULE_SEUR_NACIONAL_INVALID_ZONE', 'No posts available for this area.');
 define('MODULE_SEUR_NACIONAL_UNDEFINED_RATE', 'Unable to calculate shipping costs.');

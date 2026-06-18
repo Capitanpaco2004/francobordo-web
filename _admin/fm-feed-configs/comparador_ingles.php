@@ -308,14 +308,7 @@ function FM_RS_google_categories_comparador_ingles($product) {
 
 function FM_RS_final_price_with_tax_comparador_ingles($product) {
 
-	$sql            = "SELECT specials_new_products_price from specials where products_id = '" . $product['products_id'] . "' AND status = '1' limit 1";
-	$special_query  = tep_db_query($sql);
-	$special_result = tep_db_fetch_array($special_query);
-	if ($special_result['specials_new_products_price'] > 0) {
-		$price = $special_result['specials_new_products_price'];
-    } else {
-		$price =$product['final_price'];
-    }
+	$price = $product['final_price']; // fix oferta+variante 2026-06-17: usar final_price (ya incluye el ratio de oferta y el modificador de variante); NO re-consultar specials, el products_id de variante (ID-ATTR) castea al ID base y devolvia el special base sin ajustar
 
 	$price = round(($price) * (1 + ((tep_get_tax_rate($product['products_tax_class_id']) / 100))), 2);
     return $price . ' EUR';

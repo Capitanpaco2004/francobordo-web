@@ -85,19 +85,32 @@ class seurnacional
             return array();
         }
 
-        // TODOS los productos del carrito con stock real. Sentinels excluidos:
-        // <=0 (en proveedor / bajo pedido / agotado) y 2000 (bajo demanda).
+        // Cada linea debe tener stock REAL que CUBRA la cantidad pedida. Variantes:
+        // se mira products_stock de la combinacion EXACTA (no el stock agregado del
+        // producto, que es la suma de todas las variantes). Sentinels excluidos:
+        // <=0 (proveedor / bajo pedido / agotado) y 2000 (stock virtual por metro).
         for ($i = 0, $n = sizeof($order->products); $i < $n; $i++) {
             $aProduct = $order->products[$i];
-            if (!isset($aProduct['products_quantity'])) {
-                $nID = isset($aProduct['products_id']) ? $aProduct['products_id'] : $aProduct['id'];
-                $nID = (strpos((string) $nID, '{') !== false) ? (int) strstr((string) $nID, '{', true) : (int) $nID;
-                $q = tep_db_query('SELECT products_quantity FROM ' . TABLE_PRODUCTS . ' WHERE products_id = ' . (int) $nID);
-                $r = tep_db_fetch_array($q);
-                $aProduct['products_quantity'] = $r ? $r['products_quantity'] : 0;
+            $ordered  = (float) (isset($aProduct['qty']) ? $aProduct['qty'] : 1);
+            $rawId    = (string) (isset($aProduct['id']) ? $aProduct['id'] : (isset($aProduct['products_id']) ? $aProduct['products_id'] : ''));
+            $baseId   = (strpos($rawId, '{') !== false) ? (int) strstr($rawId, '{', true) : (int) $rawId;
+
+            // Stock disponible de EXACTAMENTE lo pedido.
+            $avail = null;
+            if (strpos($rawId, '{') !== false && preg_match_all('/\{(\d+)\}(\d+)/', $rawId, $mm, PREG_SET_ORDER)) {
+                $pairs = array();
+                foreach ($mm as $pr) $pairs[] = $pr[1] . '-' . $pr[2];
+                $comb = implode(',', $pairs);
+                $rs = tep_db_query("SELECT products_stock_quantity FROM products_stock WHERE products_id = " . (int) $baseId . " AND products_stock_attributes = '" . tep_db_input($comb) . "'");
+                if ($r = tep_db_fetch_array($rs)) $avail = (float) $r['products_stock_quantity'];
             }
-            $qty = (float) $aProduct['products_quantity'];
-            if ($qty <= 0 || (int) $qty === 2000) {
+            if ($avail === null) {   // sin variante (o combinacion no encontrada): stock a nivel producto
+                $q = tep_db_query('SELECT products_quantity FROM ' . TABLE_PRODUCTS . ' WHERE products_id = ' . (int) $baseId);
+                $r = tep_db_fetch_array($q);
+                $avail = $r ? (float) $r['products_quantity'] : 0;
+            }
+            // No se ofrece 13:30 si: stock virtual (2000), agotado/bajo pedido (<=0), o no cubre lo pedido.
+            if ((int) $avail === 2000 || $avail <= 0 || $avail < $ordered) {
                 $this->enabled = false;
                 return array();
             }

@@ -161,6 +161,8 @@
 			case 'no_stock':  $sRuleText = defined('DELIVERY_ESTIMATE_RULE_NO_STOCK')  ? DELIVERY_ESTIMATE_RULE_NO_STOCK  : ''; break;
 			case 'backorder': $sRuleText = defined('DELIVERY_ESTIMATE_RULE_BACKORDER') ? DELIVERY_ESTIMATE_RULE_BACKORDER : ''; break;
 			case 'manual':    $sRuleText = defined('DELIVERY_ESTIMATE_RULE_MANUAL')    ? DELIVERY_ESTIMATE_RULE_MANUAL    : ''; break;
+			case 'seur1330_24h': $sRuleText = defined('DELIVERY_ESTIMATE_RULE_SEUR1330') ? DELIVERY_ESTIMATE_RULE_SEUR1330 : 'Envío urgente SEUR antes de las 13:30h (entrega en 24h)'; break;
+			case 'seur10_24h':   $sRuleText = defined('DELIVERY_ESTIMATE_RULE_SEUR10')   ? DELIVERY_ESTIMATE_RULE_SEUR10   : 'Envío urgente SEUR antes de las 10h (entrega en 24h)'; break;
 		}
 
 		// Texto relativo de días (desde language files)

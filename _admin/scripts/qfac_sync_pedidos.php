@@ -119,6 +119,10 @@ function load_eligible($link, $only): array {
         $where = "orders_id=".(int)$only;
     } else {
         $where .= " AND date_purchased >= (NOW() - INTERVAL ".WINDOW_DAYS." DAY)";
+        // EXCLUIR pedidos que ya recibieron su 'ultima pasada' (marker action='final'): no hay que
+        // re-traerlos de Firebird ni re-procesarlos cada 5 min. Sin esto, todos los servidos de 30d
+        // se arrastran en cada barrido (~2300) e inflan el log con skips 'servido_cservida=S'.
+        $where .= " AND NOT EXISTS (SELECT 1 FROM qfac_order_sync_log l WHERE l.orders_id=orders.orders_id AND l.action='final')";
     }
     $ids = [];
     $r = q($link, "SELECT orders_id FROM orders WHERE $where ORDER BY orders_id DESC");
@@ -621,7 +625,14 @@ foreach ($eligible as $oid) {
         log_run($link, $res, $MODE);
     } elseif ($res['action'] === 'skip') {
         $skips[$res['reason']] = ($skips[$res['reason']] ?? 0) + 1;
-        log_run($link, $res, $MODE);
+        // Log del skip SOLO la primera vez para (orders_id, reason): un pedido que se salta cada
+        // 5 min (extras/composicion/duplicado) generaria miles de filas identicas. Una basta para
+        // la revision manual. (El set elegible ya es pequeno, este SELECT es barato.)
+        if ($APPLY) {
+            $rr = q($link, "SELECT 1 FROM qfac_order_sync_log WHERE orders_id=".(int)$oid.
+                " AND action='skip' AND reason=".($res['reason']===null?'IS NULL':"'".esc($link,(string)$res['reason'])."'")." LIMIT 1");
+            if (mysqli_num_rows($rr) === 0) log_run($link, $res, $MODE);
+        }
     }
     // noop: no log para no inflar
 

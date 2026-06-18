@@ -2671,6 +2671,39 @@ function getPriceFromProductsId(int $products_id): float
 }
 
 /**
+ * Obtiene el precio COMPLETO (sin oferta) de un producto, para el grupo de cliente actual.
+ * Igual que getPriceFromProductsId() pero ignorando specials: se usa para calcular el ratio
+ * de oferta (eff/full) con el que se escala el modificador de las variantes.
+ *
+ * @param integer $products_id
+ * @return float
+ */
+function getFullPriceFromProductsId(int $products_id): float
+{
+    global $nCustomerGroupId;
+
+    $sql = 'SELECT p.products_price as full_price
+                 from products p
+                 WHERE p.products_id = ' . $products_id;
+
+    if ($nCustomerGroupId != 0) {
+        $sql = 'SELECT COALESCE(pg.customers_group_price, p.products_price) as full_price
+                    from products p
+                    left join products_groups pg on (pg.customers_group_id = "' . $nCustomerGroupId . '" and pg.products_id = p.products_id)
+                    WHERE p.products_id = ' . $products_id;
+    }
+
+    $datos = tep_db_query($sql);
+
+    if (tep_db_num_rows($datos)) {
+        $dato = tep_db_fetch_array($datos);
+        return (float)$dato['full_price'];
+    } else {
+        return 0.00;
+    }
+}
+
+/**
  *  * UCD-874-74497
  * @return void
  * @author Daniel Lúcia <daniel.lucia@denox.es>

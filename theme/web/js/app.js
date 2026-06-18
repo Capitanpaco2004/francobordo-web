@@ -197,6 +197,21 @@ var appClass = function()
 				}
 
                 $("#fich .right .wrpr-prco-buy .wrpr-prco .prco").text(sPriceNewFormat);
+
+				// Tachado (precio anterior) POR VARIANTE: el <s> es hermano de .prco dentro de .wrpr-prco y
+				// solo lo emite el template cuando hay oferta. .prco.text() (arriba) no lo toca (no es descendiente).
+				// combobox.class.php expone data-price-last = precio completo (sin oferta) de la variante, solo si hay oferta.
+				var dmWrprPrco = $("#fich .right .wrpr-prco-buy .wrpr-prco");
+				var sPriceLast = (typeof dmThis.data("price-last") !== 'undefined') ? String(dmThis.data("price-last")) : '';
+				if (sPriceLast !== '') {
+					var dmS = dmWrprPrco.children("s");
+					if (dmS.length === 0) {
+						dmS = $('<s></s>').insertBefore(dmWrprPrco.children(".prco").first());
+					}
+					dmS.text(sPriceLast);
+				} else {
+					dmWrprPrco.children("s").remove();
+				}
             },
             changePriceSpecial: function(sPriceNew)
 			{
