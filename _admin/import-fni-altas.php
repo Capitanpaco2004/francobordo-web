@@ -47,7 +47,7 @@ const BRAND_BLACKLIST = [
 // Traducción IT→ES vía LLM (mismo endpoint que Osculati/Trem)
 const LLM_URL    = 'http://217.127.199.171:28001/v1/chat/completions';
 const LLM_MODEL  = 'qwen36-sakamaki-nvfp4';
-const LLM_PROMPT = 'Eres un traductor profesional de italiano a español especializado en productos náuticos, marinos y de pesca. Usa terminología técnica náutica precisa en español de España. Glosario náutico de referencia (IT/EN↔ES): rope/line/cima=cabo, shackle/grillo=grillete, cleat/galloccia=cornamusa, fairlead/passacavo=pasacable, winch/verricello=molinete o winche, thruster=hélice de maniobra, bilge/sentina=sentina, hatch/boccaporto=escotilla, fender/parabordo=defensa, mooring/ormeggio=amarre, anchor/ancora=ancla, chain/catena=cadena, hull/scafo=casco, deck/coperta=cubierta, rudder/timone=timón, through-hull/passascafo=pasacascos, seacock=grifo de fondo, stainless steel/acciaio inox=acero inoxidable, galvanized/zincato=galvanizado, outboard/fuoribordo=fueraborda. Usa siempre el sentido náutico; no lo traduzcas como términos de otros dominios. Texto plano, conserva <br> si los hay como saltos de línea. Responde SOLO con la traducción, sin comentarios ni explicaciones.';
+const LLM_PROMPT = 'Eres un traductor profesional de italiano o inglés a español especializado en productos náuticos, marinos y de pesca. Usa terminología técnica náutica precisa en español de España. Glosario náutico de referencia (IT/EN↔ES): rope/line/cima=cabo, shackle/grillo=grillete, cleat/galloccia=cornamusa, fairlead/passacavo=pasacable, winch/verricello=molinete o winche, thruster=hélice de maniobra, bilge/sentina=sentina, hatch/boccaporto=escotilla, fender/parabordo=defensa, mooring/ormeggio=amarre, anchor/ancora=ancla, chain/catena=cadena, hull/scafo=casco, deck/coperta=cubierta, rudder/timone=timón, through-hull/passascafo=pasacascos, seacock=grifo de fondo, stainless steel/acciaio inox=acero inoxidable, galvanized/zincato=galvanizado, outboard/fuoribordo=fueraborda. Usa siempre el sentido náutico; no lo traduzcas como términos de otros dominios. Texto plano, conserva <br> si los hay como saltos de línea. Responde SOLO con la traducción, sin comentarios ni explicaciones.';
 
 $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $max    = isset($_POST['max']) ? (int) $_POST['max'] : (isset($_GET['max']) ? (int) $_GET['max'] : 0);
@@ -197,7 +197,29 @@ function buildExistingMap($mysqli) {
 	return $existing;
 }
 
-function llmTranslate($text, $maxRetries = 2) {
+/** Detecta respuestas degeneradas del LLM: bucles de repetición ("R R R R…") o un
+ *  mismo carácter/palabra dominando el texto. El modelo NVFP4 lo produce de forma
+ *  intermitente; sin este filtro se almacenaba basura como descripción. */
+function llmLooksDegenerate($s) {
+	$s = trim((string) $s);
+	if ($s === '') return true;
+	// Un único carácter alfanumérico repetido domina la cadena (p.ej. "R R R …").
+	$alnum = preg_replace('/[^\p{L}\p{N}]/u', '', $s);
+	if (mb_strlen($alnum, 'UTF-8') >= 20) {
+		$chars = preg_split('//u', mb_strtolower($alnum, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY);
+		$freq = array_count_values($chars);
+		if (count($chars) && (max($freq) / count($chars)) > 0.6) return true;
+	}
+	// Una única palabra (token) repetida domina el texto.
+	$tokens = preg_split('/\s+/u', $s, -1, PREG_SPLIT_NO_EMPTY);
+	if (count($tokens) >= 8) {
+		$tf = array_count_values(array_map(fn($t) => mb_strtolower($t, 'UTF-8'), $tokens));
+		if ((max($tf) / count($tokens)) > 0.45) return true;
+	}
+	return false;
+}
+
+function llmTranslate($text, $maxRetries = 2, $maxOutChars = 0) {
 	if (trim((string) $text) === '') return '';
 	$payload = json_encode([
 		'model' => LLM_MODEL,
@@ -206,6 +228,7 @@ function llmTranslate($text, $maxRetries = 2) {
 			['role' => 'user',   'content' => $text],
 		],
 		'temperature' => 0.2,
+		'repetition_penalty' => 1.15, // frena los bucles degenerados del NVFP4
 		'max_tokens' => 1500,
 		'chat_template_kwargs' => ['enable_thinking' => false],
 	], JSON_UNESCAPED_UNICODE);
@@ -225,7 +248,12 @@ function llmTranslate($text, $maxRetries = 2) {
 		if ($resp !== false && $code === 200) {
 			$j = json_decode($resp, true);
 			$content = $j['choices'][0]['message']['content'] ?? null;
-			if (is_string($content) && trim($content) !== '') return trim($content);
+			// Rechaza vacío, degenerado o desproporcionadamente largo (alucinación: un título
+			// terso de 35 chars no se traduce a 200+) → reintenta; tras agotar reintentos, ''.
+			if (is_string($content) && trim($content) !== '' && !llmLooksDegenerate($content)
+				&& ($maxOutChars <= 0 || mb_strlen(trim($content), 'UTF-8') <= $maxOutChars)) {
+				return trim($content);
+			}
 		}
 		usleep(500000);
 	}
@@ -633,17 +661,26 @@ foreach ($families as $parent => $items) {
 	$descIt = cleanHtmlAggressive($descItFull);
 	$descEnFull = trim(($cheap['NAME_EN'] !== '' ? $cheap['NAME_EN'] : $cheap['NAME_IT']) . (trim($cheap['SUBDESC_EN']) !== '' ? "<br><br>" . $cheap['SUBDESC_EN'] : ''));
 	$descEn = cleanHtmlAggressive($descEnFull);
+	// Cuerpo de la descripción para ES: el italiano si lo trae; si no, el inglés (FNI deja
+	// vacío SUBDESC_IT en p.ej. la serie Quick radiomandos y solo rellena el inglés).
+	$bodySrcEs = cleanHtmlAggressive(trim($cheap['SUBDESC_IT']) !== '' ? $cheap['SUBDESC_IT'] : $cheap['SUBDESC_EN']);
 
 	$nameEs = $titleIt;
-	$descEs = $descIt;
+	$descEs = $descIt; // fallback (texto IT) si no se traduce (dry-run / skip)
 	if (!$skipTranslation && !$dryRun) {
 		// Traducimos el "raw" sin prefijo (la marca no se traduce); luego prefijamos al resultado.
-		$tn = llmTranslate($rawNameIt);
+		$tn = llmTranslate($rawNameIt, 2, max(60, mb_strlen($rawNameIt, 'UTF-8') * 3));
 		if ($tn !== '') $nameEs = fniApplyBrandPrefix($brandPrefix, $tn); else $translateFail++;
-		if ($descIt !== '') {
-			$td = llmTranslate($descIt);
-			if ($td !== '') $descEs = $td; else $translateFail++;
+		// Encabezado de la descripción = título ya traducido (reutilizamos $tn para no volver a
+		// traducir el título terso, que el LLM degenera); el cuerpo se traduce por separado.
+		$titleForDesc = $tn !== '' ? $tn : $rawNameIt;
+		$bodyEs = '';
+		if ($bodySrcEs !== '') {
+			$tb = llmTranslate($bodySrcEs);
+			$bodyEs = $tb !== '' ? $tb : $bodySrcEs; // a falta de traducción, conserva el texto fuente
+			if ($tb === '') $translateFail++;
 		}
+		$descEs = $bodyEs !== '' ? ($titleForDesc . "<br><br>" . $bodyEs) : $titleForDesc;
 	}
 
 	if ($dryRun) {
@@ -793,16 +830,25 @@ foreach ($standalone as $sku => $row) {
 	$descIt = cleanHtmlAggressive($descItFull);
 	$descEnFull = trim(($row['NAME_EN'] !== '' ? $row['NAME_EN'] : $row['NAME_IT']) . (trim($row['SUBDESC_EN']) !== '' ? "<br><br>" . $row['SUBDESC_EN'] : ''));
 	$descEn = cleanHtmlAggressive($descEnFull);
+	// Cuerpo de la descripción para ES: el italiano si lo trae; si no, el inglés (FNI deja
+	// vacío SUBDESC_IT en p.ej. la serie Quick radiomandos y solo rellena el inglés).
+	$bodySrcEs = cleanHtmlAggressive(trim($row['SUBDESC_IT']) !== '' ? $row['SUBDESC_IT'] : $row['SUBDESC_EN']);
 
 	$nameEs = $nameIt;
-	$descEs = $descIt;
+	$descEs = $descIt; // fallback (texto IT) si no se traduce (dry-run / skip)
 	if (!$skipTranslation && !$dryRun) {
-		$tn = llmTranslate($rawNameIt);
+		$tn = llmTranslate($rawNameIt, 2, max(60, mb_strlen($rawNameIt, 'UTF-8') * 3));
 		if ($tn !== '') $nameEs = fniApplyBrandPrefix($brandPrefix, $tn); else $translateFail++;
-		if ($descIt !== '') {
-			$td = llmTranslate($descIt);
-			if ($td !== '') $descEs = $td; else $translateFail++;
+		// Encabezado de la descripción = título ya traducido (reutilizamos $tn para no volver a
+		// traducir el título terso, que el LLM degenera); el cuerpo se traduce por separado.
+		$titleForDesc = $tn !== '' ? $tn : $rawNameIt;
+		$bodyEs = '';
+		if ($bodySrcEs !== '') {
+			$tb = llmTranslate($bodySrcEs);
+			$bodyEs = $tb !== '' ? $tb : $bodySrcEs; // a falta de traducción, conserva el texto fuente
+			if ($tb === '') $translateFail++;
 		}
+		$descEs = $bodyEs !== '' ? ($titleForDesc . "<br><br>" . $bodyEs) : $titleForDesc;
 	}
 
 	$imgUrls = array_filter([$row['PIC1'], $row['PIC2'], $row['PIC3']]);

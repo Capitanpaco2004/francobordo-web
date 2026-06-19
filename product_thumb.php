@@ -112,6 +112,14 @@
 				break;
 			}
 
+			// Si la imagen no se pudo crear (PNG/JPG/GIF corrupto → imagecreatefrom* devuelve false),
+			// $gdImage es null/false y imagealphablending() lanza TypeError. Servimos la original sin thumb.
+			if (!($gdImage instanceof GdImage)) {
+				header('Content-Type: ' . $aImageInfo['mime']);
+				readfile($sImagen);
+				exit;
+			}
+
 			imagealphablending($gdImage, true);
 
 			// Obtenemos el ancho y el alto de la imagen final dentro del thumb

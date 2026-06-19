@@ -30,6 +30,11 @@ const FINAL_STATUS    = [3, 5];              // Entregado / Enviado: se incluyen
 const PARTIAL_STATUS  = 7;                    // Enviado Parcialmente
 const WINDOW_DAYS     = 30;
 const ALLOWED_TOTALS  = ['ot_subtotal', 'ot_shipping', 'ot_insurance', 'ot_tax', 'ot_total'];
+// Clases de descuento donde QFac NTOTAL/NTOTIVA == total/IVA del web (verificado 2026-06-18,
+// 252/257 pedidos). En estos pedidos NO recalculamos con formula (fragil por el prorrateo de
+// puntos): tomamos el total e IVA AUTORITATIVOS de QFac. Cualquier OTRA clase extra (fees de
+// pago, promociones, custom...) NO esta verificada -> se sigue saltando (whitelist estricta).
+const SAFE_DISCOUNTS  = ['ot_redemptions', 'ot_discount_coupon', 'ot_discount_coupon_1', 'ot_recargo'];
 const TOTAL_CAP_PCT   = 0.50;                // bajada sospechosa si baja > 50% del total ...
 const TOTAL_CAP_ABS   = 100.0;               // ... Y ademas > 100 EUR (ambas -> revision manual)
 const PRICE_EPS       = 0.005;
@@ -161,11 +166,16 @@ function load_web_order($link, $oid): array {
         ];
     }
     $tot = [];
+    $totCount = [];
     $r = q($link, "SELECT orders_total_id, class, value FROM orders_total WHERE orders_id=".(int)$oid);
     while ($row = mysqli_fetch_assoc($r)) {
         $tot[$row['class']] = ['id'=>(int)$row['orders_total_id'], 'value'=>(float)$row['value']];
+        $totCount[$row['class']] = ($totCount[$row['class']] ?? 0) + 1;
     }
-    return ['ops'=>$ops, 'tot'=>$tot];
+    // dup = alguna clase de orders_total aparece >1 vez (p.ej. 2 filas ot_tax = IVA mixto):
+    // indexar por clase oculta la 2a fila -> marcar para SALTAR (red-team).
+    $dup = false; foreach ($totCount as $c) if ($c > 1) { $dup = true; break; }
+    return ['ops'=>$ops, 'tot'=>$tot, 'tot_dup'=>$dup];
 }
 
 /** Resuelve CCODIART -> products_id para una lista de articulos. */
@@ -205,13 +215,21 @@ function line_rate(array $line, array $header): ?float {
 /** Diff de lineas (cantidades/precios/altas/bajas) + recalculo de totales.
  *  Devuelve ['changes'=>[], 'totals'=>?, 'old_total'=>, 'new_total'=>, 'reason'=>?].
  *  reason != null => NO se aplican cambios de linea (guard fallido). changes vacio + reason null => sin cambios. */
-function plan_lines($link, array $web, array $prodLines): array {
+function plan_lines($link, array $web, array $prodLines, array $header): array {
     $out = ['changes'=>[], 'totals'=>null,
             'old_total'=>($web['tot']['ot_total']['value'] ?? null), 'new_total'=>null, 'reason'=>null];
 
-    // Limpieza: orders_total solo clases permitidas
+    // Filas de orders_total duplicadas (p.ej. 2 ot_tax = IVA mixto) -> SALTAR: el modelo de
+    // recalculo asume 1 fila por clase y un solo tipo de IVA.
+    if (!empty($web['tot_dup'])) { $out['reason']='totales_duplicados'; return $out; }
+
+    // Whitelist de clases de orders_total. Las base siempre OK; las de SAFE_DISCOUNTS marcan
+    // $hasDiscount (se tomara total/IVA de QFac, no formula). Cualquier OTRA clase -> SKIP.
+    $hasDiscount = false;
     foreach ($web['tot'] as $class => $_) {
-        if (!in_array($class, ALLOWED_TOTALS, true)) { $out['reason']='extras:'.$class; return $out; }
+        if (in_array($class, ALLOWED_TOTALS, true)) continue;
+        if (in_array($class, SAFE_DISCOUNTS, true)) { $hasDiscount = true; continue; }
+        $out['reason']='extras:'.$class; return $out;
     }
     if (!isset($web['tot']['ot_total'])) { $out['reason']='sin_ot_total'; return $out; }
 
@@ -323,8 +341,23 @@ function plan_lines($link, array $web, array $prodLines): array {
     $shipping  = $web['tot']['ot_shipping']['value']  ?? 0.0;
     $insurance = $web['tot']['ot_insurance']['value'] ?? 0.0;
     $hasTax    = isset($web['tot']['ot_tax']);
-    $tax       = $hasTax ? r4(($subtotal + $shipping + $insurance) * $rate/100) : 0.0;
-    $total     = r4($subtotal + $shipping + $insurance + $tax);
+
+    if ($hasDiscount) {
+        // PEDIDO CON DESCUENTO (puntos/cupon/recargo): el IVA y el total se calculan en el web
+        // con un prorrateo del descuento que NO es reproducible con una formula simple. El total
+        // que se contabiliza es el de QFac, y empiricamente QFac NTOTAL/NTOTIVA == total/IVA web.
+        // Por eso tomamos esos valores AUTORITATIVOS de QFac (ya reflejan la edicion) en vez de
+        // recalcular. subtotal = suma de lineas (para el desglose). Requiere IVA unico (ya exigido).
+        $ntotal  = (float)($header['ntotal']  ?? 0);
+        $ntotiva = (float)($header['ntotiva'] ?? 0);
+        if (!$hasTax)            { $out['reason']='descuento_sin_ot_tax'; return $out; }
+        if ($ntotal <= 0)        { $out['reason']='qfac_ntotal_invalido'; return $out; }
+        $tax   = r4($ntotiva);
+        $total = r4($ntotal);
+    } else {
+        $tax   = $hasTax ? r4(($subtotal + $shipping + $insurance) * $rate/100) : 0.0;
+        $total = r4($subtotal + $shipping + $insurance + $tax);
+    }
     $out['new_total'] = $total;
 
     // Cap DIRECCIONAL: solo bloquea BAJADAS grandes en % Y en importe (ambas), la firma de un
@@ -410,7 +443,7 @@ function plan_order($link, int $oid, array $qfac): array {
     $res['status_change'] = $statusChange;
 
     // (b) Sync de lineas (independiente del cambio de estado)
-    $lp = plan_lines($link, $web, $prodLines);
+    $lp = plan_lines($link, $web, $prodLines, $header);
     $res['old_total'] = $lp['old_total'];
     $res['new_total'] = $lp['new_total'];
     $res['changes']   = $lp['changes'];

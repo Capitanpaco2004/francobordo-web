@@ -21,7 +21,10 @@ class option_combobox
 		// precio COMPLETO (sin oferta). Si hay oferta activa escalamos el modificador por el mismo ratio de
 		// descuento, de modo que cada variante mantenga el % de la oferta y no un descuento fijo en euros.
 		// Sin oferta (full == eff) el ratio es 1 → comportamiento idéntico al anterior.
-		$full_price  = (float)getFullPriceFromProductsId($products_id);
+		// function_exists: combobox.class.php es compartido; el path AJAX de _admin/order_edit
+		// no carga la general.php que define getFullPriceFromProductsId() → sin guard, Fatal.
+		// Fallback: ratio 1 (sin escalar por oferta) cuando la función no está disponible.
+		$full_price  = function_exists('getFullPriceFromProductsId') ? (float)getFullPriceFromProductsId($products_id) : 0.0;
 		$offer_ratio = ($full_price > 0) ? ($products_price / $full_price) : 1.0;
 
 		// 🔎 Obtenemos el check_stock del producto (global)

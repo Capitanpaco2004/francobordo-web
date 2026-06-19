@@ -4252,11 +4252,60 @@ if (!function_exists('getPriceFromProductsId')) {
            from products p
            left join specials s on (s.products_id = p.products_id and s.status = 1 and s.customers_group_id = "' . $nCustomerGroupId . '")
            WHERE p.products_id = ' . $products_id;
+
+		// Grupo de cliente: base = precio del grupo (COALESCE -> precio normal si no hay tarifa de grupo);
+		// special filtrado por grupo. Simetrico con getFullPriceFromProductsId para que el ratio eff/full
+		// refleje el % de oferta del grupo (y sea == 1 si no hay oferta). Solo aplica con grupo (!= 0).
+		if ($nCustomerGroupId != 0) {
+			$sql = 'SELECT IF(s.status, s.specials_new_products_price, COALESCE(pg.customers_group_price, p.products_price)) as final_price
+           from products p
+           left join specials s on (s.products_id = p.products_id and s.status = 1 and s.customers_group_id = "' . $nCustomerGroupId . '")
+           left join products_groups pg on (pg.customers_group_id = "' . $nCustomerGroupId . '" and pg.products_id = p.products_id)
+           WHERE p.products_id = ' . $products_id;
+		}
 		$datos = tep_db_query($sql);
 
 		if (tep_db_num_rows($datos)) {
 			$dato = tep_db_fetch_array($datos);
 			return (float)$dato['final_price'];
+		} else {
+			return 0.00;
+		}
+	}
+}
+
+/**
+ * Obtiene el precio COMPLETO (sin oferta) de un producto.
+ * Gemela de getPriceFromProductsId() pero ignorando specials. La usa el admin
+ * (combobox.class.php, ratio de oferta eff/full que escala el modificador de las
+ * variantes). Base simetrica con getPriceFromProductsId (precio normal, o precio de
+ * grupo via COALESCE si customers_group_id != 0) -> ratio == 1 exacto cuando no hay oferta.
+ *
+ * @param integer $products_id
+ *
+ * @return float
+ */
+if (!function_exists('getFullPriceFromProductsId')) {
+	function getFullPriceFromProductsId(int $products_id): float {
+		global $nCustomerGroupId;
+
+		$sql   = 'SELECT p.products_price as full_price
+           from products p
+           WHERE p.products_id = ' . $products_id;
+
+		// Grupo de cliente: base completa = precio del grupo (COALESCE -> precio normal si no hay tarifa
+		// de grupo). Simetrico con la base de getPriceFromProductsId -> ratio == 1 exacto sin oferta.
+		if ($nCustomerGroupId != 0) {
+			$sql = 'SELECT COALESCE(pg.customers_group_price, p.products_price) as full_price
+           from products p
+           left join products_groups pg on (pg.customers_group_id = "' . $nCustomerGroupId . '" and pg.products_id = p.products_id)
+           WHERE p.products_id = ' . $products_id;
+		}
+		$datos = tep_db_query($sql);
+
+		if (tep_db_num_rows($datos)) {
+			$dato = tep_db_fetch_array($datos);
+			return (float)$dato['full_price'];
 		} else {
 			return 0.00;
 		}
