@@ -108,7 +108,19 @@ function seurTrackUpsert($ref, $e, $dry) {
     $evs  = array();
     foreach ($sits as $sit) {
         $sd = (string) ($sit['description'] ?? '');
-        $sf = substr(str_replace('T', ' ', (string) ($sit['situationDate'] ?? '')), 0, 19);
+        // La API SEUR da situationDate en UTC (sufijo "Z"); lo pasamos a hora
+        // peninsular (Europe/Madrid, con DST) para guardar/mostrar la hora real.
+        $sfRaw = (string) ($sit['situationDate'] ?? '');
+        $sf = '';
+        if ($sfRaw !== '') {
+            try {
+                $sfDt = new \DateTime($sfRaw, new \DateTimeZone('UTC'));
+                $sfDt->setTimezone(new \DateTimeZone('Europe/Madrid'));
+                $sf = $sfDt->format('Y-m-d H:i:s');
+            } catch (\Exception $sfEx) {
+                $sf = substr(str_replace('T', ' ', $sfRaw), 0, 19);
+            }
+        }
         if (seurEsEntregado($sd)) { $entregado = 1; $fent = $sf; }
         $evs[] = array('f' => substr($sf, 0, 16), 't' => (string) ($sit['eventCode'] ?? ''), 'd' => $sd);
     }

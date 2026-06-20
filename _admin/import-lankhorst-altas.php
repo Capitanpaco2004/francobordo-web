@@ -353,6 +353,16 @@ function isValidEan13($ean) {
     if (strlen($ean) !== 13 || !ctype_digit($ean)) return false;
     return ean13Checksum(substr($ean, 0, 12)) === (int) $ean[12];
 }
+/** Normaliza el EAN leído del xlsx. Excel almacena el EAN como ENTERO y se come los
+ *  ceros a la izquierda: un EAN-13 "0743683042553" llega como 743683042553 (12 díg),
+ *  y un UPC-A de 12 díg se convierte a EAN-13 anteponiendo un 0. Re-padea a 13 y valida
+ *  checksum; devuelve el EAN-13 válido o '' si no es recuperable (→ EAN interno). */
+function lankNormalizeEan($raw) {
+    $ean = preg_replace('/\D/', '', (string) $raw); // quita no-dígitos (espacios, ".0" de floats…)
+    if ($ean === '') return '';
+    if (strlen($ean) < 13) $ean = str_pad($ean, 13, '0', STR_PAD_LEFT);
+    return isValidEan13($ean) ? $ean : '';
+}
 function generateInternalEan13($productId, $providerPrefix) {
     $pp = (int) $providerPrefix;
     if ($pp < 20 || $pp > 28) return '';
@@ -549,7 +559,7 @@ function loadXlsxRows($file) {
             'WHOLE'   => trim((string) $sheet->getCell('F' . $r)->getValue()),
             'BRAND'   => trim((string) $sheet->getCell('G' . $r)->getValue()),
             'CATEG'   => trim((string) $sheet->getCell('H' . $r)->getValue()),
-            'EAN'     => trim((string) $sheet->getCell('I' . $r)->getValue()),
+            'EAN'     => lankNormalizeEan($sheet->getCell('I' . $r)->getValue()),
             'IMG'     => trim((string) $sheet->getCell('J' . $r)->getValue()),
         ];
     }

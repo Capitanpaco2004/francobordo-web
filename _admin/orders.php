@@ -1527,9 +1527,19 @@ if( tep_not_null($action) )
 			$aProductSkuCache = []; // products_id => CCODIART
 			// Variante por orders_products_id (CCODIVAL concatenados, mismo formato que sync)
 			$aLineVariante = [];
+			// Variante por línea: 1º intenta CCODIVAL via _id; si falla (orders_products_attributes
+			// guardó products_options_values_id=0 en pedidos viejos), fallback por nombre cruzando
+			// products_attributes del producto.
 			$qLv = tep_db_query(
 				'SELECT op.orders_products_id, '
-				. "COALESCE(GROUP_CONCAT(DISTINCT pov.CCODIVAL ORDER BY opa.products_options_id SEPARATOR ' / '), '') AS variante "
+				. "COALESCE(NULLIF(GROUP_CONCAT(DISTINCT pov.CCODIVAL ORDER BY opa.products_options_id SEPARATOR ' / '), ''), ("
+				.   "SELECT GROUP_CONCAT(DISTINCT pov2.CCODIVAL ORDER BY pa2.options_id SEPARATOR ' / ') "
+				.   'FROM orders_products_attributes opa2 '
+				.   'JOIN products_attributes pa2 ON pa2.products_id = op.products_id '
+				.   'JOIN products_options_values pov2 ON pov2.products_options_values_id = pa2.options_values_id '
+				.   '                              AND pov2.products_options_values_name = opa2.products_options_values '
+				.   'WHERE opa2.orders_products_id = op.orders_products_id'
+				. "), '') AS variante "
 				. 'FROM ' . TABLE_ORDERS_PRODUCTS . ' op '
 				. 'LEFT JOIN orders_products_attributes opa ON opa.orders_products_id = op.orders_products_id '
 				. 'LEFT JOIN products_options_values pov ON pov.products_options_values_id = opa.products_options_values_id '

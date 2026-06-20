@@ -433,6 +433,41 @@ function oscImageCodeFromXml($xml) {
 	return '';
 }
 
+/** Extrae TODOS los códigos de imagen (en orden, sin duplicados ni vacíos) del bloque <images>.
+ *  Osculati suele dar foto + dibujos de cotas (_dis) + esquemas (_schema) en este bloque. */
+function oscImageCodesFromXml($xml) {
+	$out = [];
+	if (preg_match_all('#<img[^>]*>(.*?)</img>#', (string) $xml, $mm)) {
+		foreach ($mm[1] as $c) { $c = trim($c); if ($c !== '' && !in_array($c, $out, true)) $out[] = $c; }
+	}
+	return $out;
+}
+
+/** Construye la galería del padre (products_subimages) descargando TODAS las $imgCodes que sean
+ *  distintas (md5) de la principal y entre sí. Devuelve el nº de subimágenes añadidas.
+ *  NO debe llamarse dentro de una transacción (hace descargas de red). */
+function oscBuildGallery($productsId, $localImgName, array $imgCodes, $maxImgs = 15) {
+	if (empty($imgCodes) || (string) $localImgName === '') return 0;
+	$mainPath = IMG_ABS_DIR . $localImgName;
+	$seenH = [];
+	if (file_exists($mainPath)) $seenH[md5_file($mainPath)] = true;
+	$base = preg_replace('/\.(jpg|jpeg|png|gif|webp)$/i', '', $localImgName);
+	$subs = []; $gi = 1;
+	foreach ($imgCodes as $gc) {
+		if (count($subs) >= $maxImgs) break;
+		$gImgName = preg_match('/\.(jpg|jpeg|png|gif|webp)$/i', $gc) ? $gc : $gc . '.jpg';
+		$tmp = IMG_ABS_DIR . 'osc-gal-' . uniqid('', true) . '.jpg';
+		if (!downloadImage($gImgName, $tmp)) continue;
+		$h = md5_file($tmp);
+		if (isset($seenH[$h])) { @unlink($tmp); continue; }   // ya está (principal u otra subimagen)
+		$seenH[$h] = true; $gi++;
+		$gName = $base . '-v' . $gi . '.jpg';
+		if (@rename($tmp, IMG_ABS_DIR . $gName)) $subs[] = $gName; else @unlink($tmp);
+	}
+	if ($subs) tep_db_query("UPDATE products SET products_subimages = '" . tep_db_input(json_encode($subs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . "' WHERE products_id = $productsId");
+	return count($subs);
+}
+
 /** Traduce un lote de términos EN→ES vía LLM (JSON in/out). Devuelve mapa original→es. */
 function oscLlmTranslateSpecTerms(array $terms) {
 	if (!$terms) return [];
@@ -1100,7 +1135,7 @@ if ($isAction) {
 			$variantsCreated = 0;
 			// Track de OVs ya consumidos por este producto (guardia anti-colisión de labels)
 			$ovsUsados = [];
-			$variantImgSrc = [];
+			$galleryCodes = [];
 			foreach ($items as $bc => $it) {
 				$varUnitPrice = roundToNickel(calcUnitPriceNoVat($it['street_price'], $it['base_qty']));
 				$delta = round($varUnitPrice - $baseUnitPrice, 4);
@@ -1158,17 +1193,19 @@ if ($isAction) {
 					weight_prefix         = '$wPrefix'");
 				$variantsCreated++;
 
-				// Imagen por variante (change_image) desde Code2SerXml <images>
+				// Imagen por variante (change_image = 1ª imagen) + recoge TODAS las imágenes del <images>
+				// (foto + dibujos _dis + esquemas _schema) en el pool de galería del padre.
 				if (!empty($xtMap)) {
 					$vKey = strtolower(preg_replace('/#.*$/', '', (string) $it['order_code']));
-					$vImgCode = isset($xtMap[$vKey]) ? oscImageCodeFromXml($xtMap[$vKey]) : '';
+					$vCodes = isset($xtMap[$vKey]) ? oscImageCodesFromXml($xtMap[$vKey]) : [];
+					foreach ($vCodes as $gc) { if (!in_array($gc, $galleryCodes, true)) $galleryCodes[] = $gc; }
+					$vImgCode = $vCodes[0] ?? '';
 					if ($vImgCode !== '' && is_dir(IMG_ATTR_DIR)) {
 						$vImgName = preg_match('/\\.(jpg|jpeg|png|gif|webp)$/i', $vImgCode) ? $vImgCode : $vImgCode . '.jpg';
 						$aiFile = 'ai_' . $productsId . '-' . VARIANT_OPTION_ID . '-' . $valueId . '.jpg';
 						if (downloadImage($vImgName, IMG_ATTR_DIR . $aiFile)) {
 							tep_db_query("DELETE FROM products_attributes_actions WHERE products_id=$productsId AND products_attributes='" . VARIANT_OPTION_ID . "-$valueId' AND action='change_image'");
 							tep_db_query("INSERT INTO products_attributes_actions (products_id, products_attributes, value, action) VALUES ($productsId, '" . VARIANT_OPTION_ID . "-$valueId', '" . tep_db_input($aiFile) . "', 'change_image')");
-							if (!isset($variantImgSrc[$vImgCode])) $variantImgSrc[$vImgCode] = IMG_ATTR_DIR . $aiFile;
 							$nVarImg++;
 						}
 					}
@@ -1176,22 +1213,8 @@ if ($isAction) {
 			}
 			if ($variantsCreated > 0) $nWithVar++;
 
-			// Galería del padre: añadir imágenes de variante DISTINTAS (dedup por md5 vs principal)
-			if (!empty($variantImgSrc) && !empty($imgInserted)) {
-				$mainPath = IMG_ABS_DIR . $localImgName;
-				$seenH = [];
-				if (file_exists($mainPath)) $seenH[md5_file($mainPath)] = true;
-				$subs = []; $gi = 1;
-				foreach ($variantImgSrc as $vc => $srcPath) {
-					if (!file_exists($srcPath)) continue;
-					$h = md5_file($srcPath);
-					if (isset($seenH[$h])) continue;
-					$seenH[$h] = true; $gi++;
-					$gName = preg_replace('/\\.(jpg|jpeg|png|gif|webp)$/i', '', $localImgName) . '-v' . $gi . '.jpg';
-					if (@copy($srcPath, IMG_ABS_DIR . $gName)) $subs[] = $gName;
-				}
-				if ($subs) tep_db_query("UPDATE products SET products_subimages='" . tep_db_input(json_encode($subs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . "' WHERE products_id=$productsId");
-			}
+			// (La galería del padre se construye DESPUÉS del COMMIT con oscBuildGallery, para no
+			//  descargar imágenes dentro de la transacción y capturar TODAS las del <images>.)
 
 			// G1 (Profesionales) = products_price × 0.85 sobre PVP sin IVA. Redondeado a .05 con IVA.
 			$g1Main = roundToNickel($baseUnitPrice * 0.85);
@@ -1214,9 +1237,12 @@ if ($isAction) {
 			tep_db_query('COMMIT');
 			$nInserted++;
 
-			logMsg(sprintf('OK [%d] serie %d id=%d "%s" %s [%d variantes]',
+			// Galería del padre: TODAS las imágenes del feed (foto + dibujos + esquemas), dedup md5. Fuera de la transacción.
+			$nGal = (!empty($galleryCodes) && $imgInserted) ? oscBuildGallery($productsId, $localImgName, $galleryCodes) : 0;
+
+			logMsg(sprintf('OK [%d] serie %d id=%d "%s" %s [%d variantes, %d subimgs]',
 				$processed, $serieId, $productsId, $titleEs,
-				$imgInserted ? '[img]' : '[sin-img]', $variantsCreated));
+				$imgInserted ? '[img]' : '[sin-img]', $variantsCreated, $nGal));
 
 		} catch (Exception $e) {
 			tep_db_query('ROLLBACK');
@@ -1356,7 +1382,16 @@ if ($isAction) {
 
 			tep_db_query('COMMIT');
 			$nInserted++;
-			logMsg(sprintf('OK [%d] suelto %s id=%d "%s"', $processed, $baseCode, $productsId, $titleEs));
+
+			// Galería: TODAS las imágenes del Code2SerXml del OrderCode del suelto (foto + dibujos + esquemas)
+			$nGal = 0;
+			if (!empty($xtMap) && isset($localImgName) && (string) $localImgName !== '') {
+				$_goc = strtolower(preg_replace('/#.*$/', '', (string) $mainOrder['order_code']));
+				$gCodes = isset($xtMap[$_goc]) ? oscImageCodesFromXml($xtMap[$_goc]) : [];
+				if ($gCodes) $nGal = oscBuildGallery($productsId, $localImgName, $gCodes);
+			}
+
+			logMsg(sprintf('OK [%d] suelto %s id=%d "%s" [%d subimgs]', $processed, $baseCode, $productsId, $titleEs, $nGal));
 
 		} catch (Exception $e) {
 			tep_db_query('ROLLBACK');

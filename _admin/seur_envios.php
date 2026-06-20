@@ -216,7 +216,7 @@ if ($action !== '' && $shipId > 0) {
                                 CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 90,
                                 CURLOPT_POST => 1, CURLOPT_POSTFIELDS => http_build_query($params),
                             ));
-                            $raw  = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
+                            $raw  = curl_exec($ch); $cerr = curl_error($ch); // curl_close() eliminado: deprecado en PHP 8.5 (no-op desde 8.0); imprimía un aviso que rompía el tep_redirect del PRG (display_errors=On)
                             $resp = json_decode((string) $raw, true);
                             $okNew = is_array($resp) && !empty($resp['ok']) && empty($resp['dedup']) && empty($resp['recovered'])
                                      && !empty($resp['shipmentCode']) && $resp['shipmentCode'] !== $s['shipment_code'];

@@ -216,12 +216,19 @@
 						. ' left join ' . TABLE_PRODUCTS . ' p on p.products_id = op.products_id'
 						. ' left join orders_warehouse_status ws on ws.orders_id = op.orders_id'
 						. '   and ws.sku = p.CCODIART'
-						. "   and ws.variante = ("
-						. "     select coalesce(group_concat(distinct pov2.CCODIVAL order by opa2.products_options_id separator ' / '),'')"
+						. "   and ws.variante = COALESCE(NULLIF(("
+						. "     select group_concat(distinct pov2.CCODIVAL order by opa2.products_options_id separator ' / ')"
 						. '     from orders_products_attributes opa2'
 						. '     left join products_options_values pov2 on pov2.products_options_values_id = opa2.products_options_values_id'
 						. '     where opa2.orders_products_id = op.orders_products_id'
-						. '   )'
+						. "   ), ''), ("
+						. "     select group_concat(distinct pov3.CCODIVAL order by pa3.options_id separator ' / ')"
+						. '     from orders_products_attributes opa3'
+						. '     join products_attributes pa3 on pa3.products_id = op.products_id'
+						. '     join products_options_values pov3 on pov3.products_options_values_id = pa3.options_values_id'
+						. '                                       and pov3.products_options_values_name = opa3.products_options_values'
+						. '     where opa3.orders_products_id = op.orders_products_id'
+						. "   ), '')"
 						. ' where op.orders_id = "' . $oID . '"'
 						. ' group by op.orders_products_id, op.products_id, op.products_name, ws.status'
 					);

@@ -406,9 +406,58 @@ function parseProductPage($html, $code) {
         'code'=>$code, 'name'=>$name, 'brand'=>$brand, 'group_id'=>$gid,
         'breadcrumb'=>$cats,
         'subcat'=>$cats[1] ?? ($cats[0] ?? ''),       // 2º nivel del breadcrumb (sección)
-        'images'=>$imgs, 'desc_en'=>$desc,
+        'images'=>$imgs, 'desc_en'=>$desc, 'specs'=>mmExtractSpecs($html),
     ];
 }
+/** Extrae las especificaciones del bloque "Specifications" (id=content-3):
+ *  <ul class="list-items"><li><span>etiqueta</span><span>valor</span></li>…</ul>.
+ *  Devuelve [['k'=>etiqueta,'v'=>valor], …]. */
+function mmExtractSpecs($html) {
+    $html = (string) $html;
+    if ($html === '') return [];
+    if (!preg_match('#<h2[^>]*>\s*Specifications\s*</h2>\s*<ul[^>]*class="list-items"[^>]*>(.*?)</ul>#is', $html, $m)) return [];
+    $specs = [];
+    if (preg_match_all('#<li[^>]*>\s*<span[^>]*>(.*?)</span>\s*<span[^>]*>(.*?)</span>\s*</li>#is', $m[1], $rows, PREG_SET_ORDER)) {
+        foreach ($rows as $r) {
+            // mmStrip solo quita tags; hay que DECODIFICAR entidades (la web trae "&lt; 7,5")
+            // a texto plano, para que mmSpecsBlock luego codifique UNA sola vez (evita "&amp;lt;").
+            $k = html_entity_decode(mmStrip($r[1]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $v = html_entity_decode(mmStrip($r[2]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if ($k !== '' && $v !== '') $specs[] = ['k' => $k, 'v' => $v];
+        }
+    }
+    return $specs;
+}
+
+const MM_SPEC_LABELS_ES = [
+    'dim mm'=>'Dimensiones mm','dim'=>'Dimensiones','dimensions'=>'Dimensiones','dimension'=>'Dimensión',
+    'weight'=>'Peso','weight kg'=>'Peso kg','capacity'=>'Capacidad','voltage'=>'Voltaje','power'=>'Potencia',
+    'flow'=>'Caudal','length'=>'Longitud','width'=>'Anchura','height'=>'Altura','depth'=>'Profundidad',
+    'diameter'=>'Diámetro','material'=>'Material','colour'=>'Color','color'=>'Color','weight g'=>'Peso g',
+];
+/** Traduce la etiqueta de una spec EN→ES: glosario → unidad/sigla intacta → LLM (cache) → EN. */
+function mmSpecLabelEs($label, $skipTranslation) {
+    static $cache = [];
+    $key = mb_strtolower(trim($label), 'UTF-8');
+    if (isset(MM_SPEC_LABELS_ES[$key])) return MM_SPEC_LABELS_ES[$key];
+    // unidad/sigla pura (V, W, A, Ah, kg, mm, L, Hz, "… bar", "… min") → no traducir
+    if (preg_match('/^[A-Za-z0-9%°.\/ ]+$/', $label) && !preg_match('/[A-Za-z]{4,}/', $label)) return $label;
+    if ($skipTranslation) return $label;
+    if (!isset($cache[$key])) { $t = llmCall(LLM_PROMPT_NAME, $label, 40); $cache[$key] = ($t !== '') ? trim($t) : $label; }
+    return $cache[$key];
+}
+/** Bloque HTML "Especificaciones" (mismo estilo bullets que mbReformat). Valores intactos. */
+function mmSpecsBlock(array $specs, $lang, $skipTranslation) {
+    if (empty($specs)) return '';
+    $title = $lang === 'en' ? 'Specifications' : 'Especificaciones';
+    $h = "\n<p>&nbsp;</p>\n<p><strong>{$title}</strong></p>\n";
+    foreach ($specs as $s) {
+        $k = $lang === 'en' ? $s['k'] : mmSpecLabelEs($s['k'], $skipTranslation);
+        $h .= '<p>• <strong>' . htmlspecialchars($k) . ':</strong> ' . htmlspecialchars($s['v']) . "</p>\n";
+    }
+    return rtrim($h);
+}
+
 function loadJson($p) { return file_exists($p) ? (json_decode(file_get_contents($p),true) ?: []) : []; }
 function saveJson($p, $d) { @file_put_contents($p, json_encode($d, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)); }
 
@@ -557,6 +606,8 @@ foreach ($rows as $code=>$row) {
     $row['_IMGS']=$web['images'];
     $row['_DESC_EN']=cleanHtmlAggressive($web['desc_en'] ?? '');
     $row['_SUBCAT']=$web['subcat'] ?: FALLBACK_SUBCAT;
+    // specs: del parsed.json si las trae (crawls nuevos); si no, del HTML cacheado (auto-reparable)
+    $row['_SPECS']=$web['specs'] ?? mmExtractSpecs(cachePageRead($code) ?? '');
     $cand[$code]=$row;
 }
 
@@ -616,6 +667,13 @@ function buildContent($row, $skipTranslation, &$translateFail, &$formatFail) {
     // Red de seguridad estética post-LLM (quita ™®©, ALL-CAPS→Title, normaliza espaciados/entidades).
     $descEnHtml = mbReformatDescription($descEnHtml);
     $descEs     = mbReformatDescription($descEs);
+    // Bloque "Especificaciones" del content-3 de la web, anexado DESPUÉS del LLM (no se le pasa,
+    // para no inflarlo ni que altere medidas). Etiquetas traducidas; valores intactos.
+    $specs = $row['_SPECS'] ?? [];
+    if (!empty($specs)) {
+        $descEnHtml = trim($descEnHtml) . mmSpecsBlock($specs, 'en', $skipTranslation);
+        $descEs     = trim($descEs)     . mmSpecsBlock($specs, 'es', $skipTranslation);
+    }
     return [$nameEn,$descEnHtml,$nameEs,$descEs];
 }
 
@@ -661,6 +719,12 @@ function insertProduct($mysqli, $items, $isFamily, $mfgId, $parentCatId, $subcat
                 $qref=$mysqli->real_escape_string($code); $qveanv=$mysqli->real_escape_string($it['EAN']);
                 if (!$mysqli->query("INSERT INTO products_attributes SET products_id=$pid, options_id=".VARIANT_OPTION_ID.", options_values_id=$valueId, options_values_price=".number_format(abs($delta),4,'.','').", price_prefix='$pf', reference='$qref', reference_prov='$qref', products_attributes_ean='$qveanv', options_values_weight=0, weight_prefix='+'")) throw new Exception("attr: ".$mysqli->error);
                 $paId=(int)$mysqli->insert_id; $vCreated++;
+                // EAN interno por variante (paid-based, prefijo 28) si el del feed no es válido.
+                // El EAN va en CADA variante (no en el master) — convención francobordo.
+                if (!isValidEan13($it['EAN'])) {
+                    $vEan=generateInternalEan13($paId, EAN_INTERNAL_PREFIX);
+                    if ($vEan!=='') $mysqli->query("UPDATE products_attributes SET products_attributes_ean='".$mysqli->real_escape_string($vEan)."' WHERE products_attributes_id=$paId AND (products_attributes_ean IS NULL OR products_attributes_ean='' OR LENGTH(products_attributes_ean)<>13)");
+                }
                 $g1d=round($it['_G1']-$cheap['_G1'],4); $g1p=$g1d<0?'-':'+';
                 if (!$mysqli->query("INSERT INTO products_attributes_groups (products_attributes_id, customers_group_id, options_values_price, price_prefix, products_id, options_values_weight, weight_prefix) VALUES ($paId,".G1_GROUP_ID.",".number_format(abs($g1d),4,'.','').",'$g1p',$pid,0,'+')")) throw new Exception("attr_groups: ".$mysqli->error);
             }
@@ -668,8 +732,9 @@ function insertProduct($mysqli, $items, $isFamily, $mfgId, $parentCatId, $subcat
         }
         $mysqli->commit();
 
-        // EAN interno si el de cabecera no es válido (pid-based, prefijo 28)
-        if (!isValidEan13($cheap['EAN'])) {
+        // EAN interno del MASTER (pid-based, prefijo 28) SOLO para sueltos. En productos con
+        // variantes el EAN va por variante (arriba) y el master se deja vacío — convención francobordo.
+        if ($vCreated===0 && !isValidEan13($cheap['EAN'])) {
             $gen=generateInternalEan13($pid, EAN_INTERNAL_PREFIX);
             if ($gen!=='') $mysqli->query("UPDATE products SET product_ean='".$mysqli->real_escape_string($gen)."' WHERE products_id=$pid AND (product_ean IS NULL OR product_ean='' OR LENGTH(product_ean)<>13)");
         }
