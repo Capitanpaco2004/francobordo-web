@@ -266,10 +266,16 @@ class Process
         }
         // Fin, punto de recogida SEUR
 
-        // Inicio, recogida en oficina de Correos: NO se reescribe la dirección (el cliente es
-        // el addressee de OFUAOF); solo se anota la oficina elegida en el pedido.
+        // Inicio, recogida en oficina de Correos: la entrega va a la OFICINA elegida (como SEUR
+        // punto), conservando el NOMBRE y contacto del cliente (quien recoge / addressee OFUAOF).
         if ($shipping['id'] == 'correosoficina_correosoficina' && !empty($_SESSION['correos_oficina_sel']['id'])) {
             $aCorOfi = $_SESSION['correos_oficina_sel'];
+            $sql_data_array['delivery_company']        = substr('Oficina Correos: ' . $aCorOfi['name'], 0, 32);
+            $sql_data_array['delivery_street_address'] = $aCorOfi['address'];
+            $sql_data_array['delivery_suburb']         = '';
+            $sql_data_array['delivery_postcode']       = $aCorOfi['cp'];
+            $sql_data_array['delivery_city']           = $aCorOfi['city'];
+            $sql_data_array['delivery_state']          = '';
             $sCorOfiComment = 'Recoger en oficina de Correos: ' . $aCorOfi['id'] . ' - ' . $aCorOfi['name'] . ' (' . $aCorOfi['address'] . ', ' . $aCorOfi['cp'] . ' ' . $aCorOfi['city'] . ')';
             $comments .= '<br>' . $sCorOfiComment;
             $order->info['comments'] = trim((string) $order->info['comments'] . ($order->info['comments'] != '' ? '<br>' : '') . $sCorOfiComment);

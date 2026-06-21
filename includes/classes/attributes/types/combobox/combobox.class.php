@@ -89,7 +89,7 @@ class option_combobox
 					$textStatus = ' (Sin stock)';
 					$textStatusColor = '#e80d0d';
 				} elseif ($nStock > 0) {
-					$textStatus = ' (24 horas)';
+					$textStatus = ' (En stock)';
 					$textStatusColor = '#10c789';
 				}
 			}

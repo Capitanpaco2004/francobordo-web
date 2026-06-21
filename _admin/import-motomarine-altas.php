@@ -677,6 +677,27 @@ function buildContent($row, $skipTranslation, &$translateFail, &$formatFail) {
     return [$nameEn,$descEnHtml,$nameEs,$descEs];
 }
 
+/** Quita la marca de agua "MTM MOTOMARINE" (gris claro, esquina inf-dcha sobre blanco) de una
+ *  imagen de producto Motomarine (1500x1080). Blanquea solo gris-claro de baja saturación en la
+ *  caja esquina → preserva el producto oscuro/colorido. Idempotente. */
+function mmDewatermark($absPath) {
+    if (!is_file($absPath)) return;
+    $info=@getimagesize($absPath);
+    if (!$info || $info[2]!==IMAGETYPE_JPEG) return;
+    $W=$info[0]; $H=$info[1];
+    $im=@imagecreatefromjpeg($absPath);
+    if (!$im) return;
+    $x0=(int)floor($W*0.85); $y0=(int)floor($H*0.87);
+    $white=imagecolorallocate($im,255,255,255); $changed=0;
+    for ($y=$y0;$y<$H;$y++) for ($x=$x0;$x<$W;$x++) {
+        $rgb=imagecolorat($im,$x,$y); $r=($rgb>>16)&0xFF; $g=($rgb>>8)&0xFF; $b=$rgb&0xFF;
+        $lum=($r+$g+$b)/3; $sat=max($r,$g,$b)-min($r,$g,$b);
+        if ($lum>=130 && $sat<=35 && !($r===255&&$g===255&&$b===255)) { imagesetpixel($im,$x,$y,$white); $changed++; }
+    }
+    if ($changed>0) @imagejpeg($im,$absPath,92);
+    imagedestroy($im);
+}
+
 function insertProduct($mysqli, $items, $isFamily, $mfgId, $parentCatId, $subcatId, $nameEn, $descEn, $nameEs, $descEs, &$counters, $labelsEs=[], $labelsEn=[]) {
     uasort($items, fn($a,$b)=>$a['_PRICE']<=>$b['_PRICE']);
     $cheapCode=array_key_first($items); $cheap=$items[$cheapCode];
@@ -703,7 +724,7 @@ function insertProduct($mysqli, $items, $isFamily, $mfgId, $parentCatId, $subcat
         if (!$mysqli->query("INSERT INTO products_groups (customers_group_id, products_id, customers_group_price, products_qty_blocks, products_min_order_qty) VALUES (".G1_GROUP_ID.",$pid,".number_format($cheap['_G1'],4,'.','').",1,1)")) throw new Exception("g1: ".$mysqli->error);
 
         $slug=mmSlugify($nameEs?:$nameEn); $imgFinal=[];
-        foreach ($tmp as $i=>$abs){ $suf=($i===0)?'':('-'.($i+1)); $fn=$slug.'-'.$pid.$suf.'.jpg'; if(@rename($abs,IMG_ABS_DIR.$fn))$imgFinal[]=$fn; else @unlink($abs); }
+        foreach ($tmp as $i=>$abs){ $suf=($i===0)?'':('-'.($i+1)); $fn=$slug.'-'.$pid.$suf.'.jpg'; if(@rename($abs,IMG_ABS_DIR.$fn)){ mmDewatermark(IMG_ABS_DIR.$fn); $imgFinal[]=$fn; } else @unlink($abs); }
         if (empty($imgFinal)) throw new Exception("rename imágenes falló");
         $main=array_shift($imgFinal);
         $mysqli->query("UPDATE products SET products_image=\"".$mysqli->real_escape_string($main)."\" WHERE products_id=$pid");
