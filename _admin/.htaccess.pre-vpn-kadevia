@@ -39,8 +39,8 @@ allow from 94.73.33.172
 #IP Andorra
 allow from 145.224.124.130
 
-# VPN Kadevia
-allow from 51.91.52.168
+# KDV VPN
+allow from 46.101.221.242
 
 # Evitar que la regla heredada del htaccess raiz elimine index.php y redirija a /
 RewriteRule ^index\.php$ - [L]

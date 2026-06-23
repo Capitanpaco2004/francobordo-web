@@ -1316,7 +1316,7 @@ if( tep_not_null($action) )
 							<?php else: ?>
 								<i class="fa fa-circle" style="font-size:9px;margin-right:5px;color:<?php echo $nTrkEntregado ? '#2e9e44' : '#ee7f00'; ?>"></i>
 								<strong><?php echo htmlspecialchars( (string)$sTrkEstado, ENT_QUOTES, 'UTF-8' ); ?></strong>
-								<?php if( $sTrkChecked !== '' ): ?><small style="color:#999;">(<?php echo date( 'd/m H:i', strtotime( $sTrkChecked ) ); ?>)</small><?php endif; ?>
+								<?php $sTrkEvDate = ( count( $aTrkRegs ) && (string)$aTrkRegs[0]['f'] !== '' ) ? (string)$aTrkRegs[0]['f'] : ''; ?><?php if( $sTrkEvDate !== '' ): ?><small style="color:#999;" title="<?php echo $sTrkChecked !== '' ? 'Ultima comprobacion: ' . date( 'd/m/Y H:i', strtotime( $sTrkChecked ) ) : ''; ?>">(<?php echo htmlspecialchars( $sTrkEvDate, ENT_QUOTES, 'UTF-8' ); ?>)</small><?php elseif( $sTrkChecked !== '' ): ?><small style="color:#999;">(<?php echo date( 'd/m H:i', strtotime( $sTrkChecked ) ); ?>)</small><?php endif; ?>
 							<?php endif; ?>
 						</div>
 						<?php if( count( $aTrkRegs ) ): ?>

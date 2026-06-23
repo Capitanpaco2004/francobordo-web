@@ -426,20 +426,14 @@ function plan_order($link, int $oid, array $qfac): array {
     $prodLines = array_values(array_filter($qfac['lines'], fn($l)=>$l['ccodiart'] !== null && $l['ccodiart'] !== ''));
     if (!$prodLines) { $res['reason']='qfac_sin_productos'; return $res; }
 
-    // (a) Parcial: alguna linea GENUINAMENTE partida -> 0 < NSERVIT < QUANT (servida en parte).
-    //     OJO: NSERVIT>0 a secas NO sirve: QFac pone unidades servidas durante el picking normal,
-    //     mucho antes de un envio parcial real -> marcaba parcial prematuramente (caso 10360619).
-    //     Solo aplica a pedidos NO servidos y en estado pre-envio (1/2/13): nunca degradar un 5/3.
+    // (a) Marca de "Enviado Parcialmente" DESACTIVADA (2026-06-18). Se basaba en NSERVIT de QFac
+    //     (0<NSERVIT<QUANT), pero NSERVIT sube durante el picking/preparacion, no solo al enviar
+    //     de verdad -> falsos positivos (p.ej. 10360619, 10362070: 2 de 3 uds "servidas" sin
+    //     envio real). El estado 7 real ya lo pone el flujo de envio (qfacwin_actu_pedido, basado
+    //     en albaranes/VStock). El sync NO debe inferir estado de envio desde NSERVIT.
     $partial = false;
-    if (!$isFinal) {
-        foreach ($prodLines as $l) {
-            $ns = (float)($l['nservit'] ?? 0);
-            $qt = (float)($l['quant'] ?? 0);
-            if ($ns > 0 && $ns < $qt) { $partial = true; break; }
-        }
-    }
     $res['partial'] = $partial;
-    $statusChange = ($partial && in_array($curStatus, [1, 2, 13], true)) ? PARTIAL_STATUS : null;
+    $statusChange = null;
     $res['status_change'] = $statusChange;
 
     // (b) Sync de lineas (independiente del cambio de estado)
