@@ -55,16 +55,27 @@ require_once 'includes/classes/seur.php';
 if (($in['reprints'] ?? '') === '1') {
     $db = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
     if ($db->connect_errno) out(array('ok' => false, 'error' => 'db'));
+    $db->set_charset('utf8mb4');
     $out = array();
     $r = $db->query("SELECT id, orders_id, zpl FROM seur_reprint_queue WHERE done = 0 ORDER BY id LIMIT 20");
     while ($row = $r->fetch_assoc()) {
         $out[] = array('id' => (int) $row['id'], 'oid' => (int) $row['orders_id'], 'zpl' => $row['zpl']);
     }
-    if ($out) {
-        $ids = implode(',', array_map(function ($x) { return $x['id']; }, $out));
-        $db->query("UPDATE seur_reprint_queue SET done = 1, done_at = NOW() WHERE id IN ($ids)");
-    }
+    // NO marcamos done aqui: el watcher confirma con ?reprint_done DESPUES de soltar
+    // el ZPL, asi un fallo de transporte .112->nic1 no pierde el reprint (se reintenta).
     out(array('ok' => true, 'reprints' => $out));
+}
+
+/* ---- ACK del watcher: marca done los reprints que YA solto a la cola de impresion ---- */
+if (($in['reprint_done'] ?? '') !== '') {
+    $db = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
+    if ($db->connect_errno) out(array('ok' => false, 'error' => 'db'));
+    $ids = array_values(array_filter(array_map('intval', explode(',', (string) $in['reprint_done']))));
+    if ($ids) {
+        $in_ids = implode(',', $ids);
+        $db->query("UPDATE seur_reprint_queue SET done = 1, done_at = NOW() WHERE id IN ($in_ids)");
+    }
+    out(array('ok' => true, 'acked' => $ids));
 }
 
 $oid    = (int) ($in['oid'] ?? 0);
@@ -224,6 +235,24 @@ if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === '1000') && ($is
     $opts['service'] = '3';
     $opts['product'] = '2';
     $opts['observations'] .= ' / SEUR 10';
+}
+
+/* SEUR Sábado (servicio 57/2, solo nacional ES peninsular): el watcher lo pide
+ * con svc=sabado cuando el albaran va con la agencia Vstock 'SEUR SABADO'. */
+if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === 'sabado') && $iso === 'ES') {
+    $opts['service'] = '57';
+    $opts['product'] = '2';
+    $opts['observations'] .= ' / SEUR Sabado';
+}
+
+/* SEUR 48h (servicio 15/130, nacional a domicilio): el watcher lo pide con svc=48
+ * cuando el albaran va con la agencia Vstock 'SEUR 48'. Producto 130 (alt. 128 si
+ * SEUR devolviera "Unknown Service/Product"). */
+if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === '48') && $iso === 'ES') {
+    // DEPRECADO 2026-06-23: SEUR 48 (15/130, capado a 20 kg) -> B2C 31/2 (SEUR 24, sin tope).
+    $opts['service'] = '31';
+    $opts['product'] = '2';
+    $opts['observations'] .= ' / SEUR 24 (B2C)';
 }
 
 if ($regen) {

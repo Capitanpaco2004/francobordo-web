@@ -5,8 +5,8 @@ define('SISTEMA_OPINION_DIAS_DELETE', '30');
 
 	$resultado = 0;
 
-	// Obtenemos los emails de clientes que si estan suscritos a enviarnos correos
-	$aEmailsSubscribed = array_values( pharaonix_getArrayAssociativeSql( 'SELECT c.customers_email_address FROM customers c INNER JOIN rgpd_account_term rgat on(rgat.customers_id = c.customers_id) WHERE rgat.id_term_pivacy_trade = 1', 'customers_email_address', 'customers_email_address', false, 1 ) );
+	// 2026-06-23: ya NO se filtra por consentimiento de marketing (se envia a todos). Solo respetamos las BAJAS explicitas (opinion_optout).
+	$aOptOut = array_values( pharaonix_getArrayAssociativeSql( 'SELECT email FROM opinion_optout', 'email', 'email', false, 1 ) );
 		
 	# Inicio, sistema de opiniones
 	if( SISTEMA_OPINION_ENABLED == 'true' )
@@ -43,8 +43,8 @@ define('SISTEMA_OPINION_DIAS_DELETE', '30');
 					// Obtenemos el pedido
 					$aDatoOrder = tep_db_fetch_array( $aDatosOrders );
 
-					// Si el cliente existe y no tiene suscrito pasamos
-					if( !in_array( $aDatoOrder['customers_email_address'], $aEmailsSubscribed ) )
+					// 2026-06-23: a TODOS excepto quien se dio de baja (opinion_optout); ya no se filtra por consentimiento.
+					if( in_array( $aDatoOrder['customers_email_address'], $aOptOut ) )
 					{
 						// Actualizamos
 						tep_db_query( 'update opinion set email_primero_enviado = true where id_opinion = '  . $aDatoOpinion['id_opinion'] );
@@ -98,8 +98,8 @@ define('SISTEMA_OPINION_DIAS_DELETE', '30');
 					// Obtenemos el pedido
 					$aDatoOrder = tep_db_fetch_array( $aDatosOrders );
 
-					// Si el cliente existe y no tiene suscrito pasamos
-					if( !in_array( $aDatoOrder['customers_email_address'], $aEmailsSubscribed ) )
+					// 2026-06-23: a TODOS excepto quien se dio de baja (opinion_optout); ya no se filtra por consentimiento.
+					if( in_array( $aDatoOrder['customers_email_address'], $aOptOut ) )
 					{
 						// Actualizamos
 						tep_db_query( 'update opinion set email_primero_enviado = true where id_opinion = '  . $aDatoOpinion['id_opinion'] );
@@ -129,7 +129,7 @@ define('SISTEMA_OPINION_DIAS_DELETE', '30');
 		if( (int)SISTEMA_OPINION_DIAS_PRODUCTO > 0 )
 		{
 			// Comprobamos si existen pedidos de hace 10 dias para enviar email de opinion de productos
-			$aDatosOpiniones = tep_db_query( 'select id_opinion, orders_id from opinion
+			$aDatosOpiniones = tep_db_query( 'select id_opinion, orders_id, uniqid from opinion
 											  where DATE_FORMAT( fecha_envio, "%Y-%m-%d" ) <= adddate( DATE_FORMAT( NOW(), "%Y-%m-%d" ), -' . SISTEMA_OPINION_DIAS_PRODUCTO . ')
 											  and email_posterior_enviado = "false"' );
 
@@ -151,8 +151,8 @@ define('SISTEMA_OPINION_DIAS_DELETE', '30');
 					// Obtenemos el pedido
 					$aDatoOrder = tep_db_fetch_array( $aDatosOrders );
 
-					// Si el cliente existe y no tiene suscrito pasamos
-					if( !in_array( $aDatoOrder['customers_email_address'], $aEmailsSubscribed ) )
+					// 2026-06-23: a TODOS excepto quien se dio de baja (opinion_optout); ya no se filtra por consentimiento.
+					if( in_array( $aDatoOrder['customers_email_address'], $aOptOut ) )
 					{
 						// Actualizamos
 						tep_db_query( 'update opinion set email_posterior_enviado = true where id_opinion = '  . $aDatoOpinion['id_opinion'] );

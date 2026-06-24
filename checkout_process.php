@@ -707,12 +707,9 @@ if (!defined("EMAIL_TEXT_SUBJECT")) {
     define("EMAIL_TEXT_SUBJECT", "Pedido en " . STORE_NAME);
 }
 //---  End of addition: Ultimate HTML Emails  ---//
-// Trustpilot AFS (Automatic Feedback Service): se hace BCC del email de confirmación a la direccion unica
-// de Trustpilot para que, ~7 dias despues, invite al cliente a dejar una resena de servicio.
-// Editable via tabla configuration (clave TRUSTPILOT_AFS_BCC); si no esta definida, usa el valor por defecto.
-// Valor vacio = desactivado (tep_mail ignora un BCC vacio o invalido).
-if (!defined('TRUSTPILOT_AFS_BCC')) define('TRUSTPILOT_AFS_BCC', 'francobordo.com+7c408a2e65@invite.trustpilot.com');
-tep_mail($order->customer['firstname'] . ' ' . $order->customer['lastname'], $order->customer['email_address'], EMAIL_TEXT_SUBJECT, $email_order, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS, false, TRUSTPILOT_AFS_BCC);
+// Trustpilot AFS: el BCC se hace ahora en el email de ENVIO (_admin/cron_mail_status.php), solo para
+// pedidos enviados en <=24h. Aqui, en la confirmacion, ya NO se invita (no se sabe aun el plazo de envio).
+tep_mail($order->customer['firstname'] . ' ' . $order->customer['lastname'], $order->customer['email_address'], EMAIL_TEXT_SUBJECT, $email_order, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS);
 
 // send emails to other people
 if (SEND_EXTRA_ORDER_EMAILS_TO != '') {

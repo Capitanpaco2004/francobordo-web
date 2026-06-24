@@ -163,6 +163,9 @@
 			case 'manual':    $sRuleText = defined('DELIVERY_ESTIMATE_RULE_MANUAL')    ? DELIVERY_ESTIMATE_RULE_MANUAL    : ''; break;
 			case 'seur1330_24h': $sRuleText = defined('DELIVERY_ESTIMATE_RULE_SEUR1330') ? DELIVERY_ESTIMATE_RULE_SEUR1330 : 'Envío urgente SEUR antes de las 13:30h (entrega en 24h)'; break;
 			case 'seur10_24h':   $sRuleText = defined('DELIVERY_ESTIMATE_RULE_SEUR10')   ? DELIVERY_ESTIMATE_RULE_SEUR10   : 'Envío urgente SEUR antes de las 10h (entrega en 24h)'; break;
+			case 'seursabado_sat': $sRuleText = 'Envío SEUR Sábado (entrega el sábado)'; break;
+			case 'seur48_48h':
+			case 'seur24_24h':     $sRuleText = 'Envío SEUR 24 (entrega en 24h)'; break;
 		}
 
 		// Texto relativo de días (desde language files)
@@ -563,7 +566,17 @@
 
 			$aDatosOpiniones = tep_db_query( $sql );*/?>
 		  	<?php //if( tep_db_num_rows( $aDatosOpiniones ) > 0 ): ?>
-				<a href="javascript:void(0);" data-id="<?php echo (int)$_GET['order_id']; ?>" class="Button buttonSecond buttonValorar">Valorar</a>
+				<?php
+				// 2026-06-23: "Valorar" enlaza DIRECTO al formulario de opinion (escribir_opinion.php?o=uniqid)
+				// en vez de disparar el email via AJAX (cron_opiniones), que fallaba para clientes sin
+				// consentimiento de marketing o con la opinion ya marcada como enviada. Asi cualquier
+				// cliente puede valorar su pedido desde la cuenta. (Sin clase buttonValorar -> no dispara el AJAX.)
+				$rValorar = tep_db_query( 'select uniqid from opinion where orders_id = ' . (int)$_GET['order_id'] . ' limit 1' );
+				if( tep_db_num_rows( $rValorar ) > 0 ):
+					$aValorar = tep_db_fetch_array( $rValorar );
+				?>
+					<a href="<?php echo tep_href_link( 'escribir_opinion.php', 'o=' . $aValorar['uniqid'] ); ?>" class="Button buttonSecond">Valorar</a>
+				<?php endif; ?>
 			<?php //endif; ?>
 			<a href="<?php echo tep_href_link(FILENAME_SHOPPING_CART, 'buy_all=' . (int)$_GET['order_id']); ?>" class="Button">Comprar de nuevo</a>
 			<!--<a href="" class="Button">Devolver</a>-->

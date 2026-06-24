@@ -39,6 +39,7 @@
 						);
 
 						$sHtmlEmail .= OPINION_EMAIL_PIE;
+						$sHtmlEmail .= '<div style="font-size:11px; color:#999; margin-top:18px;">Si no deseas recibir m&aacute;s invitaciones a opinar, <a href="' . tep_href_link( 'baja_opiniones.php', 'o=' . $aDatoOpinion['uniqid'], 'NONSSL', false ) . '" style="color:#999;">date de baja aqu&iacute;</a>.</div>';
 
 					$sHtmlEmail .='</div>
 				</td>

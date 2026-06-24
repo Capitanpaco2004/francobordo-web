@@ -833,19 +833,21 @@ foreach ($rows as $row) {
 		// Imágenes: principal + hasta 7 sub-imágenes desde la galería
 		$slug = garminSlugify($nameTrunc);
 		$mainOk = false;
-		if (!empty($scrape['image_url'])) {
+		// La gallery viene toda en -xl (alta calidad). La 1ª (vista cf) es la principal.
+		// Usarla como principal evita: (a) baja calidad de mainMediumImagePath (-md), y
+		// (b) duplicado cuando el cf-xl trae un UUID distinto al de mainMediumImagePath.
+		$galleryUrls = !empty($scrape['gallery']) ? garminGalleryUrls($scrape['gallery']) : [];
+		$mainUrl = !empty($galleryUrls) ? $galleryUrls[0] : ($scrape['image_url'] ?? '');
+		if ($mainUrl !== '') {
 			$finalName = $slug . '-' . $pid . '.jpg';
 			$finalAbs = IMG_ABS_DIR . $finalName;
-			if (garminDownloadImage($scrape['image_url'], $finalAbs)) {
+			if (garminDownloadImage($mainUrl, $finalAbs)) {
 				$mysqli->query("UPDATE products SET products_image=\"" . $mysqli->real_escape_string($finalName) . "\" WHERE products_id=$pid");
 				$nWithImg++; $mainOk = true;
 			}
 		}
-		// Sub-imágenes desde gallery (excluyendo la principal ya descargada)
-		$galleryUrls = !empty($scrape['gallery']) ? garminGalleryUrls($scrape['gallery']) : [];
-		$mainBase = !empty($scrape['image_url']) ? basename(parse_url($scrape['image_url'], PHP_URL_PATH)) : '';
-		$rest = array_values(array_filter($galleryUrls, fn($u) => basename(parse_url($u, PHP_URL_PATH)) !== $mainBase));
-		$rest = array_slice($rest, 0, 7);
+		// Sub-imágenes: el resto de la gallery (la 1ª ya es la principal). Sin duplicar.
+		$rest = array_slice($galleryUrls, 1, 7);
 		$subFiles = [];
 		foreach ($rest as $i => $u) {
 			$subName = $slug . '-' . $pid . '-' . ($i + 2) . '.jpg';

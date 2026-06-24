@@ -7,7 +7,8 @@
 			{
 				while( $aDato = tep_db_fetch_array( $aDatos ) )
 				{
-					echo '<a href="' . tep_href_link(FILENAME_PRODUCT_REVIEWS_INFO, 'products_id=' . $aDato['products_id'] . '&reviews_id=' . $aDato['reviews_id']) . '">'
+					// 2026-06-23: product_reviews_info.php eliminado (404) -> enlazamos a la ficha del producto.
+					echo '<a href="' . tep_href_link(FILENAME_PRODUCT_INFO, 'products_id=' . $aDato['products_id']) . '">'
 						. tep_image(DIR_WS_IMAGES . $aDato['products_image'], $aDato['products_name'], 110, 122) . 
 					'</a>';
 
@@ -17,8 +18,10 @@
 				}
 			}
 			// Si no encontramos datos pero estamos viendo un producto mostramos la opcion de escribir comentario
+			// 2026-06-23: product_reviews_write.php eliminado (404) -> apuntamos a la ficha del producto, cuya
+			// pestaña Comentarios contiene el formulario AJAX que SI funciona (escribir_comentarios.php).
 			elseif( isset($_GET['products_id'] ) )
-				echo '<div class="reviews_box"><a href="' . tep_href_link(FILENAME_PRODUCT_REVIEWS_WRITE, 'products_id=' . $_GET['products_id']) . '" class="escribir_comentario">' . tep_image(DIR_WS_IMAGES . 'box_write_review.png', IMAGE_BUTTON_WRITE_REVIEW) . '</a> <a href="' . tep_href_link(FILENAME_PRODUCT_REVIEWS_WRITE, 'products_id=' . $_GET['products_id']) . '">' . BOX_REVIEWS_WRITE_REVIEW .'</a></div>';
+				echo '<div class="reviews_box"><a href="' . tep_href_link(FILENAME_PRODUCT_INFO, 'products_id=' . $_GET['products_id']) . '" class="escribir_comentario">' . tep_image(DIR_WS_IMAGES . 'box_write_review.png', IMAGE_BUTTON_WRITE_REVIEW) . '</a> <a href="' . tep_href_link(FILENAME_PRODUCT_INFO, 'products_id=' . $_GET['products_id']) . '">' . BOX_REVIEWS_WRITE_REVIEW .'</a></div>';
 		?>  
     </div>
     <div class="box-fotr"></div>

@@ -4114,7 +4114,9 @@ function buttonGenerarDevolucion(int $oID): string {
 
 	global $currencies;
 
-	$allowed = ['redsys', 'bizum', 'paypal_express', 'paypal'];
+	// Metodos con devolucion desde el admin: Redsys (incl. redsys_xpay = Apple/Google Pay via Redsys),
+	// PayPal NVP legacy (paypal/paypal_express) y PayPal REST (paypal_rest + wallets via PayPal).
+	$allowed = ['redsys', 'bizum', 'redsys_xpay', 'paypal_express', 'paypal', 'paypal_rest', 'paypal_applepay', 'paypal_googlepay'];
 
 	if (empty($allowed)) {
 		return '';
@@ -4163,10 +4165,18 @@ function buttonGenerarDevolucion(int $oID): string {
 			//$order['amount'] = $init['value'] - $order_total;
 		}
 
+		// Token CSRF para la devolución (mueve dinero → la acción exige POST + este token)
+		if (empty($_SESSION['refund_csrf'])) {
+			$_SESSION['refund_csrf'] = bin2hex(random_bytes(16));
+		}
+		$sRefundToken = $_SESSION['refund_csrf'];
+
 		$amount   = number_format(floatval($order['amount']), 2, '.', '');
 		$response = '<form method="post" style="margin-top: 10px;padding: 0;display: flex;border: none;" action="' . tep_href_link('orders.php', 'action=refund-order&oID=' . $oID) . '" class="formRow" id="refund-order">';
 		$response .= '<input id="refund-order-amount" type="text" name="amount" value="' . $amount . '" style="text-align: right; margin: 0; max-width: 100px; height: auto; margin: 0 5px 0 0;" autocomplete="off" />';
 		$response .= '<input id="refund-order-max" type="hidden" value="' . $amount . '" />';
+		$response .= '<input id="refund-csrf" type="hidden" value="' . $sRefundToken . '" />';
+		$response .= '<input id="refund-oid" type="hidden" value="' . (int)$oID . '" />';
 		$response .= '<button type="submit" class="buttonS bRed">Generar devolución</button>';
 		$response .= '</form>';
 	}
@@ -4215,10 +4225,12 @@ function buttonGenerarDevolucion(int $oID): string {
 
 					if (confirm("¿Estás seguro?")) {
 						$.ajax({
-							type: "GET",
+							type: "POST",
 							url: "' . tep_href_link('orders.php', 'action=refund-order&oID=' . $oID) . '",
 							data: {
-								amount: amount
+								amount: amount,
+								oID: $("#refund-oid").val(),
+								refund_csrf: $("#refund-csrf").val()
 							}
 						}).done(function( data ) {
 							location.href = location.href

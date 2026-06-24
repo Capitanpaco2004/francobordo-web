@@ -23,6 +23,16 @@ class tipsa
     {
         global $order, $shipping_weight, $shipping_num_boxes;
 
+        // SEUR 24 (La Linea 11300 / Torremolinos 29620) tiene prioridad: si SEUR 24 (modulo
+        // seur48, ahora B2C 31/2, SIN tope de peso) cubre este destino, NO mostrar Mensajeria (CEX) ahi.
+        if (defined('MODULE_SEUR48_STATUS') && MODULE_SEUR48_STATUS == 'True') {
+            $cp48  = preg_replace('/\s+/', '', (string) ($order->delivery['postcode'] ?? ''));
+            $iso48 = strtoupper((string) ($order->delivery['country']['iso_code_2'] ?? ''));
+            if ($iso48 === 'ES' && in_array($cp48, array('29620', '11300'), true)) {
+                return array();
+            }
+        }
+
         $dest_zone = 0;
         $error = false;
         $zones_weight_cost = 0;

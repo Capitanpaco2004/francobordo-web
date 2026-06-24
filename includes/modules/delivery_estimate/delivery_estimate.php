@@ -52,6 +52,19 @@ class delivery_estimate {
 		// se entrega el LUNES. addDays(,1) salta sabados/domingos y festivos (BUSINESS_DAYS=True)
 		// -> viernes->lunes, jueves->viernes. Las reglas de stock de abajo no aplican.
 		$sm = (string)$row['shipping_module'];
+		// SEUR Sábado ('seursabado'): solo se ofrece el VIERNES -> entrega el dia SIGUIENTE = SABADO
+		// (el complemento 'Entrega en Sabado' lo permite). +1 NATURAL (no dia habil).
+		if( strpos( $sm, 'seursabado' ) === 0 ) {
+			$estimated = date( 'Y-m-d', strtotime( '+1 day', strtotime( $datePurchased ) ) );
+			tep_db_query( "insert into orders_delivery_estimate (orders_id, estimated_date, rule_applied, comment, is_manual, admin_user, email_sent, created_at) values ('" . $orders_id . "', '" . tep_db_input( $estimated ) . "', 'seursabado_sat', NULL, 0, NULL, 0, now())" );
+			return $estimated;
+		}
+		// SEUR 24 ('seur48' = B2C 31/2): entrega en 24h = +1 dia habil.
+		if( strpos( $sm, 'seur48' ) === 0 ) {
+			$estimated = $this->addDays( $datePurchased, 1 );
+			tep_db_query( "insert into orders_delivery_estimate (orders_id, estimated_date, rule_applied, comment, is_manual, admin_user, email_sent, created_at) values ('" . $orders_id . "', '" . tep_db_input( $estimated ) . "', 'seur24_24h', NULL, 0, NULL, 0, now())" );
+			return $estimated;
+		}
 		if( strpos( $sm, 'seurnacional' ) === 0 || strpos( $sm, 'seurdiez' ) === 0 ) {
 			$estimated = $this->addDays( $datePurchased, 1 );
 			$rule = ( strpos( $sm, 'seurdiez' ) === 0 ) ? 'seur10_24h' : 'seur1330_24h';

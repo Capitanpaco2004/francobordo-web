@@ -140,11 +140,33 @@ if( tep_not_null($action) )
 			 */
 			case 'refund-order':
 
-				ini_set('display_errors', 1);
-				ini_set('display_startup_errors', 1);
+				// --- Seguridad (mueve dinero): solo POST + token CSRF de sesion ---
+				if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST'
+				    || empty($_POST['refund_csrf'])
+				    || !hash_equals((string)($_SESSION['refund_csrf'] ?? ''), (string)$_POST['refund_csrf'])) {
+					$messageStack->add_session('Solicitud de devolución no válida (token de seguridad caducado). Recargue la página e inténtelo de nuevo.', 'error');
+					tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)($_POST['oID'] ?? $_GET['oID'] ?? 0) . '&action=edit'));
+				}
+				// Normalizamos POST→GET para que el resto del flujo (que lee $_GET) funcione sin cambios.
+				$_GET['oID']    = (int)($_POST['oID'] ?? 0);
+				$_GET['amount'] = $_POST['amount'] ?? '0';
+
+				// --- Lock por pedido: serializa devoluciones concurrentes (evita doble reembolso por carrera) ---
+				// Engine-agnostico (GET_LOCK). Se auto-libera al cerrar la conexion (USE_PCONNECT=false).
+				$sRefundLock = 'refund_' . (int)$_GET['oID'];
+				$rLock = tep_db_fetch_array(tep_db_query("SELECT GET_LOCK('" . tep_db_input($sRefundLock) . "', 5) AS got"));
+				if (empty($rLock['got'])) {
+					$messageStack->add_session('Hay otra devolución en curso para este pedido. Espere unos segundos e inténtelo de nuevo.', 'error');
+					tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$_GET['oID'] . '&action=edit'));
+				}
+
 				error_reporting(E_ALL);
 
-				$allowed = ['redsys', 'bizum', 'paypal'];
+				// Gateways con devolucion soportada:
+				//  - Redsys (transaccion tipo 3): redsys, bizum, redsys_xpay (Apple/Google Pay via Redsys, mismo terminal)
+				//  - PayPal NVP legacy: paypal (paypal_express)
+				//  - PayPal REST (refund de capture): paypal_rest, paypal_applepay, paypal_googlepay
+				$allowed = ['redsys', 'bizum', 'redsys_xpay', 'paypal', 'paypal_rest', 'paypal_applepay', 'paypal_googlepay'];
 
 				if (!class_exists("RedsysAPI")) {
 					require_once '../includes/modules/payment/apiRedsys/apiRedsysFinal.php';
@@ -158,7 +180,12 @@ if( tep_not_null($action) )
 
 				$order = tep_db_fetch_array($sql);
 
-				if (in_array($order['module'], ['redsys', 'bizum'])) {
+				if (!in_array($order['module'], $allowed)) {
+					$messageStack->add_session('Este método de pago (' . $order['module'] . ') no admite devolución automática.', 'error');
+					tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$_GET['oID'] . '&action=edit'));
+				}
+
+				if (in_array($order['module'], ['redsys', 'bizum', 'redsys_xpay'])) {
 					if ($_GET['amount'] > $order['amount']) {
 						$_GET['amount'] = $order['amount'];
 					}
@@ -371,8 +398,78 @@ if( tep_not_null($action) )
 					echo '<pre>'.print_r($response_array, 1).'</pre>';
 
 
+				} elseif (in_array($order['module'], ['paypal_rest', 'paypal_applepay', 'paypal_googlepay'])) {
+
+					// PayPal Checkout v2 (REST): el reembolso se hace sobre el CAPTURE id,
+					// que NO es el reference de la fila (ese es el order id de PayPal) sino
+					// orders.paypal_transaction_id. Importe parcial o total.
+
+					// Saneado del importe (acepta coma decimal) y cap al neto disponible.
+					$amount = round((float) str_replace(',', '.', (string)($_GET['amount'] ?? '0')), 2);
+					$neto   = round(floatval($order['amount']), 2);
+					if ($amount > $neto) {
+						$amount = $neto;
+					}
+
+					// Capture id desde el pedido
+					$rCap = tep_db_fetch_array(tep_db_query(sprintf(
+						'SELECT paypal_transaction_id FROM %s WHERE orders_id = %d',
+						TABLE_ORDERS, (int)$_GET['oID']
+					)));
+					$sCaptureId = trim((string)($rCap['paypal_transaction_id'] ?? ''));
+
+					if ($sCaptureId === '') {
+						$messageStack->add_session('No se encuentra el identificador de captura de PayPal para este pedido; no se puede devolver automáticamente.', 'error');
+					} elseif ($amount <= 0) {
+						$messageStack->add_session('Importe de devolución no válido.', 'error');
+					} else {
+						require_once '../includes/modules/payment/PayPalRest/Client.php';
+						try {
+							$oClient = new \PayPalRest\Client();
+
+							// Idempotencia: misma (pedido+capture+importe) → PayPal procesa UNA sola
+							// devolucion aunque haya doble clic / recarga / reintento.
+							$sIdemKey = 'rf-' . (int)$_GET['oID'] . '-' . $sCaptureId . '-' . number_format($amount, 2, '', '');
+
+							// SIEMPRE importe explicito (sin null): evita ambiguedad si hubo refunds
+							// por fuera; devolver el importe exacto restante equivale al total.
+							$aResp   = $oClient->refundCapture($sCaptureId, $amount, 'EUR', $sIdemKey);
+							$sStatus = $aResp['status'] ?? '';
+
+							// Asentar el movimiento SOLO si PayPal confirma COMPLETED (un PENDING
+							// puede acabar DENIED → no debemos bajar el neto todavia).
+							if ($sStatus === 'COMPLETED') {
+								// Importe REALMENTE devuelto segun PayPal (no el pedido), por si difiere.
+								$fRefunded = isset($aResp['amount']['value']) ? round((float)$aResp['amount']['value'], 2) : $amount;
+								$sRefundId = isset($aResp['id']) ? substr((string)$aResp['id'], 0, 20) : $order['reference'];
+								$values = [
+									'reference'    => $sRefundId,
+									'value'        => $fRefunded * -1,
+									'customer_id'  => $order['customer_id'],
+									'module'       => $order['module'],
+									'date_created' => 'now()',
+									'orders_id'    => intval($_GET['oID']),
+									'admin_id'     => $login_id,
+								];
+								tep_db_perform('redsys_payment_movements', $values);
+								$messageStack->add_session('Devolución PayPal registrada por ' . number_format($fRefunded, 2, ',', '.') . ' € (refund ' . htmlspecialchars($sRefundId) . '). Verifíquelo en su cuenta PayPal.', 'success');
+							} elseif ($sStatus === 'PENDING') {
+								$messageStack->add_session('PayPal ha aceptado la devolución pero está PENDIENTE de confirmación. NO se ha asentado todavía; verifíquela en su panel de PayPal antes de darla por hecha.', 'warning');
+							} else {
+								$messageStack->add_session('PayPal no confirmó la devolución (estado: ' . htmlspecialchars($sStatus) . '). Revise en su panel de PayPal.', 'error');
+							}
+							$result = $aResp;
+						} catch (\Throwable $e) {
+							$messageStack->add_session('Error al generar la devolución con PayPal: ' . $e->getMessage(), 'error');
+							$result = $e->getMessage();
+						}
+					}
+
 				}
 
+				if (isset($sRefundLock)) {
+					tep_db_query("SELECT RELEASE_LOCK('" . tep_db_input($sRefundLock) . "')");
+				}
 
 				echo '<pre>'.print_r($result, 1).'</pre>';
 				die();
@@ -1833,7 +1930,7 @@ if (!empty($_GET['ship'])) {
 	$sh = tep_db_prepare_input($_GET['ship']);
 	if ($sh === 'seururgente') {
 		// SEUR 13:30 (seurnacional) + SEUR 10 (seurdiez) = los urgentes a priorizar
-		$where[] = "o.shipping_module IN ('seurnacional_seurnacional', 'seurdiez_seurdiez')";
+		$where[] = "o.shipping_module IN ('seurnacional_seurnacional', 'seurdiez_seurdiez', 'seursabado_seursabado')";
 	} else {
 		$where[] = "o.shipping_module = '" . tep_db_input($sh) . "'";
 	}
@@ -1932,7 +2029,7 @@ $orders_query = tep_db_query($orders_query_raw);
 					</li>
 					<li>
 						<?php echo tep_draw_form('status', FILENAME_ORDERS, '', 'get', 'style="position:relative; top: 2px;"'); ?>
-						<?php echo HEADING_TITLE_STATUS . ' ' . tep_draw_pull_down_menu('status', array_merge(array(array('id' => '', 'text' => TEXT_ALL_ORDERS)), $orders_statuses), (isset($_GET['status']) ? $_GET['status'] : ''), 'onChange="this.form.submit();"'); ?>&nbsp;&nbsp;<?php $aShipFilter = array(array('id'=>'','text'=>'Forma de envío: todas'), array('id'=>'seururgente','text'=>'SEUR urgentes (10h + 13:30)'), array('id'=>'seurdiez_seurdiez','text'=>'SEUR antes de las 10h'), array('id'=>'seurnacional_seurnacional','text'=>'SEUR antes 13:30h'), array('id'=>'seurpunto_seurpunto','text'=>'SEUR Punto de Recogida'), array('id'=>'seureuropack_seureuropack','text'=>'SEUR EuroPACK'), array('id'=>'tipsa_tipsa','text'=>'Mensajería (Tipsa)'), array('id'=>'correos_Normal','text'=>'Correos Domicilio'), array('id'=>'correosoficina_correosoficina','text'=>'Correos - Recoger en oficina'), array('id'=>'correoscert_Normal','text'=>'Correos Certificado'), array('id'=>'retira_retira','text'=>'Recogida en tienda'), array('id'=>'freeamount_freeamount','text'=>'Envío Gratis')); echo 'Forma de envío ' . tep_draw_pull_down_menu('ship', $aShipFilter, (isset($_GET['ship']) ? $_GET['ship'] : ''), 'onChange="this.form.submit();"'); ?></td>
+						<?php echo HEADING_TITLE_STATUS . ' ' . tep_draw_pull_down_menu('status', array_merge(array(array('id' => '', 'text' => TEXT_ALL_ORDERS)), $orders_statuses), (isset($_GET['status']) ? $_GET['status'] : ''), 'onChange="this.form.submit();"'); ?>&nbsp;&nbsp;<?php $aShipFilter = array(array('id'=>'','text'=>'Forma de envío: todas'), array('id'=>'seururgente','text'=>'SEUR urgentes (10h + 13:30 + Sabado)'), array('id'=>'seurdiez_seurdiez','text'=>'SEUR antes de las 10h'), array('id'=>'seurnacional_seurnacional','text'=>'SEUR antes 13:30h'), array('id'=>'seursabado_seursabado','text'=>'SEUR Sabado'), array('id'=>'seur48_seur48','text'=>'SEUR 24'), array('id'=>'seurpunto_seurpunto','text'=>'SEUR Punto de Recogida'), array('id'=>'seureuropack_seureuropack','text'=>'SEUR EuroPACK'), array('id'=>'tipsa_tipsa','text'=>'Mensajería (Tipsa)'), array('id'=>'correos_Normal','text'=>'Correos Domicilio'), array('id'=>'correosoficina_correosoficina','text'=>'Correos - Recoger en oficina'), array('id'=>'correoscert_Normal','text'=>'Correos Certificado'), array('id'=>'retira_retira','text'=>'Recogida en tienda'), array('id'=>'freeamount_freeamount','text'=>'Envío Gratis')); echo 'Forma de envío ' . tep_draw_pull_down_menu('ship', $aShipFilter, (isset($_GET['ship']) ? $_GET['ship'] : ''), 'onChange="this.form.submit();"'); ?></td>
 						<?php echo tep_hide_session_id(); ?>
 						<input style="visibility:hidden;height: 0px;width: 0px;float: right;" type="submit"/>
 						</form>

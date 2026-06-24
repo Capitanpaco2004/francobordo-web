@@ -5,6 +5,15 @@ $_SERVER['SCRIPT_FILENAME'] = 'login.php';
 include 'includes/application_top.php';
 include DIR_WS_LANGUAGES . $language . '/orders_check.php';
 
+// Trustpilot AFS: direccion BCC para invitar a opinar (plan Free, sin API). Vacio = desactivado.
+if (!defined('TRUSTPILOT_AFS_BCC')) define('TRUSTPILOT_AFS_BCC', 'francobordo.com+7c408a2e65@invite.trustpilot.com');
+// Solo se invita a pedidos ENVIADOS (estado 5) dentro de este margen desde la compra.
+if (!defined('TRUSTPILOT_MAX_SHIP_SECONDS')) define('TRUSTPILOT_MAX_SHIP_SECONDS', 86400); // 24h
+// Tope de invitaciones Trustpilot por mes natural (plan Free = 50; dejamos margen). Subir/quitar si el BCC no consume cupo.
+if (!defined('TRUSTPILOT_MONTHLY_CAP')) define('TRUSTPILOT_MONTHLY_CAP', 48);
+// No reinvitar al mismo cliente (email) dentro de este periodo en dias. 0 = sin cooldown.
+if (!defined('TRUSTPILOT_REINVITE_COOLDOWN_DAYS')) define('TRUSTPILOT_REINVITE_COOLDOWN_DAYS', 180);
+
 $orders_status_array = array();
 $orders_status_query = tep_db_query("select orders_status_id, orders_status_name from " . TABLE_ORDERS_STATUS . " where language_id = '" . (int) $languages_id . "'");
 
@@ -13,7 +22,7 @@ while ($orders_status = tep_db_fetch_array($orders_status_query)) {
     $orders_status_array[$orders_status['orders_status_id']] = $orders_status['orders_status_name'];
 }
 echo '<h4>Notificaciones por email</h4>';
-$aDatosStatuses = tep_db_query('SELECT c.customers_group_id, osh.orders_status_history_id, o.orders_id, os.orders_status_name, o.orders_status, osh.orders_status_id, osh.comments, osh.date_added, c.customers_firstname, c.customers_email_address
+$aDatosStatuses = tep_db_query('SELECT c.customers_group_id, osh.orders_status_history_id, o.orders_id, os.orders_status_name, o.orders_status, osh.orders_status_id, osh.comments, osh.date_added, o.date_purchased, c.customers_firstname, c.customers_email_address
 		FROM orders_status_history osh
 		LEFT JOIN orders o ON o.orders_id = osh.orders_id
 		LEFT JOIN customers c ON c.customers_id = o.customers_id
@@ -60,7 +69,35 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
 
                 require DIR_FS_CATALOG_MODULES . 'UHtmlEmails/' . ULTIMATE_HTML_EMAIL_LAYOUT . '/orders.php';
                 $email = $html_email;
-                tep_mail($check_status['orders_status_name'], $check_status['customers_email_address'], EMAIL_TEXT_SUBJECT . ' (Nº de Pedido: ' . $oID . ')', $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS);
+
+                // Trustpilot: BCC (invitacion a opinar) SOLO si este cambio es "Enviado" (estado 5),
+                // el pedido se envio en <= TRUSTPILOT_MAX_SHIP_SECONDS desde la compra, queda cupo mensual
+                // (plan Free 50) y el cliente no fue invitado dentro del cooldown. Se registra en trustpilot_invites
+                // (registro propio: trazabilidad + tope + dedup por cliente). El cliente no ve nada distinto.
+                $tp_bcc = '';
+                if ((int) $check_status['orders_status_id'] === 5
+                    && defined('TRUSTPILOT_AFS_BCC') && TRUSTPILOT_AFS_BCC !== ''
+                    && !empty($check_status['date_purchased'])
+                    && (strtotime($check_status['date_added']) - strtotime($check_status['date_purchased'])) <= TRUSTPILOT_MAX_SHIP_SECONDS) {
+
+                    $tp_email = trim((string) $check_status['customers_email_address']);
+                    // Cupo usado este mes natural (de nuestro registro)
+                    $tp_cnt   = tep_db_fetch_array(tep_db_query("SELECT COUNT(*) AS c FROM trustpilot_invites WHERE sent_at >= DATE_FORMAT(NOW(), '%Y-%m-01')"));
+                    $tp_usados = (int) $tp_cnt['c'];
+                    // ¿Cliente ya invitado dentro del cooldown?
+                    $tp_dup = ((int) TRUSTPILOT_REINVITE_COOLDOWN_DAYS > 0 && $tp_email !== '')
+                        ? tep_db_num_rows(tep_db_query("SELECT 1 FROM trustpilot_invites WHERE customers_email_address = '" . tep_db_input($tp_email) . "' AND sent_at >= ( NOW() - INTERVAL " . (int) TRUSTPILOT_REINVITE_COOLDOWN_DAYS . " DAY ) LIMIT 1"))
+                        : 0;
+
+                    if ($tp_email !== '' && $tp_usados < (int) TRUSTPILOT_MONTHLY_CAP && $tp_dup == 0) {
+                        $tp_bcc = TRUSTPILOT_AFS_BCC;
+                        tep_db_query("INSERT IGNORE INTO trustpilot_invites (orders_id, customers_email_address, sent_at) VALUES ('" . (int) $oID . "', '" . tep_db_input($tp_email) . "', NOW())");
+                        echo '<pre>Trustpilot: invitado pedido ' . (int) $oID . ' (' . ($tp_usados + 1) . '/' . (int) TRUSTPILOT_MONTHLY_CAP . ' este mes)</pre>';
+                    } else {
+                        echo '<pre>Trustpilot: NO invitado pedido ' . (int) $oID . ' (' . ($tp_dup ? 'cliente ya invitado en cooldown' : ('tope mensual ' . $tp_usados . '/' . (int) TRUSTPILOT_MONTHLY_CAP)) . ')</pre>';
+                    }
+                }
+                tep_mail($check_status['orders_status_name'], $check_status['customers_email_address'], EMAIL_TEXT_SUBJECT . ' (Nº de Pedido: ' . $oID . ')', $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS, false, $tp_bcc);
             }
             $sql = 'UPDATE orders_status_history SET customer_notified = 1 WHERE orders_status_history_id = ' . $check_status['orders_status_history_id'];
             tep_db_query($sql);

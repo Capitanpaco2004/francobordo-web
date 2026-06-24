@@ -171,8 +171,40 @@ class Client {
         return $this->request('POST', '/v2/checkout/orders/' . rawurlencode($sOrderId) . '/authorize', new \stdClass());
     }
 
-    /** Helper interno: request autenticado */
-    private function request( $sMethod, $sPath, $mBody = null ) {
+    /** GET /v2/payments/captures/{id} — consulta el estado de un capture (para saber si es refundable) */
+    public function getCapture( $sCaptureId ) {
+        return $this->request('GET', '/v2/payments/captures/' . rawurlencode($sCaptureId));
+    }
+
+    /**
+     * Reembolsa un capture. POST /v2/payments/captures/{capture_id}/refund
+     * @param string      $sCaptureId  ID del capture (orders.paypal_transaction_id)
+     * @param float|null  $fAmount     Importe a devolver en EUR. null = reembolso TOTAL.
+     * @param string      $sCurrency   Moneda (por defecto EUR)
+     * @return array  Respuesta PayPal (status COMPLETED/PENDING, id del refund, ...)
+     */
+    public function refundCapture( $sCaptureId, $fAmount = null, $sCurrency = 'EUR', $sIdempotencyKey = '' ) {
+        // Sin amount → PayPal reembolsa el importe total del capture.
+        $mBody = new \stdClass();
+        if ( $fAmount !== null ) {
+            $mBody = array(
+                'amount' => array(
+                    'value'         => number_format((float)$fAmount, 2, '.', ''),
+                    'currency_code' => $sCurrency,
+                ),
+            );
+        }
+        // PayPal-Request-Id: idempotencia. Si llegan dos peticiones identicas (doble clic,
+        // recarga, reintento), PayPal procesa UNA sola devolucion y devuelve la misma respuesta.
+        $aExtra = array();
+        if ( $sIdempotencyKey !== '' ) {
+            $aExtra[] = 'PayPal-Request-Id: ' . substr(preg_replace('/[^A-Za-z0-9_\-]/', '', $sIdempotencyKey), 0, 108);
+        }
+        return $this->request('POST', '/v2/payments/captures/' . rawurlencode($sCaptureId) . '/refund', $mBody, $aExtra);
+    }
+
+    /** Helper interno: request autenticado. $aExtraHeaders: cabeceras adicionales (ej. PayPal-Request-Id). */
+    private function request( $sMethod, $sPath, $mBody = null, $aExtraHeaders = array() ) {
         $sToken = $this->getAccessToken();
 
         $aHeaders = array(
@@ -182,6 +214,9 @@ class Client {
             // PayPal recomienda un Prefer: return=representation para que devuelva el detalle completo
             'Prefer: return=representation',
         );
+        if ( ! empty($aExtraHeaders) ) {
+            $aHeaders = array_merge($aHeaders, $aExtraHeaders);
+        }
 
         $rCh = curl_init($this->sBase . $sPath);
         $aOpts = array(
