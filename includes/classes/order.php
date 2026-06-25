@@ -246,6 +246,15 @@ class order {
 							'entry_zone_id'    => $shipping_address['entry_zone_id']];
 		}
 
+		// #FB-IVA-RECOGIDA (2026-06-24): en "Recogida en tienda" el IVA se calcula
+		// segun la ubicacion de la tienda de recogida, no la direccion del cliente.
+		// Peninsula/Baleares => IVA normal; Canarias/Ceuta/Melilla => exento.
+		if (isset($shipping['id']) && $shipping['id'] === 'retira_retira') {
+			$pickup_zone = fb_pickup_store_tax_zone($_SESSION['store_id'] ?? 0);
+			$tax_address = ['entry_country_id' => $pickup_zone['country_id'],
+							'entry_zone_id'    => $pickup_zone['zone_id']];
+		}
+
 		$this->info = ['order_id'        => (int)($orders_id ?? 0),
 					   'order_status'    => DEFAULT_ORDERS_STATUS_ID,
 					   'currency'        => $currency,

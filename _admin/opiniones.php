@@ -1,6 +1,13 @@
 <?php
 include( 'includes/application_top.php' );
 
+// Motor de moderación IA (librería fuera de public_html). Define OAI_* y funciones.
+require_once( dirname( dirname( __DIR__ ) ) . '/opiniones_ai_lib.php' );
+
+// Etiquetas (fallback por si no están en el fichero de idioma, evita fatal PHP8)
+if( ! defined( 'OPINIONES_AI_MODERATE' ) )  define( 'OPINIONES_AI_MODERATE', 'Moderar con IA' );
+if( ! defined( 'OPINIONES_AI_COL' ) )       define( 'OPINIONES_AI_COL', 'IA' );
+
 // Variables
 $sAction = array_key_exists( 'a', $_POST ) ? tep_db_input( $_POST['a'] ) : (array_key_exists( 'a', $_GET ) ? tep_db_input( $_GET['a'] ) : false);
 $sHtml = '';
@@ -415,7 +422,27 @@ switch( $sAction )
 		$sHtml .= '</form>';
 		break;
 
+	case 'ai_batch':
+		// Moderación IA por lotes (AJAX, dentro de la sesión admin). Aprueba las seguras,
+		// registra el veredicto de todas y deja pendientes las dudosas. Devuelve JSON.
+		header( 'Content-Type: application/json; charset=utf-8' );
+		$nLimit    = isset( $_GET['n'] ) ? max( 1, min( 25, (int)$_GET['n'] ) ) : 8;
+		$nMinStars = isset( $_GET['min_stars'] ) ? (int)$_GET['min_stars'] : OAI_MIN_STARS;
+		$oaiC = oai_connect();
+		if( ! $oaiC ) { echo json_encode( array( 'error' => 'no_db' ) ); exit(); }
+		oai_ensure_schema( $oaiC );
+		$res = oai_process_batch( $oaiC, $nMinStars, $nLimit, true, 'admin' );
+		$res['remaining'] = oai_count_remaining( $oaiC, $nMinStars );
+		mysqli_close( $oaiC );
+		echo json_encode( $res, JSON_UNESCAPED_UNICODE );
+		exit();
+		break;
+
 	default:
+		// Aseguramos la tabla de auditoría IA (para el LEFT JOIN y el botón).
+		$oaiC = oai_connect();
+		if( $oaiC ) { oai_ensure_schema( $oaiC ); mysqli_close( $oaiC ); }
+
 		// Html para el boton masivo
 		$sHtmlActionMasivo = '<div id="opciones_masivas" style="float: left; margin-top: -4px; margin-right: 13px;">
 				<div class="btn-group">
@@ -425,15 +452,26 @@ switch( $sAction )
 						<li><a data-question="' . OPINIONES_DELETE_OPINIONS_CONFIRM . '" data-action="' . tep_href_link( $sUrl ) . '?a=delete" href="javascript:void(0);" class="hv"><i class="icos-trash"></i>' . OPINIONES_DELETE_OPINIONS . '</a></li>
 					</ul>
 				</div>
+			</div>
+			<div id="ai_moderate_box" style="float: left; margin-top: -4px; margin-right: 13px;">
+				<a href="javascript:void(0);" id="ai_moderate_btn" class="buttonS bGreen" style="cursor:pointer;"><i class="icos-cog"></i> ' . OPINIONES_AI_MODERATE . '</a>
+				<span id="ai_moderate_status" style="margin-left: 10px; font-weight: bold; vertical-align: middle;"></span>
 			</div>';
 
 		// Busqueda
 		$sGetSearchApr = tep_db_prepare_input( $_GET['search_apr'] );
-		$sGetSearchEst = tep_db_prepare_input( $_GET['search_est'] );
+		// Por defecto el listado muestra SOLO opiniones contestadas (status='true').
+		// Si el usuario elige algo en el filtro Estado (incluido "Todas"), se respeta.
+		$sGetSearchEst = isset( $_GET['search_est'] ) ? tep_db_prepare_input( $_GET['search_est'] ) : 'true';
+		$sGetSearchIa = isset( $_GET['search_ia'] ) ? tep_db_prepare_input( $_GET['search_ia'] ) : '';
 		$sGetFrom = (isset($_GET['from']) ? $_GET['from'] : '');
 		$sGetTo = (isset($_GET['to']) ? $_GET['to'] : '');
 
-		if( $sGetSearchApr != '' || $sGetSearchEst != '' || $sGetFrom != '' || $sGetTo != '' )
+		// ¿Filtro aplicado explícitamente por el usuario? Controla abrir el panel y mostrar el icono de limpiar
+		// (el status='true' por defecto NO cuenta como filtro del usuario).
+		$bUserFilter = ( $sGetSearchApr != '' || isset( $_GET['search_est'] ) || $sGetSearchIa != '' || $sGetFrom != '' || $sGetTo != '' );
+
+		if( $sGetSearchApr != '' || $sGetSearchEst != '' || $sGetSearchIa != '' || $sGetFrom != '' || $sGetTo != '' )
 			$search = 'where ';
 
 		if( $sGetSearchApr != '' )
@@ -450,6 +488,17 @@ switch( $sAction )
 				$search .= ' and';
 
 			$search .= ' o.status = "' . $sGetSearchEst . '"';
+		}
+
+		if( $sGetSearchIa != '' )
+		{
+			if( $search != 'where ' )
+				$search .= ' and';
+
+			if( $sGetSearchIa == 'none' )
+				$search .= ' m.id_opinion is null';
+			else
+				$search .= ' m.decision = "' . $sGetSearchIa . '"';
 		}
 
 		if( $sGetFrom != '' )
@@ -475,10 +524,11 @@ switch( $sAction )
 		}
 
 		// Consulta
-		$sSql = 'select o.id_opinion, o.orders_id, date_format(o.fecha_envio, "%d/%m/%Y") as fecha_envio, c.customers_firstname, cg.customers_group_name, o.general, o.comentario_general, o.status, o.status_aprobado
+		$sSql = 'select o.id_opinion, o.orders_id, date_format(o.fecha_envio, "%d/%m/%Y") as fecha_envio, c.customers_firstname, cg.customers_group_name, o.general, o.comentario_general, o.status, o.status_aprobado, m.decision as ai_decision, m.categoria as ai_categoria, m.motivo as ai_motivo
 					 from opinion o
 					 inner join customers c on (c.customers_id = o.customers_id)
-					 inner join customers_groups cg on(cg.customers_group_id = c.customers_group_id) ' .
+					 inner join customers_groups cg on(cg.customers_group_id = c.customers_group_id)
+					 left join opinion_ai_moderation m on (m.id_opinion = o.id_opinion) ' .
 			$search . '
 					 order by o.id_opinion desc';
 
@@ -491,7 +541,7 @@ switch( $sAction )
 				<div class="hdr-tlbr">
 					<h1 class="pageHeading ftitl" style="top: 13px;">' . OPINIONES_HEADING_TITLE . '</h1>
 					<div class="btn-right">' .
-			($search != '' ? '<a href="' . tep_href_link( $sUrl, tep_get_all_get_params( array( 'search_apr', 'search_est', 'from', 'to', 'page', 'orderby', 'sort' ) ) ) . '" title="' . OPINIONES_CLEAN_FILTER . '"><img class="dx-hovr" src="images/icons/icon_clear_filter' . ($language == 'espanol' ? '' : '_' . $language) . '.png"></a>' : '') . '
+			($bUserFilter ? '<a href="' . tep_href_link( $sUrl, tep_get_all_get_params( array( 'search_apr', 'search_est', 'search_ia', 'from', 'to', 'page', 'orderby', 'sort' ) ) ) . '" title="' . OPINIONES_CLEAN_FILTER . '"><img class="dx-hovr" src="images/icons/icon_clear_filter' . ($language == 'espanol' ? '' : '_' . $language) . '.png"></a>' : '') . '
 					</div>
 				</div>
 			</div>';
@@ -506,7 +556,7 @@ switch( $sAction )
 				</div>';
 
 		$sHtml .= '
-				<div data-id="1" class="fluid grid tablePars"' . ($search != '' ? ' style="display: block;"' : '') . '>
+				<div data-id="1" class="fluid grid tablePars"' . ($bUserFilter ? ' style="display: block;"' : '') . '>
 					<form method="get" action="' . tep_href_link( $sUrl ) . '">
 						<div class="grid12">
 							<div class="formRow" style="border: none; padding: 7px 16px;">
@@ -520,6 +570,13 @@ switch( $sAction )
 								<div class="grid2"><label>' . OPINIONES_STATUS . ':</label></div>
 								<div class="grid10">' .
 			tep_draw_pull_down_menu( 'search_est', array( array( 'id' => '', 'text' => OPINIONES_TEXT_ALL ), array( 'id' => 'true', 'text' => OPINIONES_ANSWERED ), array( 'id' => 'false', 'text' => OPINIONES_NOT_ANSWERED ) ), $sGetSearchEst ) . '
+								</div>
+								<div class="clear"></div>
+							</div>
+							<div class="formRow" style="border: none; padding: 7px 16px;">
+								<div class="grid2"><label>' . OPINIONES_AI_COL . ':</label></div>
+								<div class="grid10">' .
+			tep_draw_pull_down_menu( 'search_ia', array( array( 'id' => '', 'text' => OPINIONES_TEXT_ALL ), array( 'id' => 'retener', 'text' => 'Retenidas por IA' ), array( 'id' => 'aprobar', 'text' => 'Aprobadas por IA' ), array( 'id' => 'none', 'text' => 'Sin moderar (IA)' ) ), $sGetSearchIa ) . '
 								</div>
 								<div class="clear"></div>
 							</div>
@@ -555,6 +612,7 @@ switch( $sAction )
 							<td style="text-align: left;">' . OPINIONES_COMMENT . '</td>
 							<td style="text-align: left;">' . OPINIONES_STATUS . '</td>
 							<td style="text-align: left;">' . OPINIONES_APPROVE . '</td>
+							<td style="text-align: left;">' . OPINIONES_AI_COL . '</td>
 							<td width="195">' . OPINIONES_ACTIONS . '</td>
 						</tr>
 					</thead>
@@ -578,6 +636,17 @@ switch( $sAction )
 										<img width="10" height="10" src="images/icon_status_red' . ($aDato['status_aprobado'] == 'true' ? '_light' : '') . '.gif" />
 									</div>
 								</td>';
+
+			// Veredicto IA (columna informativa)
+			$aiDec = $aDato['ai_decision'];
+			if( $aiDec === 'aprobar' )
+				$sAi = '<span style="color:#2e7d32;font-weight:bold;" title="' . htmlspecialchars( (string)$aDato['ai_motivo'], ENT_QUOTES ) . '">IA OK</span>';
+			elseif( $aiDec === 'retener' )
+				$sAi = '<span style="color:#c0392b;font-weight:bold;" title="' . htmlspecialchars( (string)$aDato['ai_motivo'], ENT_QUOTES ) . '">&#9888; ' . htmlspecialchars( (string)$aDato['ai_categoria'], ENT_QUOTES ) . '</span>';
+			else
+				$sAi = '<span style="color:#bbb;">&ndash;</span>';
+			$sHtml .= '<td align="center">' . $sAi . '</td>';
+
 			$sHtml .= '<td align="center">
 									<div class="btn-group" style="display: inline-block; margin-bottom: -4px;">
 										<a class="buttonS bDefault" data-toggle="dropdown" href="#">' . OPINIONES_ACTIONS . '<span class="caret"></span></a>
@@ -836,6 +905,62 @@ echo '<script type="text/javascript">
 		});
 
 		$( window ).trigger("resize");
+
+		// Inicio, moderación con IA (botón -> lotes AJAX hasta agotar pendientes)
+		(function()
+		{
+			var btn = $("#ai_moderate_btn");
+			if( ! btn.length ) return;
+
+			var statusEl = $("#ai_moderate_status");
+			var base = location.origin + location.pathname; // absoluto: evita mixed-content por <base href> http
+			var totals = { processed:0, approved:0, held:0, errors:0 };
+			var running = false;
+
+			function runBatch()
+			{
+				$.ajax({ url: base + "?a=ai_batch&n=8", dataType: "json", cache: false })
+				.done(function(res)
+				{
+					if( ! res || res.error )
+					{
+						statusEl.css("color","#c0392b").text("Error: " + (res && res.error ? res.error : "respuesta no valida"));
+						btn.removeClass("disabled"); running = false; return;
+					}
+
+					totals.processed += res.processed;
+					totals.approved  += res.approved;
+					totals.held      += res.held;
+					totals.errors    += res.errors;
+
+					statusEl.css("color","#333").text("Procesadas " + totals.processed + " | aprobadas " + totals.approved + " | a revisar " + totals.held + " | quedan " + res.remaining);
+
+					if( res.processed > 0 && res.remaining > 0 )
+						runBatch();
+					else
+					{
+						statusEl.css("color","#2e7d32").text("Hecho. Aprobadas " + totals.approved + ", retenidas " + totals.held + ". Recargando...");
+						setTimeout(function(){ location.reload(); }, 1500);
+					}
+				})
+				.fail(function()
+				{
+					statusEl.css("color","#c0392b").text("Error de red, lote interrumpido. Procesadas " + totals.processed + ". Puedes reintentar.");
+					btn.removeClass("disabled"); running = false;
+				});
+			}
+
+			btn.click(function()
+			{
+				if( running ) return;
+				if( ! confirm("¿Lanzar la moderación con IA de las opiniones pendientes (3 estrellas o más)?\n\nLas correctas se aprobarán automáticamente; las dudosas quedarán pendientes con su motivo en la columna IA.") ) return;
+				running = true;
+				btn.addClass("disabled");
+				statusEl.css("color","#333").text("Procesando...");
+				runBatch();
+			});
+		})();
+		// Fin, moderación con IA
 	</script>';
 
 include(DIR_WS_INCLUDES . 'application_bottom.php' );

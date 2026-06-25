@@ -88,7 +88,10 @@ if (!in_array($type, array('ZPL', 'PDF', 'BOTH'), true)) $type = 'BOTH';
 $dry    = (($in['dry'] ?? '') === '1');
 $regen  = (($in['regen'] ?? '') === '1');  // regeneración desde el panel: ref nueva + sin reuse
 
-if ($oid <= 0) out(array('ok' => false, 'error' => 'oid requerido'));
+$free    = (($in['free'] ?? '') === '1');   // ENVIO MANUAL sin pedido: ref propia, orders_id=0, sin dedup
+$freeRef = trim((string) ($in['ref'] ?? ''));
+if (!$free && $oid <= 0) out(array('ok' => false, 'error' => 'oid requerido'));
+if ($free && $freeRef === '') out(array('ok' => false, 'error' => 'free=1 requiere ref'));
 
 $db = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
 if ($db->connect_errno) out(array('ok' => false, 'error' => 'db: ' . $db->connect_error));
@@ -103,7 +106,7 @@ if ($r = $db->query("SELECT config_value FROM seur_config WHERE config_key='env'
 /* ---- Dedup: si ya hay envío OK no anulado para este albarán/pedido EN ESTE ENTORNO,
  *      devolver el existente (un envío de PRE no satisface el dedup en PRO).
  *      En regeneración (regen=1) NO se deduplica: se fuerza un alta nueva con ref nueva. ---- */
-if (!$regen) {
+if (!$regen && !$free) {
 $st = $alb !== ''
     ? $db->prepare("SELECT * FROM seur_shipments WHERE albaran_id=? AND entorno=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1")
     : $db->prepare("SELECT * FROM seur_shipments WHERE orders_id=? AND entorno=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1");
@@ -129,7 +132,7 @@ if ($prev) {
  * el watcher pasa manual=1 + la dirección leída de Vstock PEDIDOS_CLIENTES
  * (dname/dstreet/dcp/dcity/dstate/dcountry/dphone/demail). ref = Q{oid}. */
 $manual = (($in['manual'] ?? '') === '1');   // $in = GET+POST: el panel regenera por POST
-if ($manual) {
+if ($manual || $free) {
     $o = array(
         'delivery_name'           => trim((string) ($in['dname'] ?? '')),
         'delivery_company'        => '',
@@ -200,8 +203,8 @@ if (($v = trim((string) ($in['dcountry'] ?? ''))) !== '') {
 /* Entrega en punto SEUR (2shop): si el pedido eligió punto en el checkout,
  * servicio 1/48 (nac) ó 77/48 (intl) + pickupCentreCode en el receiver.
  * La dirección de entrega del pedido YA es la del punto (checkout_process). */
-$opts = array('ref' => ($manual ? 'Q' : 'F') . $oid, 'weight' => $kilos, 'bultos' => $bultos,
-              'observations' => 'Pedido ' . ($manual ? 'QFac ' : 'web ') . $oid . ($alb !== '' ? ' / Albaran Vstock ' . $alb : ''));
+$opts = array('ref' => $free ? $freeRef : (($manual ? 'Q' : 'F') . $oid), 'weight' => $kilos, 'bultos' => $bultos,
+              'observations' => $free ? ('Envio manual SEUR / ' . $freeRef) : ('Pedido ' . ($manual ? 'QFac ' : 'web ') . $oid . ($alb !== '' ? ' / Albaran Vstock ' . $alb : '')));
 $pudoId = ''; $pudoName = '';
 $pudoOver = preg_replace('/[^0-9A-Za-z]/', '', (string) ($in['pudo'] ?? ''));
 $noPunto  = (($in['nopunto'] ?? '') === '1');
@@ -253,6 +256,13 @@ if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === '48') && $iso =
     $opts['service'] = '31';
     $opts['product'] = '2';
     $opts['observations'] .= ' / SEUR 24 (B2C)';
+}
+
+/* ENVIO MANUAL: servicio/producto explicito elegido en el formulario (override). */
+if ($free && trim((string) ($in['svccode'] ?? '')) !== '') {
+    $opts['service'] = preg_replace('/\D/', '', (string) $in['svccode']);
+    $pc = preg_replace('/\D/', '', (string) ($in['prodcode'] ?? ''));
+    if ($pc !== '') $opts['product'] = $pc;
 }
 
 if ($regen) {

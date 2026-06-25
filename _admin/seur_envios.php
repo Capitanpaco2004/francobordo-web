@@ -69,6 +69,43 @@ function seurModEligible($trk) {
 $action = $_POST['do'] ?? '';
 $shipId = (int) ($_POST['ship'] ?? 0);
 
+/* === Envio manual SEUR (sin pedido): crea un envio libre y encola su etiqueta para la Zebra === */
+if (($_POST['do'] ?? '') === 'crear_manual') {
+    if (!hash_equals($csrf, (string) ($_POST['csrf'] ?? ''))) {
+        $_SESSION['seur_flash'] = array('m' => 'Token CSRF invalido.', 'c' => 'danger');
+    } else {
+        $g = function ($k) { return trim((string) ($_POST[$k] ?? '')); };
+        $dname = $g('m_dname'); $dstreet = $g('m_dstreet'); $dcp = $g('m_dcp'); $dcity = $g('m_dcity');
+        $dstate = $g('m_dstate'); $dcountry = $g('m_dcountry'); $dphone = $g('m_dphone'); $demail = $g('m_demail');
+        $mkilos = str_replace(',', '.', $g('m_kilos')); if ((float) $mkilos <= 0) $mkilos = '1';
+        $mbultos = max(1, (int) ($_POST['m_bultos'] ?? 1));
+        $mref = $g('m_ref'); if ($mref === '') $mref = 'M-' . date('ymd-His');
+        $msvc = $g('m_service');
+        if ($dname === '' || $dstreet === '' || $dcp === '' || $dcity === '' || $dcountry === '') {
+            $_SESSION['seur_flash'] = array('m' => 'Faltan campos obligatorios: destinatario, direccion, CP, ciudad y pais.', 'c' => 'danger');
+        } else {
+            $params = array('token' => SEUR_ALB_TOKEN, 'free' => '1', 'ref' => $mref,
+                'dname' => $dname, 'dstreet' => $dstreet, 'dcp' => $dcp, 'dcity' => $dcity, 'dstate' => $dstate,
+                'dcountry' => $dcountry, 'dphone' => $dphone, 'demail' => $demail,
+                'kilos' => $mkilos, 'bultos' => $mbultos, 'type' => 'ZPL');
+            if ($msvc !== '' && strpos($msvc, '/') !== false) { list($sc, $pc) = explode('/', $msvc, 2); $params['svccode'] = preg_replace('/\D/', '', $sc); $params['prodcode'] = preg_replace('/\D/', '', $pc); }
+            $ch = curl_init('https://www.francobordo.com/seur_albaran.php');
+            curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 90, CURLOPT_POST => 1, CURLOPT_POSTFIELDS => http_build_query($params)));
+            $raw = curl_exec($ch); $cerr = curl_error($ch);
+            $resp = json_decode((string) $raw, true);
+            if (is_array($resp) && !empty($resp['ok']) && !empty($resp['shipmentCode'])) {
+                if (!empty($resp['zpl']))
+                    tep_db_perform('seur_reprint_queue', array('shipment_id' => (int) ($resp['shipment_id'] ?? 0), 'orders_id' => 0, 'zpl' => $resp['zpl'], 'done' => 0, 'date_added' => 'now()'));
+                $_SESSION['seur_flash'] = array('m' => 'Envio manual creado: codigo <strong>' . htmlspecialchars($resp['shipmentCode']) . '</strong> (ref ' . htmlspecialchars($resp['ref'] ?? $mref) . '). La etiqueta saldra por la Zebra en ~1 min.', 'c' => 'success');
+            } else {
+                $why = is_array($resp) ? ($resp['error'] ?? 'respuesta no concluyente') : ('sin respuesta' . ($cerr ? ': ' . $cerr : ''));
+                $_SESSION['seur_flash'] = array('m' => 'No se pudo crear el envio manual: ' . htmlspecialchars($why), 'c' => 'danger');
+            }
+        }
+    }
+    tep_redirect(tep_href_link('seur_envios.php'));
+}
+
 if ($action !== '' && $shipId > 0) {
     if (!hash_equals($csrf, (string) ($_POST['csrf'] ?? ''))) {
         $msg = 'Sesión caducada o petición no válida. Recarga la página e inténtalo de nuevo.'; $msgClass = 'danger';
@@ -349,6 +386,35 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
     <button class="btn" type="submit">Filtrar</button>
     <a class="btn gris" href="?">Limpiar</a>
   </form>
+
+  <details class="seur-manual" style="margin:12px 0;border:1px solid #cde;border-radius:6px;padding:6px 14px;background:#f7fbff;">
+    <style>.seur-manual label{display:flex;flex-direction:column;font-size:12px;gap:3px;color:#333}.seur-manual input{width:100%}</style>
+    <summary style="cursor:pointer;font-weight:600;color:#2e7d32;">&#10010; Nuevo env&iacute;o manual SEUR (sin pedido &mdash; RMA a proveedor, muestras, etc.)</summary>
+    <form method="post" style="margin-top:10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;max-width:840px;">
+      <input type="hidden" name="do" value="crear_manual">
+      <input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
+      <label>Destinatario *<input type="text" name="m_dname" required></label>
+      <label>Direcci&oacute;n *<input type="text" name="m_dstreet" required></label>
+      <label>CP *<input type="text" name="m_dcp" required></label>
+      <label>Ciudad *<input type="text" name="m_dcity" required></label>
+      <label>Provincia<input type="text" name="m_dstate"></label>
+      <label>Pa&iacute;s * (ISO2 o nombre; ES = nacional, otro = internacional)<input type="text" name="m_dcountry" value="ES" required></label>
+      <label>Servicio SEUR<select name="m_service">
+        <option value="">Autom&aacute;tico (por pa&iacute;s)</option>
+        <option value="31/2">Nacional domicilio B2C (31/2)</option>
+        <option value="9/2">SEUR 13:30 (9/2)</option>
+        <option value="3/2">SEUR 10 (3/2)</option>
+        <option value="57/2">SEUR S&aacute;bado (57/2)</option>
+        <option value="77/104">Internacional (77/104)</option>
+      </select></label>
+      <label>Tel&eacute;fono<input type="text" name="m_dphone"></label>
+      <label>Email<input type="text" name="m_demail"></label>
+      <label>Peso (kg)<input type="text" name="m_kilos" value="1"></label>
+      <label>Bultos<input type="number" name="m_bultos" value="1" min="1"></label>
+      <label style="grid-column:1/3;">Referencia (opcional)<input type="text" name="m_ref" placeholder="auto: M-aaaammdd-hhmmss"></label>
+      <div style="grid-column:1/3;margin-top:4px;"><button class="btn verde" type="submit">Crear env&iacute;o y mandar etiqueta a la Zebra</button></div>
+    </form>
+  </details>
 
   <?php
   $editEligible = $editRow && $editRow['tipo'] === 'envio' && empty($editRow['cancelled_at']) && seurModEligible(seurTrackRow($editRow['ref'] ?? ''));

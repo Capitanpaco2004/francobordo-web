@@ -1,5 +1,9 @@
 <?php
 	include( DIR_WS_CLASSES  . 'specifications.php' );
+	// tep_get_filter_string() vive en functions/products_specifications.php; este módulo se
+	// incluye desde listados (specials/categorías vía _product_listing) que no lo cargan → Fatal.
+	if ( ! function_exists( 'tep_get_filter_string' ) )
+		require_once( DIR_WS_FUNCTIONS . 'products_specifications.php' );
 	$spec_object = new Specifications();
 
 	$specs_query_raw = "select s.specifications_id,

@@ -44,7 +44,11 @@
                                                      'title' => MODULE_SHIPPING_RETIRA_TEXT_WAY,
                                                      'cost' => ($store_cost > 0 ? $store_cost : MODULE_SHIPPING_RETIRA_COST))));
       if ($this->tax_class > 0) {
-        $this->quotes['tax'] = tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id']);
+        // #FB-IVA-RECOGIDA (2026-06-24): el IVA del gasto de recogida sigue la
+        // ubicacion de la tienda (Peninsula/Baleares => IVA normal; Canarias/
+        // Ceuta/Melilla => exento), no la direccion del cliente.
+        $fbPickupZone = fb_pickup_store_tax_zone($_SESSION['store_id'] ?? 0);
+        $this->quotes['tax'] = tep_get_tax_rate($this->tax_class, $fbPickupZone['country_id'], $fbPickupZone['zone_id']);
       }
       if (tep_not_null($this->icon)) $this->quotes['icon'] = 'shipping_tienda.png';
       return $this->quotes;

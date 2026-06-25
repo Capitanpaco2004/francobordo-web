@@ -27,6 +27,33 @@
 	// Incluimos el html
 	include( DIR_THEME_ROOT . 'html/templates/' . basename(__FILE__) );
 
+	// SEO: datos estructurados de la pagina de Opiniones. Organization + BreadcrumbList.
+	// SIN aggregateRating a proposito: las resenas de TIENDA auto-recogidas no son validas para rich results de Google (self-serving, desde 2019).
+	// WebSite + SearchAction + LocalBusiness ya se emiten en la home, no se duplican aqui.
+	echo '<script type="application/ld+json">' . json_encode( array(
+		'@context' => 'https://schema.org',
+		'@graph'   => array(
+			array(
+				'@type'     => 'Organization',
+				'@id'       => 'https://www.francobordo.com/#organization',
+				'name'      => 'Francobordo',
+				'legalName' => 'Francobordo artículos náuticos, S.L.',
+				'url'       => 'https://www.francobordo.com/',
+				'logo'      => 'https://www.francobordo.com/theme/web/logo-trans.png',
+				'email'     => 'info@francobordo.com',
+				'telephone' => '+34 916 52 88 58',
+				'sameAs'    => array( 'https://es.trustpilot.com/review/francobordo.com' ),
+			),
+			array(
+				'@type'           => 'BreadcrumbList',
+				'itemListElement' => array(
+					array( '@type' => 'ListItem', 'position' => 1, 'name' => 'Inicio',    'item' => 'https://www.francobordo.com/' ),
+					array( '@type' => 'ListItem', 'position' => 2, 'name' => 'Opiniones', 'item' => 'https://www.francobordo.com/opiniones.php' ),
+				),
+			),
+		),
+	), JSON_UNESCAPED_SLASHES ) . '</script>';
+
 	// Liberamos
 	unset( $sId, $sPaginacion );
 	

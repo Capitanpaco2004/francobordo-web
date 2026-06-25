@@ -787,6 +787,31 @@ function tep_get_zone_code($country_id, $zone_id, $default_zone)
 }
 
 ////
+// #FB-IVA-RECOGIDA (2026-06-24): zona fiscal del punto de recogida en tienda.
+// En "Recogida en tienda" el lugar de puesta a disposicion es la propia tienda,
+// asi que el IVA debe seguir la ubicacion de la tienda y NO la del cliente.
+// Tiendas en Canarias (CP 35/38), Ceuta (51) o Melilla (52) => zona exenta
+// (IVA 0). Resto (Peninsula y Baleares) => zona peninsular => IVA normal
+// (21/10/4 %), aunque el cliente sea de un territorio o pais sin IVA.
+// Devuelve ['country_id'=>.., 'zone_id'=>..].
+function fb_pickup_store_tax_zone($store_id)
+{
+    $exentas  = ['35' => 3459, '38' => 3472, '51' => 3447, '52' => 3465];
+    $store_id = (int) $store_id;
+    if ($store_id > 0) {
+        $rs = tep_db_query("select store_address from store where id_store = '" . $store_id . "'");
+        if ($rs && ($row = tep_db_fetch_array($rs)) && preg_match('/(\d{5})/', (string) $row['store_address'], $mm)) {
+            $prefix = substr($mm[1], 0, 2);
+            if (isset($exentas[$prefix])) {
+                return ['country_id' => 195, 'zone_id' => $exentas[$prefix]];
+            }
+        }
+    }
+    // Por defecto / Peninsula / Baleares => zona peninsular (IVA normal)
+    return ['country_id' => (int) STORE_COUNTRY, 'zone_id' => (int) STORE_ZONE];
+}
+
+////
 // Returns the tax rate for a zone / class
 // TABLES: tax_rates, zones_to_geo_zones
 function tep_get_tax_rate($class_id, $country_id = -1, $zone_id = -1)
@@ -2523,6 +2548,13 @@ function changeVarsCheckout_oe()
     // Modificacion del shipping
     $shipping = array('id' => $aOrderEditor['shipping'], 'title' => preg_replace('/( )?(:)?$/i', '', $aOrderEditor['ot_shipping_title']), 'cost' => $aOrderEditor['ot_shipping_price_change']);
 
+    // #FB-IVA-RECOGIDA (2026-06-24): propagamos la tienda de recogida elegida en el
+    // editor a la sesion del checkout-curl, para que el IVA siga la ubicacion de la
+    // tienda (ver fb_pickup_store_tax_zone / order::cart).
+    if (isset($aOrderEditor['store_id'])) {
+        $_SESSION['store_id'] = (int) $aOrderEditor['store_id'];
+    }
+
     // Modificacion productos
     foreach ($aOrderEditor['products_oe'] as $aProduct) {
         // Variables
@@ -2547,6 +2579,16 @@ function changeVarsCheckout_oe()
         if (tep_db_num_rows($aRecords) > 0) {
             $aRecords = tep_db_fetch_array($aRecords);
             $aProduct['tax'] = $aRecords['tax_class_id'];
+        } else {
+            // #FB-IVA-RECOGIDA (2026-06-24): si la tasa actual no casa con ninguna
+            // (p.ej. 0 por una exencion previa de Canarias/Ceuta/Melilla), recuperamos
+            // la clase fiscal real del producto del catalogo para que el recalculo
+            // aplique el IVA correcto segun la zona/tienda (recogida en peninsula => 21%).
+            $aClass = tep_db_query('SELECT products_tax_class_id FROM products WHERE products_id = "' . (int) $aProduct['products_id'] . '"');
+            if (tep_db_num_rows($aClass) > 0) {
+                $aClass = tep_db_fetch_array($aClass);
+                $aProduct['tax'] = $aClass['products_tax_class_id'];
+            }
         }
 
         // Datos

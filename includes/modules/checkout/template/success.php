@@ -5,43 +5,7 @@ use util\event;
 
 event::getInstance()->execute("after_purchase");
 ?>
-<?php
-//Sistema de Reseñas de Clientes en Google
-$resenaGoogle = true;
-
-if ($resenaGoogle == true):
-    $sCustomersEmailAddress = $_SESSION['sCustomersEmailAddress'];
-    $sShippingEstimated = date('Y-m-d', strtotime("+2 day", time()));
-
-    // Preparar la sección de productos para JavaScript
-    $jsProductsArray = [];
-
-    foreach ($products as $product) {
-        // Asegurarse de que el EAN no esté vacío y no sea "0"
-        if (!empty($product['ean']) && $product['ean'] != "0") {
-            $jsProductsArray[] = '{"gtin":"' . $product['ean'] . '"}';
-        }
-    }
-
-    // Convertir el array PHP a una cadena JSON solo si no está vacío
-    $jsProductsString = !empty($jsProductsArray) ? ', "products": [' . implode(',', $jsProductsArray) . ']' : '';
-    ?>
-
-    <script src="https://apis.google.com/js/platform.js?onload=renderOptIn" async defer></script>
-    <script>
-      window.renderOptIn = function() {
-        window.gapi.load('surveyoptin', function() {
-          window.gapi.surveyoptin.render({
-              "merchant_id": 7605527,
-              "order_id": "<?php echo $ordersId; ?>",
-              "email": "<?php echo $sCustomersEmailAddress; ?>",
-              "delivery_country": "ES",
-              "estimated_delivery_date": "<?php echo $sShippingEstimated; ?>"<?php echo $jsProductsString; ?>
-          });
-        });
-      }
-    </script>
-<?php endif; ?>
+<?php /* GCR opt-in eliminado 2026-06-24: era codigo MUERTO (la clase de modulo Success no se instancia en ningun sitio) y duplicaba/empeoraba el opt-in vivo de checkout_success.php (pais 'ES' fijo, fecha +2 dias fija, GTIN sin validar). El opt-in real esta en checkout_success.php. */ ?>
 <div class="success_image">
 	<div class="success_text">
 		<div class="col a12 chkc-sccs-titu afixed d-flex align-items-center"><?php echo str_replace('%ORDER%', (string)($ordersId ?? ''), CHECKOUT_SUCCESS_TITLE_ORDER); ?></div>

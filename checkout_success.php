@@ -116,6 +116,7 @@ $products_query = tep_db_query("select products_id, products_name, products_quan
 
 // Recorremos los productos del pedido
 $bajoPedido = false;
+$nAdd1 = $nAdd2 = null; // init para evitar warning PHP8 en stock normal (null!==false mantiene la rama de prediccion)
 
 while ($products = tep_db_fetch_array($products_query)) {
 	$products_array[] = ['id' => $products['products_id'], 'text' => $products['products_name']];
@@ -299,15 +300,23 @@ Si pasados unos minutos no lo ha recibido, busque en la carpeta “Spam”, “C
 
 <?php
 // --- Datos para Google Customer Reviews (anadido 2026-06-15) ---
-// Pais de envio real del pedido (ES por defecto; PT si va a Portugal)
+// Pais de envio real (ISO-3166 alpha-2) via JOIN al maestro de paises; ES por defecto si no mapea
 $sGcrCountry = 'ES';
-$qGcrC = tep_db_query("select delivery_country from " . TABLE_ORDERS . " where orders_id = '" . (int)$orders['orders_id'] . "' limit 1");
+$qGcrC = tep_db_query("select c.countries_iso_code_2 as iso from " . TABLE_ORDERS . " o left join " . TABLE_COUNTRIES . " c on c.countries_name = o.delivery_country where o.orders_id = '" . (int)$orders['orders_id'] . "' limit 1");
 if ($rGcrC = tep_db_fetch_array($qGcrC)) {
-    $sDc = strtolower(trim((string)$rGcrC['delivery_country']));
-    if (strpos($sDc, 'portug') !== false || $sDc === 'pt') { $sGcrCountry = 'PT'; }
+    $sIso = strtoupper(trim((string)$rGcrC['iso']));
+    if (preg_match('/^[A-Z]{2}$/', $sIso)) { $sGcrCountry = $sIso; }
 }
 // estimated_delivery_date robusto: $aEstimate2 puede ser array (year/month/day) o string 'Y-m-d'
-$sGcrEstDate = is_array($aEstimate2) ? ($aEstimate2['year'] . '-' . $aEstimate2['month'] . '-' . $aEstimate2['day']) : (string)$aEstimate2;
+if (is_array($aEstimate2) && isset($aEstimate2['year'], $aEstimate2['month'], $aEstimate2['day'])) {
+    $sGcrEstDate = sprintf('%04d-%02d-%02d', (int)$aEstimate2['year'], (int)$aEstimate2['month'], (int)$aEstimate2['day']);
+} else {
+    $sGcrEstDate = (string)$aEstimate2;
+}
+// Fallback si la prediccion no dio fecha valida (p.ej. Canarias/Ceuta/Melilla sin prediccion): +5 dias, para no mandar fecha vacia a Google
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $sGcrEstDate)) {
+    $sGcrEstDate = date('Y-m-d', strtotime('+5 day'));
+}
 // GTINs reales (EAN-13 GS1) de los productos del pedido -> resenas de PRODUCTO en Google
 $aGcrGtins = [];
 $qGcrP = tep_db_query("select distinct product_ean from " . TABLE_ORDERS_PRODUCTS . " where orders_id = '" . (int)$orders['orders_id'] . "' and product_ean is not null and product_ean <> ''");
@@ -321,7 +330,7 @@ while ($rGcrP = tep_db_fetch_array($qGcrP)) {
     }
 }
 ?>
-<script src="https://apis.google.com/js/platform.js?onload=renderOptIn" async defer></script>
+<script src="https://apis.google.com/js/platform.js?onload=renderOptIn&hl=es" async defer></script>
 <script>
 	window.renderOptIn = function () {
 		window.gapi.load('surveyoptin', function () {

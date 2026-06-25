@@ -73,7 +73,7 @@
 	if( preg_match( '/contact_us\.php/i', $_SERVER['SCRIPT_NAME'] ) )
 		echo '<script type="text/javascript" src="//www.google.com/recaptcha/api/js/recaptcha_ajax.js"></script>';
 ?>
-<script src="https://apis.google.com/js/platform.js?onload=renderBadge" async defer></script>
+<script src="https://apis.google.com/js/platform.js?onload=renderBadge&hl=es" async defer></script>
 <script>
 	window.renderBadge = function() {
 		var ratingBadgeContainer = document.createElement("div");

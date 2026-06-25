@@ -37,8 +37,14 @@
 				echo '<a href="mailto:info@francobordo.com" class="row mail" rel="nofollow">';
 					echo '<div class="icon tt tt-19"></div>';
 					echo '<div class="text">info@francobordo.com</div>';
+				echo '</a>';
+				// Trustpilot "Reséñanos" como ENLACE propio en blanco (sin caja): el widget Review Collector se renderiza como tarjeta blanca dentro de un iframe cross-origin y no se puede destintar desde fuera. Enlace directo a la página de escribir reseña.
+				echo '<a class="tp-left-link row" href="https://es.trustpilot.com/evaluate/francobordo.com" target="_blank" rel="noopener" style="color:#fff; text-decoration:none; display:inline-block; margin:10px 0; font-weight:bold;"><span style="color:#00b67a;">&#9733;</span> Res&eacute;&ntilde;anos en Trustpilot</a>';
+				// Trustpilot Micro Star: SOLO las estrellas de la puntuacion (TrustScore 3,0 / 26 opiniones), sin el numero (decision del usuario 2026-06-24). data-theme="dark". Tamano AMPLIADO (a 22px las estrellas salian diminutas/como barritas).
+				echo '<div class="trustpilot-widget tp-left" data-theme="dark" data-locale="es-ES" data-template-id="5419b6ffb0d04a076446a9af" data-businessunit-id="5ec577c88fd1b600014daf93" data-style-height="44px" data-style-width="220px" style="margin:6px 0;">';
+					echo '<a href="https://es.trustpilot.com/review/francobordo.com" target="_blank" rel="noopener" style="color:#fff;">Trustpilot</a>';
 				echo '</div>';
-			echo '</a>';
+			echo '</div>';
 
 			echo '<div class="cntr">';
 				echo '<img src="theme/web/images/custom/19.png"/>';
@@ -47,11 +53,6 @@
 				echo '<img src="theme/web/images/custom/17.png"/>';
 				echo '<img src="theme/web/images/custom/25.png"/>';
 				echo '<img src="theme/web/images/custom/20.png"/>';
-
-				// Trustpilot Review Collector (TrustBox) — unico widget disponible en el plan Free; CTA "Resenanos en Trustpilot".
-				echo '<div class="trustpilot-widget tp-footer" data-locale="es-ES" data-template-id="56278e9abfbbba0bdcd568bc" data-businessunit-id="5ec577c88fd1b600014daf93" data-style-height="52px" data-style-width="100%" data-token="4efb3c29-4e2d-4cbc-bb3a-94cc79e4d659">';
-					echo '<a href="https://es.trustpilot.com/review/francobordo.com" target="_blank" rel="noopener">Trustpilot</a>';
-				echo '</div>';
 			echo '</div>';
 
 			echo '<div class="righ">';
@@ -107,7 +108,8 @@ SMFOOTERFORM;
 				echo '<a href="' . tep_href_link( 'information.php', 'info_id=3'  ) . '" title="' . TEXT_AVISO_LEGAL . '">' . TEXT_AVISO_LEGAL . '</a><span class="sepa"></span>';
 				echo '<a href="' . tep_href_link( 'information.php', 'info_id=15'  ) . '" title="' . TEXT_PRIVACIDAD . '">' . TEXT_PRIVACIDAD . '</a><span class="sepa"></span>';
 				echo '<a href="' . tep_href_link( 'information.php', 'info_id=6'  ) . '" title="' . TEXT_COOKIES . '">' . TEXT_COOKIES . '</a><span class="sepa"></span>';
-				echo '<a href="' . tep_href_link( 'information.php', 'info_id=1'  ) . '" title="' . TEXT_ENVIOS_DEVO . '">' . TEXT_ENVIOS_DEVO . '</a>';
+				echo '<a href="' . tep_href_link( 'information.php', 'info_id=1'  ) . '" title="' . TEXT_ENVIOS_DEVO . '">' . TEXT_ENVIOS_DEVO . '</a><span class="sepa"></span>';
+				echo '<a href="' . tep_href_link( 'opiniones.php' ) . '" title="Opiniones de clientes">Opiniones</a>';
 			echo '</div>';
 			//echo '<a href="https://www.confianzaonline.es/empresas/francobordo.htm" target="_blank" rel="nofollow" class="cntr">';
 			echo '<div class="cntr" style="background:none;"></div>';

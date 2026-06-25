@@ -128,14 +128,20 @@ function fmt4($v) { return number_format((float)$v, 4, '.', ''); }
 
 function loadProducts() {
 	$rows = [];
-	// Scope: manufacturer Osculati (259) + origin osculati% + cross-linked
-	// (reference_prov con formato OSC BC NN.NNN.NN[+suffix]).
+	// Scope: manufacturer Osculati (259) + origin osculati% + cualquier producto cuya referencia
+	// tenga formato de código Osculati NN.NNN.NN[+suffix], tanto en reference_prov como en products_model.
+	// (decisión usuario 2026-06-24): muchos productos legacy de marcas que Osculati distribuye —Lewmar,
+	// Solas, Clamcleat, Marinco, Raymarine…— llevan el código Osculati en products_model y no estaban en
+	// el scope. El match real contra el xlsx solo actualiza los que tengan ese código en el listado actual,
+	// así que no hay riesgo de pisar precios de marcas con codificación propia (Jobe/Dometic no colisionan).
 	$sql = "SELECT products_id, products_model, reference_prov, products_price, products_cost
 	        FROM products
 	        WHERE manufacturers_id = " . OSCULATI_MFG_ID . "
 	           OR products_import_origin LIKE 'osculati%'
 	           OR (reference_prov IS NOT NULL AND reference_prov <> ''
-	               AND reference_prov RLIKE '^[0-9]{2}\\.[0-9]{3}\\.[0-9]{2}')";
+	               AND reference_prov RLIKE '^[0-9]{2}\\.[0-9]{3}\\.[0-9]{2}')
+	           OR (products_model IS NOT NULL AND products_model <> ''
+	               AND products_model RLIKE '^[0-9]{2}\\.[0-9]{3}\\.[0-9]{2}')";
 	$r = tep_db_query($sql);
 	while ($p = tep_db_fetch_array($r)) {
 		$pid = (int)$p['products_id'];

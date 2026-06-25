@@ -72,6 +72,10 @@ class correos {
     const PROD_RETORNO_PREM   = 'PAAZV';
     const DELIVERY_DEVOLUCION = 'DOURUA';
 
+    // Codigo arancelario (HS/TARIC) por defecto para el DUA de Canarias/Ceuta/Melilla.
+    // Generico (otros articulos de plastico); el operador puede afinarlo por producto mas adelante.
+    const TARIFA_ADUANA_DEF = '39269097';
+
     /* ------------------------------------------------------------------ *
      *  Dirección de Francobordo                                           *
      *  - Devoluciones (RMA): Francobordo es el DESTINATARIO (addressee)   *

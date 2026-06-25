@@ -260,7 +260,8 @@ function eachProducts($aDatos = false, $aArgumentos = array())
 									FROM ' . TABLE_REVIEWS . ' r
 									INNER JOIN ' . TABLE_PRODUCTS . ' p ON (r.products_id = p.products_id)
 									INNER JOIN ' . TABLE_REVIEWS_DESCRIPTION . ' rd ON (r.reviews_id = rd.reviews_id)
-									WHERE p.products_status = 1 AND r.approved = 1 AND rd.languages_id = ' . $languages_id . ' AND p.products_id = ' . $aReturn['products_id'] );
+									WHERE r.approved = 1 AND rd.languages_id = ' . $languages_id . ' AND p.products_id = ' . $aReturn['products_id'] );
+			// NOTA 2026-06-24: quitado el filtro p.products_status = 1 de esta SUMA para que el rating se calcule sobre las MISMAS resenas que el COUNT de abajo (que no filtra status). Antes, productos con resenas pero status<>1 (importados=2/legacy=0) daban rating 0 -> JSON-LD ratingValue:0 -> error "valoracion fuera de intervalo" en Search Console y perdida de estrellas.
 
 		if( tep_db_num_rows( $aData ) > 0 )
 		{

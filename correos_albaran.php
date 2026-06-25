@@ -295,6 +295,44 @@ for ($i = 1; $i <= $bultos; $i++) {
 }
 $totalWeight = array_sum(array_map(function ($p) { return (int) $p['packageWeightGrams']; }, $packages));
 
+/* ADUANAS: Canarias (35/38), Ceuta (51), Melilla (52) exigen packageContents (DUA) o el
+ * preregistro falla con 6069. Construimos los items (customsData) de los productos del pedido. */
+$prov2 = ($prov !== '') ? $prov : substr($cp, 0, 2);
+if (in_array($prov2, array('35', '38', '51', '52'), true)) {
+    if ($manual) {
+        out(array('ok' => false, 'error' => "destino aduanas ($cp) en pedido QFac-nativo $oid: requiere declaracion de aduanas con valor de mercancia (no disponible en modo manual); etiquetar a mano"));
+    }
+    $items = array(); $totVal = 0.0;
+    $rp = $db->query("SELECT products_name, products_quantity, products_price, final_price, products_weight FROM orders_products WHERE orders_id=" . (int) $oid);
+    while ($rp && ($p = $rp->fetch_assoc())) {
+        $qty  = max(1, (int) $p['products_quantity']);
+        $unit = ((float) $p['products_price'] > 0) ? (float) $p['products_price'] : (float) $p['final_price'];
+        $val  = round($unit * $qty, 2);
+        $nw   = max(1, (int) round(((float) $p['products_weight']) * 1000 * $qty));
+        $desc = mb_substr(correos_no4b(trim((string) $p['products_name'])), 0, 60);
+        if ($desc === '') $desc = 'Articulo';
+        $items[] = array('quantity' => (string) $qty, 'description' => $desc, 'netWeight' => (string) $nw, 'netValue' => number_format($val, 2, '.', ''), 'tariffNumber' => correos::TARIFA_ADUANA_DEF);
+        $totVal += $val;
+    }
+    if (!$items) {
+        $tot = 0.0;
+        $rt = $db->query("SELECT value FROM orders_total WHERE orders_id=" . (int) $oid . " AND class='ot_total' LIMIT 1");
+        if ($rt && ($row = $rt->fetch_assoc())) $tot = (float) $row['value'];
+        if ($tot <= 0) $tot = 1.0;
+        $items[] = array('quantity' => '1', 'description' => 'Articulos nauticos', 'netWeight' => (string) max(1, $gramos), 'netValue' => number_format($tot, 2, '.', ''), 'tariffNumber' => correos::TARIFA_ADUANA_DEF);
+        $totVal = $tot;
+    }
+    // packageContents es por paquete; declaramos todo el contenido en el primer bulto.
+    $packages[0]['packageContents'] = array(
+        'shipmentType'            => '2',   // Mercancias
+        'indDangerousGoods'       => 'N',
+        'indCommercialDelivery'   => 'S',
+        'indInvoiceExceedsAmount' => ($totVal > 500 ? 'S' : 'N'),
+        'indDUAwithCorreos'       => 'S',   // Correos gestiona el DUA de exportacion
+        'customsData'             => $items,
+    );
+}
+
 $addressee = array(
     'name'          => $destName,
     'company'       => trim((string) $o['delivery_company']),
