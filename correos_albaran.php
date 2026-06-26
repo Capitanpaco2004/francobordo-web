@@ -69,9 +69,13 @@ $dry    = (($in['dry'] ?? '') === '1');
 $mode   = strtolower(trim((string) ($in['mode'] ?? 'dom')));
 $oficina = trim((string) ($in['oficina'] ?? ''));
 $manual = (($in['manual'] ?? '') === '1');   // pedido QFac-nativo (26xxxxx): direccion en params, no en 'orders'
+$free    = (($in['free'] ?? '') === '1');     // ENVIO MANUAL sin pedido: ref propia, orders_id=0, dedup por ref
+$freeRef = trim((string) ($in['ref'] ?? ''));
+$operator = $free ? 'admin-manual' : 'vstock-watcher';
 $deliveryMethod = ($mode === 'ofi') ? 'OFUAOF' : 'DOUAOF';  // COR Oficina vs COR Domicilio
 
-if ($oid <= 0) out(array('ok' => false, 'error' => 'oid requerido'));
+if (!$free && $oid <= 0) out(array('ok' => false, 'error' => 'oid requerido'));
+if ($free && $freeRef === '') out(array('ok' => false, 'error' => 'free=1 requiere ref'));
 // mode=ofi: si no llega 'oficina', se resuelve más abajo (correos_oficina_orders
 // = oficina elegida por el cliente en el checkout) o, en su defecto, auto por CP de destino.
 
@@ -150,7 +154,7 @@ if ($db->connect_errno) { error_log('correos_albaran db: ' . $db->connect_error)
 $db->set_charset('utf8');
 
 /* ---- Lock por pedido: serializa peticiones concurrentes del mismo oid ---- */
-$lockName = 'corralb_' . $oid;
+$lockName = $free ? ('corralbF_' . substr(md5($freeRef), 0, 20)) : ('corralb_' . $oid);
 $lockEsc  = $db->real_escape_string($lockName);
 $lr = $db->query("SELECT GET_LOCK('$lockEsc', 30) AS g");
 $got = ($lr && ($lrow = $lr->fetch_assoc()) && (int) $lrow['g'] === 1);
@@ -160,13 +164,25 @@ register_shutdown_function(function () use ($db, $lockEsc) { @$db->query("SELECT
 /* ---- Dedup por orders_id SIEMPRE: 1 pedido = 1 preregistro N-bultos.
  *      Considera filas con shipment_code (ok=1 ya etiquetada, u ok=0 a medio
  *      etiquetar) que NO estén anuladas. ---- */
-$st = $db->prepare("SELECT * FROM correos_shipments
-                    WHERE orders_id=? AND tipo='envio' AND cancelled_at IS NULL
-                      AND shipment_code IS NOT NULL AND shipment_code<>''
-                    ORDER BY id DESC LIMIT 1");
-$st->bind_param('i', $oid);
-$st->execute();
-$prev = $st->get_result()->fetch_assoc();
+$prev = null;
+if ($free) {
+    // dedup por ref (orders_id=0): un re-submit con la misma ref devuelve el envio ya creado.
+    $st = $db->prepare("SELECT * FROM correos_shipments
+                        WHERE tipo='envio' AND orders_id=0 AND ref=? AND cancelled_at IS NULL
+                          AND shipment_code IS NOT NULL AND shipment_code<>''
+                        ORDER BY id DESC LIMIT 1");
+    $st->bind_param('s', $freeRef);
+    $st->execute();
+    $prev = $st->get_result()->fetch_assoc();
+} else {
+    $st = $db->prepare("SELECT * FROM correos_shipments
+                        WHERE orders_id=? AND tipo='envio' AND cancelled_at IS NULL
+                          AND shipment_code IS NOT NULL AND shipment_code<>''
+                        ORDER BY id DESC LIMIT 1");
+    $st->bind_param('i', $oid);
+    $st->execute();
+    $prev = $st->get_result()->fetch_assoc();
+}
 
 if ($prev) {
     // Ya existe el envío en Correos. NUNCA re-preregistrar.
@@ -210,7 +226,7 @@ if ($prev) {
  * MODO MANUAL (pedidos QFac-nativos serie 26xxxxx, NO están en `orders`): el watcher
  * pasa manual=1 + la dirección leída de Vstock PEDIDOS_CLIENTES
  * (dname/dstreet/dcp/dcity/dstate/dcountry/dphone/demail). ref = Q{oid}. Patrón SEUR. */
-if ($manual) {
+if ($manual || $free) {
     $o = array(
         'orders_id'               => $oid,
         'delivery_name'           => trim((string) ($in['dname'] ?? '')),
@@ -225,7 +241,7 @@ if ($manual) {
         'customers_email_address' => trim((string) ($in['demail'] ?? '')),
     );
     if ($o['delivery_name'] === '' || $o['delivery_street_address'] === '' || $o['delivery_postcode'] === '') {
-        out(array('ok' => false, 'error' => 'manual=1 requiere dname, dstreet y dcp'));
+        out(array('ok' => false, 'error' => ($free ? 'free=1' : 'manual=1') . ' requiere dname, dstreet y dcp'));
     }
 } else {
     $st = $db->prepare("SELECT orders_id, delivery_name, delivery_company, delivery_street_address, delivery_suburb,
@@ -261,7 +277,7 @@ if ($destName === '') out(array('ok' => false, 'error' => "pedido $oid sin nombr
 $cp   = trim($o['delivery_postcode']);
 $prov = preg_match('/^\d{5}$/', $cp) ? substr($cp, 0, 2) : '';
 $gramos = (int) round($kilos * 1000);
-$ref = ($manual ? 'Q' : 'F') . $oid;   // Q{oid}=QFac-nativo, F{oid}=pedido web
+$ref = $free ? $freeRef : (($manual ? 'Q' : 'F') . $oid);   // free=ref propia, Q{oid}=QFac, F{oid}=web
 
 /* mode=ofi (COR Oficina): resolver el código de oficina destino (chosenOffice). */
 if ($mode === 'ofi' && $oficina === '') {
@@ -303,6 +319,18 @@ if (in_array($prov2, array('35', '38', '51', '52'), true)) {
         out(array('ok' => false, 'error' => "destino aduanas ($cp) en pedido QFac-nativo $oid: requiere declaracion de aduanas con valor de mercancia (no disponible en modo manual); etiquetar a mano"));
     }
     $items = array(); $totVal = 0.0;
+    if ($free) {
+        // Envio manual sin pedido: declaracion DUA con el valor + contenido del formulario.
+        if ($bultos > 1) out(array('ok' => false, 'error' => "free=1 a aduanas ($cp): usa un solo bulto (el contenido DUA debe declararse completo en un paquete)"));
+        $rawDval = trim((string) ($in['dvalue'] ?? ''));
+        if (!preg_match('/^\d{1,9}([.,]\d{1,2})?$/', $rawDval)) out(array('ok' => false, 'error' => "destino aduanas ($cp): 'dvalue' invalido; usa formato 1234.56 (sin separador de miles)"));
+        $val = round((float) str_replace(',', '.', $rawDval), 2);
+        if ($val <= 0) out(array('ok' => false, 'error' => "destino aduanas ($cp): el envio manual requiere 'dvalue' (valor declarado EUR, >0) para la declaracion DUA"));
+        $dsc = mb_substr(correos_no4b(trim((string) ($in['ddesc'] ?? ''))), 0, 60);
+        if ($dsc === '') $dsc = 'Articulos nauticos';
+        $items[] = array('quantity' => '1', 'description' => $dsc, 'netWeight' => (string) max(1, $gramos), 'netValue' => number_format($val, 2, '.', ''), 'tariffNumber' => correos::TARIFA_ADUANA_DEF);
+        $totVal = $val;
+    } else {
     $rp = $db->query("SELECT products_name, products_quantity, products_price, final_price, products_weight FROM orders_products WHERE orders_id=" . (int) $oid);
     while ($rp && ($p = $rp->fetch_assoc())) {
         $qty  = max(1, (int) $p['products_quantity']);
@@ -322,6 +350,7 @@ if (in_array($prov2, array('35', '38', '51', '52'), true)) {
         $items[] = array('quantity' => '1', 'description' => 'Articulos nauticos', 'netWeight' => (string) max(1, $gramos), 'netValue' => number_format($tot, 2, '.', ''), 'tariffNumber' => correos::TARIFA_ADUANA_DEF);
         $totVal = $tot;
     }
+    }   // fin else (no free)
     // packageContents es por paquete; declaramos todo el contenido en el primer bulto.
     $packages[0]['packageContents'] = array(
         'shipmentType'            => '2',   // Mercancias
@@ -405,7 +434,7 @@ if ($code === '' || !$pkgCodes) {
     $err = correos::primerError($pre);
     $st = $db->prepare("INSERT INTO correos_shipments (id_rma, orders_id, albaran_id, tipo, entorno, producto, ref, kilos,
                           http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                        VALUES (0,?,?,'envio','pro','PAFXB',?,?,?,?,0,?,?, 'vstock-watcher', NOW())");
+                        VALUES (0,?,?,'envio','pro','PAFXB',?,?,?,?,0,?,?, '" . $operator . "', NOW())");
     $http   = (string) $pre['http'];
     $req    = correos_no4b(json_encode($reqShip, JSON_UNESCAPED_UNICODE));
     $errCut = correos_no4b(mb_substr((string) $err, 0, 480));
@@ -425,7 +454,7 @@ $raw  = correos_no4b((string) $pre['raw']);
 $pkg0 = $pkgCodes[0];
 $ins = $db->prepare("INSERT INTO correos_shipments (id_rma, orders_id, albaran_id, tipo, entorno, shipment_code, package_code,
                        producto, ref, kilos, tracking_url, http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                     VALUES (0,?,?,'envio','pro',?,?,'PAFXB',?,?,?,?,'',0,?,?, 'vstock-watcher', NOW())");
+                     VALUES (0,?,?,'envio','pro',?,?,'PAFXB',?,?,?,?,'',0,?,?, '" . $operator . "', NOW())");
 $ins->bind_param('issssdssss', $oid, $alb, $code, $pkg0, $ref, $kilos, $trackingUrl, $http, $req, $raw);
 if (!$ins->execute()) {
     error_log('correos_albaran oid=' . $oid . ' INSERT temprano fallo: ' . $db->error . ' shipmentCode=' . $code);

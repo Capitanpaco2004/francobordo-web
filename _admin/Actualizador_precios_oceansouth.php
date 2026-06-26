@@ -315,6 +315,34 @@ foreach ($prods as $pid => $p) {
     }
 }
 
+// ───────────────────── Specials a borrar (V2: TODAS las activas en scope cuando !applyExtremes) ─────────────────────
+$badSpecials = [];
+if (!$applyExtremes) {
+    $effPrice = [];
+    foreach ($prods as $pid => $p) $effPrice[$pid] = (float) $p['products_price'];
+    foreach ($updPriceMain as $u) $effPrice[(int)$u['pid']] = (float) $u['new'];
+
+    $rs = $mysqli->query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($ids)");
+    if (!$rs) { logMsg("ERROR SELECT specials: " . $mysqli->error); goto end_action; }
+    while ($s = $rs->fetch_assoc()) {
+        $pid = (int) $s['products_id'];
+        $eff = (float) ($effPrice[$pid] ?? 0);
+        $sp  = (float) $s['specials_new_products_price'];
+        $dtoPct = $eff > 0 ? (($eff - $sp) / $eff) * 100 : 0.0;
+        $badSpecials[] = [
+            'specials_id' => (int) $s['specials_id'],
+            'pid' => $pid,
+            'ref' => $prods[$pid]['products_model'] ?? '?',
+            'eff_price' => $eff,
+            'sp_price'  => $sp,
+            'dto_pct'   => $dtoPct,
+            'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP)' : (sprintf('dto %.1f%%', $dtoPct) . ' — política: borrar todas en run sin extremos'),
+            'created'   => substr((string)$s['specials_date_added'], 0, 10),
+            'expires'   => substr((string)$s['expires_date'], 0, 10),
+        ];
+    }
+}
+
 logMsg("==================== PLAN ====================");
 logMsg("Procesados: $processed");
 logMsg("UPDATE products.products_price : " . count($updPriceMain));
@@ -322,6 +350,7 @@ logMsg("UPDATE products.products_cost  : " . count($updCostMain));
 logMsg("UPDATE products_groups (G1)    : " . count($updG1Main) . " | INSERT G1: " . count($insG1Main));
 logMsg("UPDATE variantes price : " . count($updAttrPrice) . " | UPDATE G1 var: " . count($updAttrG1) . " | INSERT G1 var: " . count($insAttrG1));
 if (!$applyExtremes && $maxChangeRatio > 0) logMsg("⚠️  Productos extremos > {$maxChangePct}% EXCLUIDOS: " . count($extremesProds) . " (padre + variantes no se tocan)");
+if (!$applyExtremes) logMsg("🗑️  Specials a BORRAR (TODAS las ofertas activas en scope) : " . count($badSpecials) . (empty($badSpecials)?" (ninguno)":""));
 logMsg("Sin match (web+xlsx) : " . count($noMatch));
 
 $showLimit = 25;
@@ -344,6 +373,13 @@ if (!empty($extremesProds)) {
 if (!$onlyExtremes && !empty($noMatch)) {
     logMsg("--- Sin match en web+xlsx (TODOS: " . count($noMatch) . ", no se tocan) ---");
     foreach ($noMatch as $u) logMsg(sprintf("  pid=%d ref=%s [%s]", $u['pid'], $u['ref'], $nm($u['pid'])));
+}
+if (!empty($badSpecials)) {
+    logMsg(sprintf("--- 🗑️ Specials a BORRAR (TODAS: %d) ---", count($badSpecials)));
+    foreach ($badSpecials as $b) {
+        logMsg(sprintf("  specials_id=%d pid=%d ref=%-14s PVP=%7.2f sp=%7.2f dto=%5.1f%% creado=%s expira=%s — %s",
+            $b['specials_id'], $b['pid'], $b['ref'], $b['eff_price']*1.21, $b['sp_price']*1.21, $b['dto_pct'], $b['created'], $b['expires'], $b['reason']));
+    }
 }
 
 if ($dryRun) { logMsg("=== Dry-run finalizado. No se ha tocado nada. ==="); goto end_action; }
@@ -369,6 +405,37 @@ try {
     foreach ($updAttrPrice as $u) { if (!$mysqli->query("UPDATE products_attributes SET options_values_price=" . fmt4($u['absNew']) . ", price_prefix='" . $u['prefNew'] . "' WHERE products_attributes_id=" . (int) $u['paid'])) throw new Exception("attr paid=" . $u['paid'] . ": " . $mysqli->error); }
     foreach ($updAttrG1 as $u) { if (!$mysqli->query("UPDATE products_attributes_groups SET options_values_price=" . fmt4($u['absNew']) . ", price_prefix='" . $u['prefNew'] . "' WHERE products_attributes_id=" . (int) $u['paid'] . " AND customers_group_id=" . G1_GROUP_ID)) throw new Exception("attr g1 paid=" . $u['paid'] . ": " . $mysqli->error); }
     foreach ($insAttrG1 as $u) { if (!$mysqli->query("INSERT INTO products_attributes_groups (products_attributes_id, customers_group_id, options_values_price, price_prefix, products_id, options_values_weight, weight_prefix) VALUES (" . (int) $u['paid'] . ", " . G1_GROUP_ID . ", " . fmt4($u['absNew']) . ", '" . $u['prefNew'] . "', " . (int) $u['pid'] . ", 0, '+')")) throw new Exception("ins attr g1 paid=" . $u['paid'] . ": " . $mysqli->error); }
+    if (!empty($badSpecials)) {
+        $bakDir = '/home/francobordo/backups';
+        @mkdir($bakDir, 0755, true);
+        $bakPath = $bakDir . '/oceansouth_specials_purge_' . date('Ymd_His') . '.sql';
+        $fh = @fopen($bakPath, 'w');
+        if ($fh) {
+            fwrite($fh, "-- Backup specials borrados por Actualizador_precios_oceansouth.php " . date('Y-m-d H:i:s') . "\n");
+            fwrite($fh, "-- Política: !apply_extremes ⇒ borrar TODAS las ofertas activas en scope. Total: " . count($badSpecials) . " filas.\n\n");
+            $idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
+            $rb = $mysqli->query("SELECT * FROM specials WHERE specials_id IN ($idList)");
+            if ($rb) while ($srow = $rb->fetch_assoc()) {
+                $cols = array_keys($srow);
+                $vals = array_map(function ($v) use ($mysqli) {
+                    if ($v === null) return 'NULL';
+                    return "'" . $mysqli->real_escape_string((string) $v) . "'";
+                }, array_values($srow));
+                fwrite($fh, "INSERT INTO specials (" . implode(',', $cols) . ") VALUES (" . implode(',', $vals) . ");\n");
+            }
+            fclose($fh);
+            logMsg("Backup specials borrados: $bakPath (" . (@filesize($bakPath) ?: 0) . " bytes)");
+        } else {
+            logMsg("WARN: no pude crear backup en $bakDir — abortando DELETE de specials por seguridad.");
+            throw new Exception("backup specials no escribible");
+        }
+        $idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
+        if (!$mysqli->query("DELETE FROM specials WHERE specials_id IN ($idList)"))
+            throw new Exception("delete specials: " . $mysqli->error);
+        logMsg("Specials borrados: " . $mysqli->affected_rows);
+        $pidsBumpList = implode(',', array_unique(array_map(fn($b)=>(int)$b['pid'], $badSpecials)));
+        $mysqli->query("UPDATE products SET products_last_modified=NOW() WHERE products_id IN ($pidsBumpList)");
+    }
     $mysqli->commit();
     logMsg("=== COMMIT OK ===");
 } catch (Exception $e) { $mysqli->rollback(); logMsg("=== ROLLBACK por error: " . $e->getMessage() . " ==="); }

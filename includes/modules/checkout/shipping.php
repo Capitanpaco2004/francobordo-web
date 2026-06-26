@@ -228,6 +228,25 @@ class Shipping
             }
             // Fin, recogida en oficina de Correos
 
+            // Inicio, punto de recogida Correos Express (Paq Punto): validar y fijar el punto en sesion.
+            if ($module === 'cexpunto') {
+                $sCexPudo = tep_db_prepare_input(isset($_POST['cex_pudo']) ? $_POST['cex_pudo'] : '');
+                $sCexCp = preg_replace('/\D/', '', isset($_POST['cex_pudo_cp']) ? $_POST['cex_pudo_cp'] : '');
+                if (!preg_match('/^\d{5}$/', $sCexCp)) $sCexCp = $order->delivery['postcode'];
+                $aCexPudo = ($sCexPudo != '' && class_exists('cexpunto'))
+                    ? \cexpunto::puntoById($sCexPudo, $sCexCp, '', 'ES')
+                    : false;
+                if ($aCexPudo === false) {
+                    $this->messageError = defined('TEXT_ERROR_CEX_PUDO') ? TEXT_ERROR_CEX_PUDO : 'Por favor, elige el punto de recogida Correos Express donde quieres recibir tu pedido.';
+                    $this->redirect = tep_href_link(FILENAME_CHECKOUT_SHIPPING);
+                    return false;
+                }
+                $_SESSION['cex_pudo_sel'] = $aCexPudo;
+            } else {
+                unset($_SESSION['cex_pudo_sel']);
+            }
+            // Fin, punto de recogida Correos Express
+
             // Si existe
             if ((isset($GLOBALS[$module]) && is_object($GLOBALS[$module])) || $module == 'free') {
                 // Comprobamos si es gratis

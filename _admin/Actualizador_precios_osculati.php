@@ -456,6 +456,39 @@ $t0 = microtime(true);
 $plan = buildPlan($prods, $xlsx, $g1prods, $g1attrs, $maxChangeRatio, $applyExtremes);
 echo '<p>Plan calculado en ' . round(microtime(true) - $t0, 2) . 's.</p>';
 
+// ─── Bloque A: cómputo de specials a borrar ───
+// Política V2 (2026-06-25): cuando se ejecuta SIN "Aplicar extremos" (apply_extremes=false), borramos
+// TODAS las ofertas activas (specials.status=1) de los productos en scope. Razón: las ofertas se
+// pusieron sobre PVP antiguo; al cambiar el PVP dejan de tener sentido. Si quieres conservarlas,
+// marca "Aplicar también los extremos".
+$badSpecials = [];
+if (!$applyExtremes && !empty($prods)) {
+	// PVP efectivo post-run = nuevo si hay update, si no el actual.
+	$effPrice = [];
+	foreach ($prods as $pid => $p) $effPrice[$pid] = (float) $p['price'];
+	foreach ($plan['updates_product'] as $u) $effPrice[(int)$u['pid']] = (float) $u['new_price'];
+
+	$ids = implode(',', array_map('intval', array_keys($prods)));
+	$rs = tep_db_query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($ids)");
+	while ($s = tep_db_fetch_array($rs)) {
+		$pid = (int) $s['products_id'];
+		$eff = (float) ($effPrice[$pid] ?? 0);
+		$sp  = (float) $s['specials_new_products_price'];
+		$dtoPct = $eff > 0 ? (($eff - $sp) / $eff) * 100 : 0.0;
+		$badSpecials[] = [
+			'specials_id' => (int) $s['specials_id'],
+			'pid' => $pid,
+			'ref' => $prods[$pid]['model'] ?? '?',
+			'eff_price' => $eff,
+			'sp_price'  => $sp,
+			'dto_pct'   => $dtoPct,
+			'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP)' : (sprintf('dto %.1f%%', $dtoPct) . ' — política: borrar todas en run sin extremos'),
+			'created'   => substr((string)$s['specials_date_added'], 0, 10),
+			'expires'   => substr((string)$s['expires_date'], 0, 10),
+		];
+	}
+}
+
 // Form para ajustar el tope y apply_extremes (solo en dry-run, no rompe la URL ?execute=1)
 if ($dryRun) {
 	echo '<form method="get" style="background:#f5f5f5;padding:10px;border-radius:4px;margin-bottom:15px;">';
@@ -478,6 +511,9 @@ if ($dryRun) {
 	<li>INSERT <code>products_attributes_groups</code> Grupo 1: <strong><?php echo count($plan['inserts_g1_attr']); ?></strong></li>
 	<?php if (!$applyExtremes && $maxChangeRatio > 0): ?>
 	<li>⚠️ Productos EXTREMOS excluidos (price o cost del padre supera <?php echo $maxChangePct; ?>%): <strong><?php echo count($plan['extremes']); ?></strong></li>
+	<?php endif; ?>
+	<?php if (!$applyExtremes): ?>
+	<li>🗑️ Specials a BORRAR (TODAS las ofertas activas en scope): <strong><?php echo count($badSpecials); ?></strong><?php if (empty($badSpecials)) echo ' (ninguno)'; ?></li>
 	<?php endif; ?>
 	<li class="small">Sin match en xlsx (no se toca): <?php echo $plan['skipped_no_match']; ?> + <?php echo count($plan['unmatched_codes']) - $plan['skipped_no_match']; ?> variantes | fuera de scope (U.M. ≠ PZ y no A2-/A4-): <?php echo $plan['skipped_out_scope']; ?> | sin coste válido: <?php echo $plan['skipped_no_cost']; ?> | sin cambio significativo: <?php echo $plan['skipped_unchanged']; ?></li>
 </ul>
@@ -517,6 +553,21 @@ if (!empty($plan['extremes'])) {
 		['old_cost', function ($r) { return number_format($r['old_cost'], 4); }, 'num'],
 		['new_cost', function ($r) { return number_format($r['new_cost'], 4); }, 'num'],
 		['Δ cost %', function ($r) { return number_format(deltaPct($r['old_cost'], $r['new_cost']) * 100, 1); }, 'num'],
+	]);
+}
+
+// ─── Bloque C: listado detallado de specials a borrar ───
+if (!empty($badSpecials)) {
+	renderTable('🗑️ Specials a BORRAR (TODAS las ofertas activas en scope — política V2)', $badSpecials, [
+		['specials_id', function ($r) { return $r['specials_id']; }],
+		['pid', function ($r) { return $r['pid']; }],
+		['ref', function ($r) { return $r['ref']; }],
+		['PVP (IVA inc)', function ($r) { return number_format($r['eff_price'] * 1.21, 2); }, 'num'],
+		['sp (IVA inc)', function ($r) { return number_format($r['sp_price'] * 1.21, 2); }, 'num'],
+		['dto %', function ($r) { return number_format($r['dto_pct'], 1); }, 'num'],
+		['creado', function ($r) { return $r['created']; }],
+		['expira', function ($r) { return $r['expires']; }],
+		['motivo', function ($r) { return $r['reason']; }],
 	]);
 }
 
@@ -568,6 +619,52 @@ if (!$dryRun) {
 	tep_db_query('START TRANSACTION');
 	try {
 		applyPlan($plan);
+
+		// ─── Bloque D: backup + DELETE de specials (política V2) ───
+		// Va dentro del try: si falla, ROLLBACK revierte applyPlan también.
+		if (!empty($badSpecials)) {
+			$bakDir = '/home/francobordo/backups';
+			@mkdir($bakDir, 0755, true);
+			$bakPath = $bakDir . '/osculati_specials_purge_' . date('Ymd_His') . '.sql';
+			$fh = @fopen($bakPath, 'w');
+			if ($fh) {
+				fwrite($fh, "-- Backup specials borrados por Actualizador_precios_osculati.php " . date('Y-m-d H:i:s') . "\n");
+				fwrite($fh, "-- Política V2: !apply_extremes ⇒ borrar TODAS las ofertas activas en scope. Total: " . count($badSpecials) . " filas.\n\n");
+				$idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
+				$rb = tep_db_query("SELECT * FROM specials WHERE specials_id IN ($idList)");
+				while ($srow = tep_db_fetch_array($rb)) {
+					$cols = array_keys($srow);
+					$vals = array_map(function ($v) {
+						if ($v === null) return 'NULL';
+						return "'" . tep_db_input((string) $v) . "'";
+					}, array_values($srow));
+					fwrite($fh, "INSERT INTO specials (" . implode(',', $cols) . ") VALUES (" . implode(',', $vals) . ");\n");
+				}
+				fclose($fh);
+				echo '<p style="color:#393">Backup specials borrados: <code>' . htmlspecialchars($bakPath) . '</code> (' . (@filesize($bakPath) ?: 0) . ' bytes)</p>';
+			} else {
+				echo '<p style="color:#c33;font-weight:bold">WARN: no pude crear backup en ' . htmlspecialchars($bakDir) . ' — abortando DELETE de specials por seguridad.</p>';
+				throw new Exception('backup specials no escribible');
+			}
+			$idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
+			$delRes = tep_db_query("DELETE FROM specials WHERE specials_id IN ($idList)");
+			if (!$delRes) throw new Exception('delete specials');
+			$affected = tep_db_affected_rows($delRes);
+			echo '<p style="color:#393">Specials borrados: <strong>' . (int)$affected . '</strong></p>';
+
+			// ─── Bloque E: bump products_last_modified de los pids cuyos specials se borraron ───
+			$pidsBump = array_unique(array_map(fn($b) => (int) $b['pid'], $badSpecials));
+			// Evitar duplicar el bump que applyPlan ya hace para los productos con UPDATE.
+			$alreadyBumped = [];
+			foreach ($plan['updates_product'] as $u) $alreadyBumped[(int)$u['pid']] = true;
+			$pidsBump = array_values(array_filter($pidsBump, fn($pid) => !isset($alreadyBumped[$pid])));
+			if (!empty($pidsBump)) {
+				$pidsList = implode(',', $pidsBump);
+				tep_db_query("UPDATE products SET products_last_modified=NOW() WHERE products_id IN ($pidsList)");
+				echo '<p style="color:#393">products_last_modified bumpeado para ' . count($pidsBump) . ' pids adicionales.</p>';
+			}
+		}
+
 		tep_db_query('COMMIT');
 		echo '<p style="color:#393;font-weight:bold">✔ Cambios aplicados en ' . round(microtime(true) - $t0, 2) . 's.</p>';
 	} catch (\Throwable $e) {

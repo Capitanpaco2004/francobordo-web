@@ -64,7 +64,7 @@ $LEGIT_NO_RDNS_CIDR = [
     // Cloudflare (CDN + WARP egress; cubre el FP 104.28.x)
     '173.245.48.0/20','103.21.244.0/22','103.22.200.0/22','103.31.4.0/22','141.101.64.0/18',
     '108.162.192.0/18','190.93.240.0/20','188.114.96.0/20','197.234.240.0/22','198.41.128.0/17',
-    '162.158.0.0/15','104.16.0.0/13','104.24.0.0/14','172.64.0.0/13','131.0.72.0/22',
+    '162.158.0.0/15','104.16.0.0/13','104.24.0.0/14','104.28.0.0/16','172.64.0.0/13','131.0.72.0/22',
     // Apple iCloud Private Relay (bloques Apple-owned; el resto cae en CF/Fastly)
     '140.248.0.0/16','172.224.0.0/12',
     // Microsoft 365 Exchange/EOP/SafeLinks (cubre el FP 104.47.x)
@@ -97,6 +97,25 @@ if ($mysqli->connect_errno) { lm('FATAL conn: ' . $mysqli->connect_error); exit(
 $mysqli->set_charset('utf8mb4');
 
 lm($ENFORCE ? '== ENFORCE ==' : '== DRY-RUN (no banea) ==');
+
+// ---------------- Snapshot exencion-por-compra (whos_online -> scraper_customer_ips) ----------------
+// Captura IPs de clientes LOGUEADOS o INVITADOS en el funnel de compra y las persiste 30d, para que
+// las reglas anti-scraper (guard sincrono + este cron) NUNCA baneen a un comprador real aunque su
+// sesion viva ya haya expirado. Patrones LIKE PRECISOS (evitar %cart% que casa cartas/cartridge).
+$snap = @$mysqli->query("INSERT INTO scraper_customer_ips (ip, last_seen, source)
+    SELECT ip_address, NOW(), IF(customer_id>0,'login','funnel')
+    FROM whos_online
+    WHERE ip_address IS NOT NULL AND ip_address<>''
+      AND ( customer_id>0
+         OR last_page_url LIKE '%/checkout/%'
+         OR last_page_url LIKE '%shopping_cart%'
+         OR last_page_url LIKE '%/account%'
+         OR last_page_url LIKE '%create_account%' )
+    ON DUPLICATE KEY UPDATE last_seen=NOW(), source=VALUES(source)");
+if ($snap === false) lm('WARN snapshot customer_ips: ' . $mysqli->error);
+else lm('Snapshot customer_ips: ' . $mysqli->affected_rows . ' filas upsert');
+// Purga retencion 30d
+@$mysqli->query("DELETE FROM scraper_customer_ips WHERE last_seen < NOW() - INTERVAL 30 DAY");
 
 // ---------------- Helpers ----------------
 function ip_in_cidr_list(string $ip, array $list): bool {
@@ -164,7 +183,7 @@ if (!$candidates) {
 // ---------------- Prepared statements ----------------
 $st_allow = $mysqli->prepare("SELECT 1 FROM scraper_allowlist WHERE ip=? LIMIT 1");
 $st_ban   = $mysqli->prepare("SELECT 1 FROM scraper_blacklist WHERE ip=? AND expires_at>NOW() LIMIT 1");
-$st_cust  = $mysqli->prepare("SELECT 1 FROM whos_online WHERE ip_address=? AND customer_id>0 LIMIT 1");
+$st_cust  = $mysqli->prepare("SELECT 1 FROM scraper_customer_ips WHERE ip=? AND last_seen > NOW() - INTERVAL 30 DAY LIMIT 1");
 $st_cget  = $mysqli->prepare("SELECT status, UNIX_TIMESTAMP(checked_at) ts FROM scraper_rdns_cache WHERE ip=? LIMIT 1");
 $st_cput  = $mysqli->prepare("INSERT INTO scraper_rdns_cache (ip,status,ptr,checked_at) VALUES (?,?,?,NOW())
                               ON DUPLICATE KEY UPDATE status=VALUES(status), ptr=VALUES(ptr), checked_at=NOW()");

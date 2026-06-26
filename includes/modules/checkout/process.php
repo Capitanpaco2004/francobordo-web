@@ -282,6 +282,21 @@ class Process
         }
         // Fin, recogida en oficina de Correos
 
+        // Inicio, punto de recogida Correos Express (Paq Punto): la entrega va al PUNTO elegido.
+        if ($shipping['id'] == 'cexpunto_cexpunto' && !empty($_SESSION['cex_pudo_sel']['id'])) {
+            $aCexPudo = $_SESSION['cex_pudo_sel'];
+            $sql_data_array['delivery_company']        = substr('Pto CEX: ' . $aCexPudo['name'], 0, 32);
+            $sql_data_array['delivery_street_address'] = $aCexPudo['address'];
+            $sql_data_array['delivery_suburb']         = '';
+            $sql_data_array['delivery_postcode']       = $aCexPudo['cp'];
+            $sql_data_array['delivery_city']           = $aCexPudo['city'];
+            $sql_data_array['delivery_state']          = '';
+            $sCexComment = 'Entrega en punto Correos Express (Paq Punto): ' . $aCexPudo['id'] . ' - ' . $aCexPudo['name'] . ' (' . $aCexPudo['address'] . ', ' . $aCexPudo['cp'] . ' ' . $aCexPudo['city'] . ')';
+            $comments .= '<br>' . $sCexComment;
+            $order->info['comments'] = trim((string) $order->info['comments'] . ($order->info['comments'] != '' ? '<br>' : '') . $sCexComment);
+        }
+        // Fin, punto de recogida Correos Express
+
         // Isertamos orders — con reintento ante carrera de orders_id.
         // El id se genera con MAX(orders_id)+1 (línea ~168); si dos checkouts entran a
         // la vez leen el mismo MAX y colisionan en la PRIMARY KEY (Duplicate entry).
@@ -350,6 +365,24 @@ class Process
             unset($_SESSION['correos_oficina_sel']);
         }
         // Fin, recogida en oficina de Correos
+
+        // Inicio, punto de recogida Correos Express (Paq Punto): persistir el punto para la API (idPtoExterno = producto 18)
+        if ($shipping['id'] == 'cexpunto_cexpunto' && !empty($_SESSION['cex_pudo_sel']['id'])) {
+            $aCexPudo = $_SESSION['cex_pudo_sel'];
+            tep_db_perform('cex_pudo_orders', array(
+                'orders_id'  => (int) $insert_id,
+                'pudo_id'    => $aCexPudo['id'],
+                'name'       => $aCexPudo['name'],
+                'address'    => $aCexPudo['address'],
+                'postcode'   => $aCexPudo['cp'],
+                'city'       => $aCexPudo['city'],
+                'lat'        => (float) $aCexPudo['lat'],
+                'lng'        => (float) $aCexPudo['lng'],
+                'date_added' => 'now()',
+            ));
+            unset($_SESSION['cex_pudo_sel']);
+        }
+        // Fin, punto de recogida Correos Express
 
         if (preg_match('/UPS \(UPS\)/i', $order->info['shipping_method'])) {
             $upsshipping->update_order($insert_id, $cartID);

@@ -1719,7 +1719,7 @@ function tep_display_tax_value($value, $padding = TAX_DECIMAL_PLACES) {
 	return $value;
 }
 
-function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $from_email_name, $from_email_address, $attachFile = false) {
+function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $from_email_name, $from_email_address, $attachFile = false, $bcc = '') {
 	// Replica la lógica de envío del frontend (includes/functions/general.php).
 	// Antes el admin enviaba siempre por sendmail local, lo que dejaba todos los
 	// emails atascados en la cola de exim. Ahora respeta STORE_OWNER_EMAIL_ADDRESS_GROUP
@@ -1790,6 +1790,11 @@ function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $fro
 
 	$mail->Body    = $email_text;
 	$mail->AltBody = htmlentities((string) $mail->Body);
+
+	// Trustpilot AFS: BCC opcional (lo usa _admin/cron_mail_status.php). Portado del general.php del storefront 2026-06-25 (el admin tep_mail no lo tenia -> el 8o arg $tp_bcc del cron se ignoraba y el BCC nunca se anadia).
+	if ($bcc !== '' && filter_var($bcc, FILTER_VALIDATE_EMAIL)) {
+		$mail->AddBCC($bcc);
+	}
 
 	try {
 		$mail->send();

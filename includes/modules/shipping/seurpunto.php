@@ -45,7 +45,7 @@ class seurpunto {
 
     /* Tarifa 2SHOP 24 SEUR (coste sin IVA, vigente 01/11/2025). Tramos "hasta N kg".
      * Solo zonas que ofrece el módulo: Península y Baleares (Canarias/Ceuta/Melilla
-     * y Portugal quedan excluidos por el gate). margen 0% (pass-through del coste). */
+     * y Portugal quedan excluidos por el gate). se repercute el fuel SEUR 16,54% (const FUEL). */
     const TARIFA_PENINSULA = array(   // kg => €/expedición
         1=>4.20, 2=>4.26, 3=>4.46, 4=>4.78, 5=>5.22, 7=>5.66, 10=>5.66,
         15=>6.50, 20=>7.47, 25=>8.83, 30=>10.20, 40=>15.03, 50=>18.12,
@@ -56,6 +56,7 @@ class seurpunto {
     );
     const TARIFA_EXTRA_KG = array('PEN'=>0.36, 'BAL'=>0.58);  // €/kg por encima de 50 kg
     const MAX_KG = 20;   // SEUR 2shop/punto de recogida: tope de peso por envío
+    const FUEL = 1.1654;  // sobrecoste fuel SEUR (16,54%) repercutido al cliente (2026-06-25)
 
     /** Coste SEUR (sin IVA) según peso (kg) y zona ('BAL' Baleares / 'PEN' resto). */
     public static function costePorPeso($kg, $zona) {
@@ -93,7 +94,7 @@ class seurpunto {
             return array();
         }
         $zona = (strncmp($cp, '07', 2) === 0) ? 'BAL' : 'PEN';
-        $base = self::costePorPeso($kg, $zona);   // coste sin IVA
+        $base = self::costePorPeso($kg, $zona) * self::FUEL;   // coste sin IVA + fuel 16,54%
 
         $iva = ($this->tax_class > 0)
             ? tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id'])

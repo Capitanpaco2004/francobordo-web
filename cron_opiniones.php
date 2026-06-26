@@ -107,18 +107,12 @@ define('SISTEMA_OPINION_DIAS_DELETE', '30');
 						continue;	
 					}
 					
-					// Cargamos el email
-					include( DIR_WS_LANGUAGES . 'espanol/modules/UHtmlEmails/Standard/opinion.php' );
-					include( DIR_WS_MODULES . 'UHtmlEmails/' . ULTIMATE_HTML_EMAIL_LAYOUT . '/opinion.php' );
-					$sHtmlEmail = $sHtmlEmail;
+					// 2026-06-25: email nativo de 4 dias (opinion de TIENDA) DESACTIVADO por redundancia con Trustpilot (decision del usuario):
+					// Trustpilot pasa a ser el unico canal que pide la experiencia de tienda. NO se envia el email; pero se mantiene
+					// el marcado email_primero_enviado=true para que la limpieza (DELETE a los 34 dias, arriba) siga purgando la tabla
+					// opinion y no crezca sin control. El email de 10 dias (resenas de PRODUCTO -> estrellas en Google) sigue ACTIVO mas abajo.
 
-					// Debug
-					// $aDatoOrder['customers_email_address'] = 'sampedro.denox@gmail.com';
-
-					// Enviamos
-					tep_mail( $aDatoOrder['customers_name'], $aDatoOrder['customers_email_address'], OPINION_EMAIL_SUBJECT, $sHtmlEmail, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS);
-
-					// Actualizamos
+					// Actualizamos (sin enviar email)
 					tep_db_query( 'update opinion set email_primero_enviado = true where id_opinion = '  . $aDatoOpinion['id_opinion'] );
 				}
 			}

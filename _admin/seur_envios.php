@@ -320,7 +320,9 @@ if ($fEstado === 'error')   $where[] = "ok = 0";
 if ($fEstado === 'anulado') $where[] = "cancelled_at IS NOT NULL";
 if ($fBuscar !== '') {
     $b = tep_db_input($fBuscar);
-    $where[] = "(shipment_code LIKE '%$b%' OR ref LIKE '%$b%' OR orders_id = '" . (int) $fBuscar . "' OR id_rma = '" . (int) $fBuscar . "')";
+    $cond = array("shipment_code LIKE '%$b%'", "ref LIKE '%$b%'");
+    if (ctype_digit($fBuscar)) { $cond[] = "orders_id = '" . (int) $fBuscar . "'"; $cond[] = "id_rma = '" . (int) $fBuscar . "'"; }
+    $where[] = '(' . implode(' OR ', $cond) . ')';
 }
 $sql = 'SELECT * FROM seur_shipments WHERE ' . implode(' AND ', $where) . ' ORDER BY id DESC LIMIT 200';
 $rows = array();
@@ -411,7 +413,7 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
       <label>Email<input type="text" name="m_demail"></label>
       <label>Peso (kg)<input type="text" name="m_kilos" value="1"></label>
       <label>Bultos<input type="number" name="m_bultos" value="1" min="1"></label>
-      <label style="grid-column:1/3;">Referencia (opcional)<input type="text" name="m_ref" placeholder="auto: M-aaaammdd-hhmmss"></label>
+      <label style="grid-column:1/3;">Referencia (sale en la columna Pedido/RMA y es buscable &mdash; p.ej. n&ordm; de RMA, pedido o proveedor)<input type="text" name="m_ref" placeholder="auto: M-aaaammdd-hhmmss"></label>
       <div style="grid-column:1/3;margin-top:4px;"><button class="btn verde" type="submit">Crear env&iacute;o y mandar etiqueta a la Zebra</button></div>
     </form>
   </details>
@@ -541,7 +543,7 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
     <?php foreach ($rows as $s): ?>
       <?php
         $cls = $s['cancelled_at'] ? 'anulado' : (!$s['ok'] ? 'err' : '');
-        $ref = $s['orders_id'] ? ('Pedido ' . (int) $s['orders_id']) : ($s['id_rma'] ? 'RMA ' . (int) $s['id_rma'] : '—');
+        $ref = $s['orders_id'] ? ('Pedido ' . (int) $s['orders_id']) : ($s['id_rma'] ? 'RMA ' . (int) $s['id_rma'] : (trim((string) $s['ref']) !== '' ? '<span title="Referencia manual">' . htmlspecialchars($s['ref']) . '</span>' : '—'));
         if ($s['cancelled_at']) $estado = '<span style="color:#c0392b">Anulado</span>';
         elseif ($s['ok'])       $estado = '<span style="color:#2e7d32">OK</span>';
         else                    $estado = '<span style="color:#c0392b">Error</span>';

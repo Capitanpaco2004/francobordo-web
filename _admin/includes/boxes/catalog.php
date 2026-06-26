@@ -120,6 +120,7 @@
 			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Vetus <i class="fa fa-angle-right"></i></a>
 			<div class="sbmn">
 				<?php echo tep_admin_files_boxes('import-vetus-altas.php', '<i class="bullet"></i> Importador'); ?>
+				<?php echo tep_admin_files_boxes('Actualizador_precios_vetus.php', '<i class="bullet"></i> Actualizador precios'); ?>
 			</div>
 		</div>
 		<div>

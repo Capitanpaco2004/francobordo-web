@@ -72,6 +72,82 @@ function aboveThreshold($newVal, $oldVal) {
 	return abs($n - $o) / abs($o) > PRICE_DIFF_THRESHOLD;
 }
 function fmt4($v) { return number_format((float) $v, 4, '.', ''); }
+function jobeLogMsg($msg) { echo '<div class="small" style="font-family:monospace">' . htmlspecialchars((string) $msg) . "</div>\n"; @flush(); }
+
+/* ----------------------------- Bloque A: cómputo de specials a purgar ------ */
+/** Política V2 (2026-06-25): si !applyExtremes, se borran TODAS las ofertas activas en scope. */
+function jobeComputeBadSpecials(array $prods, array $plan, $applyExtremes) {
+	$badSpecials = [];
+	if ($applyExtremes) return $badSpecials;
+	if (empty($prods)) return $badSpecials;
+
+	$effPrice = [];
+	foreach ($prods as $pid => $p) $effPrice[(int) $pid] = (float) $p['price'];
+	foreach ($plan['updates_product'] as $u) $effPrice[(int) $u['pid']] = (float) $u['new_price'];
+
+	$ids = implode(',', array_map('intval', array_keys($prods)));
+	try {
+		$rs = tep_db_query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($ids)");
+	} catch (\Throwable $e) {
+		jobeLogMsg("ERROR SELECT specials: " . $e->getMessage());
+		return $badSpecials;
+	}
+	while ($s = tep_db_fetch_array($rs)) {
+		$pid = (int) $s['products_id'];
+		$eff = (float) ($effPrice[$pid] ?? 0);
+		$sp  = (float) $s['specials_new_products_price'];
+		$dtoPct = $eff > 0 ? (($eff - $sp) / $eff) * 100 : 0.0;
+		$badSpecials[] = [
+			'specials_id' => (int) $s['specials_id'],
+			'pid'         => $pid,
+			'ref'         => $prods[$pid]['model'] ?? '?',
+			'eff_price'   => $eff,
+			'sp_price'    => $sp,
+			'dto_pct'     => $dtoPct,
+			'reason'      => ($sp > $eff) ? 'NEGATIVO (special > PVP)' : (sprintf('dto %.1f%%', $dtoPct) . ' — política: borrar todas en run sin extremos'),
+			'created'     => substr((string) $s['specials_date_added'], 0, 10),
+			'expires'     => substr((string) $s['expires_date'], 0, 10),
+		];
+	}
+	return $badSpecials;
+}
+
+/* ----------------------------- Bloque D: backup + DELETE ------------------- */
+function jobePurgeSpecials(array $badSpecials) {
+	if (empty($badSpecials)) return;
+	$bakDir = '/home/francobordo/backups';
+	@mkdir($bakDir, 0755, true);
+	$bakPath = $bakDir . '/jobe_specials_purge_' . date('Ymd_His') . '.sql';
+	$fh = @fopen($bakPath, 'w');
+	if (!$fh) {
+		jobeLogMsg("WARN: no pude crear backup en $bakDir — abortando DELETE de specials por seguridad.");
+		throw new Exception("backup specials no escribible");
+	}
+	fwrite($fh, "-- Backup specials borrados por Actualizador_precios_jobe.php " . date('Y-m-d H:i:s') . "\n");
+	fwrite($fh, "-- Política: !apply_extremes ⇒ borrar TODAS las ofertas activas en scope. Total: " . count($badSpecials) . " filas.\n\n");
+	$idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
+	$rb = tep_db_query("SELECT * FROM specials WHERE specials_id IN ($idList)");
+	if ($rb) while ($srow = tep_db_fetch_array($rb)) {
+		$cols = array_keys($srow);
+		$vals = array_map(function ($v) {
+			if ($v === null) return 'NULL';
+			return "'" . tep_db_input((string) $v) . "'";
+		}, array_values($srow));
+		fwrite($fh, "INSERT INTO specials (" . implode(',', $cols) . ") VALUES (" . implode(',', $vals) . ");\n");
+	}
+	fclose($fh);
+	jobeLogMsg("Backup specials borrados: $bakPath (" . (@filesize($bakPath) ?: 0) . " bytes)");
+
+	$del = tep_db_query("DELETE FROM specials WHERE specials_id IN ($idList)");
+	if ($del === false) throw new Exception("delete specials falló");
+	$affected = (is_object($del) && method_exists($del, 'rowCount')) ? $del->rowCount() : count($badSpecials);
+	jobeLogMsg("Specials borrados: " . $affected);
+
+	// Bloque E (older sin $bumpedMain): bumpear products_last_modified de los pids afectados
+	$pidsBump = implode(',', array_unique(array_map(fn($b) => (int) $b['pid'], $badSpecials)));
+	if ($pidsBump !== '') tep_db_query("UPDATE products SET products_last_modified = NOW() WHERE products_id IN ($pidsBump)");
+}
+
 function parseMoney($s) {
 	$s = trim((string) $s);
 	if ($s === '' || $s === '-') return 0.0;
@@ -409,6 +485,12 @@ $t0 = microtime(true);
 $plan = buildPlan($prods, $feed, $dealers, $g1prods, $g1attrs, $maxChangeRatio, $applyExtremes);
 echo '<p>Plan calculado en ' . round(microtime(true) - $t0, 2) . 's.</p>';
 
+// Bloque A: cómputo de specials a purgar (política V2 2026-06-25)
+// Reformateamos $prods en formato esperado por jobeComputeBadSpecials (pid=>['price','model'])
+$prodsForSpecials = [];
+foreach ($prods as $pid => $p) $prodsForSpecials[(int) $pid] = ['price' => (float) $p['price'], 'model' => $p['model']];
+$badSpecials = jobeComputeBadSpecials($prodsForSpecials, $plan, $applyExtremes);
+
 if ($dryRun) {
 	echo '<form method="get" style="background:#f5f5f5;padding:10px;border-radius:4px;margin-bottom:15px;">';
 	echo '<strong>Tope de variación</strong>: excluir cambios &gt; <input type="number" name="max_change_pct" value="' . (int) $maxChangePct . '" min="0" max="500" step="1" style="width:60px;"> %';
@@ -428,6 +510,9 @@ if ($dryRun) {
 	<li>UPDATE / INSERT Grupo 1 (variantes): <strong><?php echo count($plan['updates_g1_attr']); ?></strong> / <strong><?php echo count($plan['inserts_g1_attr']); ?></strong></li>
 	<?php if (!$applyExtremes && $maxChangeRatio > 0): ?>
 	<li>⚠️ Productos EXTREMOS excluidos (&gt; <?php echo $maxChangePct; ?>%): <strong><?php echo count($plan['extremes']); ?></strong></li>
+	<?php endif; ?>
+	<?php if (!$applyExtremes): ?>
+	<li>🗑️ Specials a BORRAR (TODAS las ofertas activas en scope): <strong><?php echo count($badSpecials); ?></strong><?php echo empty($badSpecials) ? ' (ninguno)' : ''; ?></li>
 	<?php endif; ?>
 	<li class="small">Sin match en feed (no se toca): <?php echo $plan['skipped_no_match']; ?> | sin coste/precio válido: <?php echo $plan['skipped_no_cost']; ?> | sin cambio significativo: <?php echo $plan['skipped_unchanged']; ?> | variantes sin match: <?php echo count($plan['unmatched']); ?></li>
 </ul>
@@ -464,6 +549,25 @@ if (!empty($plan['extremes'])) {
 		['Δ cost %', fn($r) => number_format(deltaPct($r['old_cost'], $r['new_cost']) * 100, 1), 'num'],
 	]);
 }
+if (!empty($badSpecials)) {
+	jobeLogMsg(sprintf("--- 🗑️ Specials a BORRAR (TODAS: %d) ---", count($badSpecials)));
+	foreach ($badSpecials as $b) {
+		jobeLogMsg(sprintf("  specials_id=%d pid=%d ref=%-14s PVP=%7.2f sp=%7.2f dto=%5.1f%% creado=%s expira=%s — %s",
+			$b['specials_id'], $b['pid'], $b['ref'], $b['eff_price'] * 1.21, $b['sp_price'] * 1.21, $b['dto_pct'], $b['created'], $b['expires'], $b['reason']));
+	}
+	renderTable('🗑️ Specials a BORRAR (política V2: todas en run sin extremos)', $badSpecials, [
+		['specials_id', fn($r) => $r['specials_id']],
+		['pid', fn($r) => $r['pid']],
+		['ref', fn($r) => $r['ref']],
+		['PVP (IVA inc)', fn($r) => number_format($r['eff_price'] * 1.21, 2), 'num'],
+		['sp (IVA inc)', fn($r) => number_format($r['sp_price'] * 1.21, 2), 'num'],
+		['dto %', fn($r) => number_format($r['dto_pct'], 1), 'num'],
+		['creado', fn($r) => $r['created']],
+		['expira', fn($r) => $r['expires']],
+		['motivo', fn($r) => $r['reason']],
+	]);
+}
+
 renderTable('Cambios precio/coste de producto', $plan['updates_product'], [
 	['pid', fn($r) => $r['pid']], ['model', fn($r) => $r['model']],
 	['old_price', fn($r) => number_format($r['old_price'], 4), 'num'], ['new_price', fn($r) => number_format($r['new_price'], 4), 'num'],
@@ -491,6 +595,8 @@ if (!$dryRun) {
 	tep_db_query('START TRANSACTION');
 	try {
 		applyPlan($plan);
+		// Bloque D: purga V2 de specials (TODAS las ofertas activas en scope cuando !apply_extremes)
+		jobePurgeSpecials($badSpecials);
 		tep_db_query('COMMIT');
 		echo '<p style="color:#393;font-weight:bold">✔ Cambios aplicados en ' . round(microtime(true) - $t0, 2) . 's.</p>';
 	} catch (\Throwable $e) {

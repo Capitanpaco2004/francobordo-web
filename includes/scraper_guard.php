@@ -42,6 +42,28 @@ $_sg_allow_cidr = [
     "168.100.149.0/24",  // Ahrefs
     "176.31.139.0/24",   // Ahrefs
     "114.119.0.0/16",    // PetalBot/AspiegelBot Huawei
+    // --- CDN/proxy que carecen de PTR pero llevan USUARIOS REALES (anadido 2026-06-25 tras FP) ---
+    // Sin esto, la regla de catalogo baneaba clientes B2B/WARP (ej. Zscaler 136.226, WARP 104.28).
+    "104.16.0.0/13",     // Cloudflare (cubre 104.16-104.23)
+    "104.24.0.0/14",     // Cloudflare (104.24-104.27)
+    "104.28.0.0/16",     // Cloudflare WARP / Apple Private Relay (FALTABA: 104.28 NO esta en 104.16/13)
+    "172.64.0.0/13",     // Cloudflare
+    "162.158.0.0/15",    // Cloudflare
+    "141.101.64.0/18",   // Cloudflare
+    "108.162.192.0/18",  // Cloudflare
+    "173.245.48.0/20",   // Cloudflare
+    "140.248.0.0/16",    // Apple Private Relay
+    "172.224.0.0/12",    // Apple Private Relay
+    "136.226.0.0/16",    // Zscaler ZIA (FP confirmado cliente B2B)
+    "147.161.128.0/17",  // Zscaler ZIA
+    "165.225.0.0/17",    // Zscaler ZIA
+    "165.225.192.0/18",  // Zscaler ZIA
+    "170.85.0.0/16",     // Zscaler ZIA
+    "104.129.192.0/20",  // Zscaler ZIA
+    "104.47.0.0/17",     // Microsoft O365/Exchange/SafeLinks
+    "151.101.0.0/16",    // Fastly
+    "146.75.0.0/16",     // Fastly (+ Apple PR partner)
+    "199.232.0.0/16",    // Fastly
 ];
 
 if (in_array($_sg_ip, $_sg_allow_exact, true)) return;
@@ -70,16 +92,21 @@ try {
     if (!$_sg_link) return;
     $_sg_ipe = mysqli_real_escape_string($_sg_link, $_sg_ip);
 
-    // (2)+(3): allowlist DB y blacklist en una sola query
+    // (2)+(3): allowlist DB, blacklist y EXENCION POR COMPRA en una sola query.
+    // is_customer = IP vista logueada o en el funnel de compra en los ultimos 30 dias
+    // (tabla scraper_customer_ips, poblada desde whos_online por el cron rDNS). Anadido 2026-06-25
+    // tras FP: clientes B2B/residenciales baneados por las reglas sincronas. Un comprador real
+    // NUNCA debe ser bloqueado por el anti-scraper, aunque su sesion viva ya haya expirado.
     $_sg_res = mysqli_query($_sg_link, "SELECT
         EXISTS(SELECT 1 FROM scraper_allowlist WHERE ip = \"$_sg_ipe\") AS is_allow,
-        EXISTS(SELECT 1 FROM scraper_blacklist WHERE ip = \"$_sg_ipe\" AND expires_at > NOW()) AS is_block");
+        EXISTS(SELECT 1 FROM scraper_blacklist WHERE ip = \"$_sg_ipe\" AND expires_at > NOW()) AS is_block,
+        EXISTS(SELECT 1 FROM scraper_customer_ips WHERE ip = \"$_sg_ipe\" AND last_seen > NOW() - INTERVAL 30 DAY) AS is_customer");
     $_sg_row = $_sg_res ? mysqli_fetch_assoc($_sg_res) : null;
     if ($_sg_res) mysqli_free_result($_sg_res);
 
-    if ($_sg_row && (int)$_sg_row["is_allow"] === 1) {
+    if ($_sg_row && ((int)$_sg_row["is_allow"] === 1 || (int)$_sg_row["is_customer"] === 1)) {
         mysqli_close($_sg_link);
-        return; // allowlist DB siempre gana
+        return; // allowlist DB o comprador reciente: nunca banear
     }
     if ($_sg_row && (int)$_sg_row["is_block"] === 1) {
         mysqli_close($_sg_link);
@@ -126,11 +153,12 @@ try {
         }
     }
 
-    // (4b) Heuristica UA antiguo del pool residencial + rate-limit 5/60s.
-    //      Parche 2026-06-15: anadidos macOS Sierra/HighSierra/Mojave (10_12/13/14_0) y Win7,
-    //      la 2a generacion de UAs que adopto la flota. OJO: son UAs de escritorio cercanos a
-    //      usuarios reales -> van tras el gate de 5/60s (no ban instantaneo) para minimizar FP.
-    $_sg_old_ua_regex = "#(SM-G900P Build|Pixel 2 Build/OPD3|Nexus 5 Build/MRA58N|iPhone OS 11_0.*Chrome|Android 7\.0;\) AppleWebKit/537\.36 \(HTML, like Gecko\)|Mac OS X 10_1[234]_0\)|Windows NT 6\.1;)#";
+    // (4b) Heuristica UA antiguo del pool residencial movil + rate-limit 5/60s.
+    //      REVERTIDO 2026-06-25: se quitaron "Mac OS X 10_12/13/14" y "Windows NT 6.1" porque
+    //      cazaban HUMANOS REALES (Firefox 109/Win7 residencial: orange.es, comunitel con 8 acciones
+    //      de carrito). Win7 y macOS viejo son configs legitimas raras, no firma fiable de scraper.
+    //      Solo UAs moviles del pool original (validados contra la flota en mayo).
+    $_sg_old_ua_regex = "#(SM-G900P Build|Pixel 2 Build/OPD3|Nexus 5 Build/MRA58N|iPhone OS 11_0.*Chrome|Android 7\.0;\) AppleWebKit/537\.36 \(HTML, like Gecko\))#";
 
     if ($_sg_ua === "" || !preg_match($_sg_old_ua_regex, $_sg_ua) || $_sg_is_declared) {
         mysqli_close($_sg_link);

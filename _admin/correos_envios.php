@@ -98,6 +98,46 @@ function correosEnvEndpoint($params) {
 $action = $_POST['do'] ?? '';
 $shipId = (int) ($_POST['ship'] ?? 0);
 
+/* === Envio manual Correos (sin pedido): crea un envio libre y encola su etiqueta para la impresora === */
+if (($_POST['do'] ?? '') === 'crear_manual') {
+    if (!hash_equals($csrf, (string) ($_POST['csrf'] ?? ''))) {
+        $_SESSION['correos_flash'] = array('m' => 'Token CSRF invalido.', 'c' => 'danger');
+    } else {
+        $g = function ($k) { return trim((string) ($_POST[$k] ?? '')); };
+        $dname = $g('m_dname'); $dstreet = $g('m_dstreet'); $dcp = $g('m_dcp'); $dcity = $g('m_dcity');
+        $dstate = $g('m_dstate'); $dphone = $g('m_dphone'); $demail = $g('m_demail');
+        $mkilos = str_replace(',', '.', $g('m_kilos')); if ((float) $mkilos <= 0) $mkilos = '1';
+        $mbultos = max(1, min(10, (int) ($_POST['m_bultos'] ?? 1)));
+        $mref = $g('m_ref'); if ($mref === '') $mref = 'M-' . date('ymd-His') . '-' . substr(bin2hex(random_bytes(2)), 0, 4);
+        $mdvalue = str_replace(',', '.', $g('m_dvalue')); $mddesc = $g('m_ddesc');
+        if ($dname === '' || $dstreet === '' || $dcp === '' || $dcity === '') {
+            $_SESSION['correos_flash'] = array('m' => 'Faltan campos obligatorios: destinatario, direccion, CP y ciudad.', 'c' => 'danger');
+        } else {
+            $params = array('token' => CORREOS_ALB_TOKEN, 'free' => '1', 'ref' => $mref,
+                'dname' => $dname, 'dstreet' => $dstreet, 'dcp' => $dcp, 'dcity' => $dcity, 'dstate' => $dstate,
+                'dcountry' => 'ESP', 'dphone' => $dphone, 'demail' => $demail,
+                'kilos' => $mkilos, 'bultos' => $mbultos, 'type' => 'ZPL');
+            if ($mdvalue !== '' && (float) $mdvalue > 0) $params['dvalue'] = $mdvalue;
+            if ($mddesc !== '') $params['ddesc'] = $mddesc;
+            $ch = curl_init('https://www.francobordo.com/correos_albaran.php');
+            curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 120, CURLOPT_POST => 1,
+                CURLOPT_POSTFIELDS => http_build_query($params), CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2));
+            $raw = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
+            $resp = json_decode((string) $raw, true);
+            if (is_array($resp) && !empty($resp['ok']) && !empty($resp['shipmentCode'])) {
+                if (!empty($resp['zpl']))
+                    tep_db_perform('correos_reprint_queue', array('shipment_id' => 0, 'orders_id' => 0, 'zpl' => $resp['zpl'], 'done' => 0, 'date_added' => 'now()'));
+                $extra = empty($resp['zpl']) ? ' (sin ZPL: descarga el PDF / reimprime desde el listado).' : ' La etiqueta saldra por la impresora del almacen en ~1 min.';
+                $_SESSION['correos_flash'] = array('m' => 'Envio manual creado: <strong>' . htmlspecialchars($resp['shipmentCode']) . '</strong> (ref ' . htmlspecialchars($mref) . ').' . $extra, 'c' => 'success');
+            } else {
+                $why = is_array($resp) ? ($resp['error'] ?? 'respuesta no concluyente') : ('sin respuesta' . ($cerr ? ': ' . $cerr : ''));
+                $_SESSION['correos_flash'] = array('m' => 'No se pudo crear el envio manual: ' . htmlspecialchars($why), 'c' => 'danger');
+            }
+        }
+    }
+    tep_redirect(tep_href_link('correos_envios.php'));
+}
+
 if ($action !== '' && $shipId > 0) {
     if (!hash_equals($csrf, (string) ($_POST['csrf'] ?? ''))) {
         $msg = 'Sesión caducada o petición no válida. Recarga la página e inténtalo de nuevo.'; $msgClass = 'danger';
@@ -317,6 +357,29 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
     <a class="btn gris" href="?">Limpiar</a>
   </form>
 
+  <details style="margin:12px 0;border:1px solid #cde;border-radius:6px;padding:6px 14px;background:#f7fbff;">
+    <style>.cor-manual label{display:flex;flex-direction:column;font-size:12px;gap:3px;color:#333}.cor-manual input{width:100%}</style>
+    <summary style="cursor:pointer;font-weight:600;color:#2e7d32;">&#10010; Nuevo env&iacute;o manual Correos (sin pedido &mdash; RMA a proveedor, muestras, etc.)</summary>
+    <form class="cor-manual" method="post" onsubmit="var b=this.querySelector('button[type=submit]');if(b){b.disabled=true;b.textContent='Creando&hellip;';}" style="margin-top:10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;max-width:840px;">
+      <input type="hidden" name="do" value="crear_manual">
+      <input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
+      <label>Destinatario *<input type="text" name="m_dname" required></label>
+      <label>Direcci&oacute;n *<input type="text" name="m_dstreet" required></label>
+      <label>CP *<input type="text" name="m_dcp" required></label>
+      <label>Ciudad *<input type="text" name="m_dcity" required></label>
+      <label>Provincia<input type="text" name="m_dstate"></label>
+      <label>Tel&eacute;fono<input type="text" name="m_dphone"></label>
+      <label>Email<input type="text" name="m_demail"></label>
+      <label>Peso (kg)<input type="text" name="m_kilos" value="1"></label>
+      <label>Bultos<input type="number" name="m_bultos" value="1" min="1" max="10"></label>
+      <label style="grid-column:1/3;">Referencia / concepto <span style="color:#999;font-weight:normal">(aparece en la columna Pedido/RMA del listado y es buscable; d&eacute;jalo vac&iacute;o para auto)</span><input type="text" name="m_ref" placeholder="p.ej. RMA proveedor 123, n&ordm; factura, pedido relacionado&hellip;"></label>
+      <label>Valor declarado &euro; <span style="color:#999">(Canarias/Ceuta/Melilla)</span><input type="text" name="m_dvalue" placeholder="p.ej. 1234.56"></label>
+      <label>Contenido <span style="color:#999">(solo islas)</span><input type="text" name="m_ddesc" placeholder="p.ej. recambios nauticos"></label>
+      <div style="grid-column:1/3;margin-top:2px;color:#777;font-size:11px;">Solo destino nacional (Espa&ntilde;a), Paq Est&aacute;ndar a domicilio. Para Canarias/Ceuta/Melilla rellena <strong>valor y contenido</strong> (declaraci&oacute;n DUA obligatoria).</div>
+      <div style="grid-column:1/3;margin-top:4px;"><button class="btn verde" type="submit">Crear env&iacute;o y mandar etiqueta a la impresora</button></div>
+    </form>
+  </details>
+
   <?php
   $editEligible = $editRow && $editRow['tipo'] === 'envio' && empty($editRow['cancelled_at']) && $editRow['ok'] && correosEsWeb($editRow['orders_id']) && correosEnvModEligible(correosEnvTrackRow($editRow['ref'] ?? ''));
   if ($editRow && $editRow['tipo'] === 'envio' && empty($editRow['cancelled_at']) && !$editEligible): ?>
@@ -413,7 +476,7 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
         $encolado = !$s['cancelled_at'] && !empty($s['cancel_requested_at']);
         $hasPkg   = !empty($s['shipment_code']) || !empty($s['package_code']);   // hay algo que anular en Correos
         $cls = $s['cancelled_at'] ? 'anulado' : ($encolado ? 'cola' : (!$s['ok'] ? 'err' : ''));
-        $ref = $s['orders_id'] ? ('Pedido ' . (int) $s['orders_id']) : ($s['id_rma'] ? 'RMA ' . (int) $s['id_rma'] : '—');
+        $ref = $s['orders_id'] ? ('Pedido ' . (int) $s['orders_id']) : ($s['id_rma'] ? 'RMA ' . (int) $s['id_rma'] : (trim((string) $s['ref']) !== '' ? 'Manual <code>' . htmlspecialchars($s['ref']) . '</code>' : '—'));
         $trk = correosEnvTrackRow($s['ref']);
         if ($s['cancelled_at'])   $estado = '<span style="color:#c0392b">Anulado</span>';
         elseif ($encolado)        $estado = '<span style="color:#b9770e">Anulación pendiente</span>';

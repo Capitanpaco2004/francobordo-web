@@ -403,6 +403,9 @@ RewriteCond %{HTTP_REFERER} ^.*\.eu [NC]
 # automated fetchers (SalesManago, Google, Doofinder) using wget/curl UAs
 # can download the XML/TXT feeds. Added 2026-06-02 for SalesManago.
 RewriteCond %{REQUEST_URI} !^/fm-feeds/ [NC]
+# Exclude the SalesManago Web Push service worker so SM's consent-prompt
+# checker (bot/wget UA) can fetch /sw.js. Added 2026-06-05 for SalesManago.
+RewriteCond %{REQUEST_URI} !^/sw\.js [NC]
 RewriteRule ^.*$ https://www.google.com [R,L]
 RewriteCond %{HTTP_HOST} ^francobordo\.net$ [OR]
 RewriteCond %{HTTP_HOST} ^www\.francobordo\.net$

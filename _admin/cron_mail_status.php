@@ -97,7 +97,8 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
                         echo '<pre>Trustpilot: NO invitado pedido ' . (int) $oID . ' (' . ($tp_dup ? 'cliente ya invitado en cooldown' : ('tope mensual ' . $tp_usados . '/' . (int) TRUSTPILOT_MONTHLY_CAP)) . ')</pre>';
                     }
                 }
-                tep_mail($check_status['orders_status_name'], $check_status['customers_email_address'], EMAIL_TEXT_SUBJECT . ' (Nº de Pedido: ' . $oID . ')', $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS, false, $tp_bcc);
+                // 2026-06-25: el nombre del destinatario debe ser el del CLIENTE (antes iba orders_status_name = "Enviado", que ensucia el "To" y puede confundir al AFS de Trustpilot que lee ese header).
+                tep_mail($check_status['customers_firstname'], $check_status['customers_email_address'], EMAIL_TEXT_SUBJECT . ' (Nº de Pedido: ' . $oID . ')', $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS, false, $tp_bcc);
             }
             $sql = 'UPDATE orders_status_history SET customer_notified = 1 WHERE orders_status_history_id = ' . $check_status['orders_status_history_id'];
             tep_db_query($sql);
