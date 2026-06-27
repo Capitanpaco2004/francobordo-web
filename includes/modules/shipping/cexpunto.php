@@ -90,7 +90,15 @@ class cexpunto {
             $this->enabled = false;
             return array();
         }
-        $zona = (strncmp($cp, '07', 2) === 0) ? 'BAL' : 'PEN';
+        // El precio sigue al PUNTO elegido (a donde va realmente el paquete), no a la
+        // dirección del cliente: si ya hay punto en sesión usamos SU CP para la zona.
+        // checkout_shipping re-cotiza DESPUÉS de fijar el punto en sesión, así que el
+        // coste que se guarda/cobra es el correcto; el primer render usa el CP de entrega.
+        $cpZona = $cp;
+        if (!empty($_SESSION['cex_pudo_sel']['cp'])) {
+            $cpZona = preg_replace('/[^0-9]/', '', (string) $_SESSION['cex_pudo_sel']['cp']);
+        }
+        $zona = (strncmp($cpZona, '07', 2) === 0) ? 'BAL' : 'PEN';
         $base = self::costePorPeso($kg, $zona);   // coste sin IVA
 
         $iva = ($this->tax_class > 0)

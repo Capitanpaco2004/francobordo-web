@@ -89,6 +89,17 @@ if (isset($_SESSION['module_shipping_estimator'])) {
 										// data-price: el JS del checkout pisa el precio de la fila con el
 										// data-price de la opción seleccionada al cambiar cualquier select.
 										$sSeurPrice = $currencies->format(tep_add_tax($aMethod['cost'], isset($aQuote['tax']) ? $aQuote['tax'] : 0));
+										$sSeurIvaZ = isset($aQuote['tax']) ? $aQuote['tax'] : 0;
+										$kgSeurZ = (isset($GLOBALS['cart']) && is_object($GLOBALS['cart']) && method_exists($GLOBALS['cart'], 'show_weight')) ? (float) $GLOBALS['cart']->show_weight() : 0.0;
+										if ($kgSeurZ <= 0 && isset($GLOBALS['shipping_weight'])) $kgSeurZ = (float) $GLOBALS['shipping_weight'];
+										$seurPrecioZonaZ = function ($zona) use ($kgSeurZ, $sSeurIvaZ, $currencies, $sSeurPrice) {
+										    if ($kgSeurZ <= 0 || !class_exists('seurpunto')) return $sSeurPrice;
+										    $b = seurpunto::costePorPeso($kgSeurZ, $zona) * seurpunto::FUEL;
+										    $cir = round($b * (1 + $sSeurIvaZ / 100) / 0.05) * 0.05;
+										    $c = ($sSeurIvaZ > 0) ? ($cir / (1 + $sSeurIvaZ / 100)) : $cir;
+										    return $currencies->format(tep_add_tax($c, $sSeurIvaZ));
+										};
+										$sSeurPricePen = $seurPrecioZonaZ('PEN'); $sSeurPriceBal = $seurPrecioZonaZ('BAL');
 										echo '<label>' . TEXT_SELECT_SEUR_PUDO . '</label>';
 										// Buscador: permite recoger en OTRO código postal distinto al de entrega
 										echo '<div style="display:flex;gap:6px;margin:0 0 6px 0;align-items:center">';
@@ -96,10 +107,11 @@ if (isset($_SESSION['module_shipping_estimator'])) {
 										echo '<button type="button" id="seurPudoCpBtn" data-searching="' . htmlspecialchars(TEXT_SEUR_PUDO_CP_SEARCHING) . '" style="padding:6px 12px;cursor:pointer">' . TEXT_SEUR_PUDO_CP_SEARCH . '</button>';
 										echo '</div>';
 										echo '<input type="hidden" name="seur_pudo_cp" id="seurPudoCp" value="' . htmlspecialchars(trim($order->delivery['postcode'])) . '">';
-										echo '<select name="seur_pudo" id="seurPudoSelect" data-price="' . $sSeurPrice . '" data-empty-text="' . htmlspecialchars(TEXT_SEUR_PUDO_EMPTY) . '" data-choose-text="' . htmlspecialchars(TEXT_SELECT_SEUR_PUDO_CHOOSE) . '">';
+										echo '<select name="seur_pudo" id="seurPudoSelect" data-price="' . $sSeurPrice . '" data-price-pen="' . htmlspecialchars($sSeurPricePen) . '" data-price-bal="' . htmlspecialchars($sSeurPriceBal) . '" data-empty-text="' . htmlspecialchars(TEXT_SEUR_PUDO_EMPTY) . '" data-choose-text="' . htmlspecialchars(TEXT_SELECT_SEUR_PUDO_CHOOSE) . '">';
 										echo '<option value="" data-price="' . $sSeurPrice . '">' . TEXT_SELECT_SEUR_PUDO_CHOOSE . '</option>';
 										foreach ($aSeurPuntos as $aPto) {
-											echo '<option data-price="' . $sSeurPrice . '" value="' . htmlspecialchars($aPto['id']) . '"' . ($aPto['id'] == $sSeurSel ? ' selected' : '') . '>'
+											$sPtoZ = (substr((string) $aPto['cp'], 0, 2) === '07') ? $sSeurPriceBal : $sSeurPricePen;
+											echo '<option data-price="' . htmlspecialchars($sPtoZ) . '" value="' . htmlspecialchars($aPto['id']) . '"' . ($aPto['id'] == $sSeurSel ? ' selected' : '') . '>'
 												. htmlspecialchars($aPto['name'] . ' - ' . $aPto['address'] . ' (' . $aPto['cp'] . ' ' . $aPto['city'] . ')') . '</option>';
 										}
 										echo '</select>';
@@ -227,6 +239,7 @@ if ($bSeurPudoMap):
 		var elMsg = document.getElementById('seurPudoMsg');
 		if (!elSel) return;
 		var price = elSel.dataset.price || '';
+		var pricePen = elSel.dataset.pricePen || price, priceBal = elSel.dataset.priceBal || price;
 
 		// Reconstruir el select (manteniendo data-price para el JS del checkout)
 		elSel.innerHTML = '';
@@ -238,7 +251,7 @@ if ($bSeurPudoMap):
 			var o = document.createElement('option');
 			o.value = p.id;
 			o.textContent = p.name + ' - ' + p.address + ' (' + p.cp + ' ' + p.city + ')';
-			o.setAttribute('data-price', price);
+			o.setAttribute('data-price', (String(p.cp || '').replace(/[^0-9]/g, '').slice(0, 2) === '07') ? priceBal : pricePen);
 			elSel.appendChild(o);
 		});
 		if (elMsg) elMsg.style.display = puntos.length ? 'none' : 'block';

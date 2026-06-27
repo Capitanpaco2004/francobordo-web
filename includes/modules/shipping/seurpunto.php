@@ -76,7 +76,11 @@ class seurpunto {
 
         // Destino: España peninsular + Baleares (sin Canarias 35/38, Ceuta 51, Melilla 52).
         $iso = strtoupper((string) ($order->delivery['country']['iso_code_2'] ?? ''));
-        $cp  = trim((string) $order->delivery['postcode']);
+        // La zona/tarifa (PEN vs BAL) y el gate los marca el CP del PUNTO elegido
+        // (destino real del paquete); mientras no haya punto, la direccion de entrega.
+        $cpDir = preg_replace('/\D/', '', (string) $order->delivery['postcode']);
+        $cpPto = isset($_SESSION['seur_pudo_sel']['cp']) ? preg_replace('/\D/', '', (string) $_SESSION['seur_pudo_sel']['cp']) : '';
+        $cp = ($cpPto !== '') ? $cpPto : $cpDir;
         if ($iso !== 'ES' || preg_match('/^(35|38|51|52)/', $cp)) {
             $this->enabled = false;
             return array();
