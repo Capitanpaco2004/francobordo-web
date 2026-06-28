@@ -266,6 +266,11 @@ if (!$dryRun) {
             $bakDir = '/home/francobordo/backups';
             @mkdir($bakDir, 0755, true);
             $bakPath = $bakDir . '/ram_specials_purge_' . date('Ymd_His') . '.sql';
+            $freeBytes = @disk_free_space($bakDir);
+            if ($freeBytes !== false && $freeBytes < 100 * 1024 * 1024) {
+                ramLogMsg("WARN: poco espacio en $bakDir (" . round(($freeBytes ?: 0) / 1024 / 1024) . "MB libres, mínimo 100MB) — abortando DELETE de specials.");
+                throw new Exception("disco insuficiente para backup specials");
+            }
             $fh = @fopen($bakPath, 'w');
             if (!$fh) {
                 ramLogMsg("WARN: no pude crear backup en $bakDir — abortando DELETE de specials por seguridad.");
@@ -284,7 +289,13 @@ if (!$dryRun) {
                 fwrite($fh, "INSERT INTO specials (" . implode(',', $cols) . ") VALUES (" . implode(',', $vals) . ");\n");
             }
             fclose($fh);
-            ramLogMsg("Backup specials borrados: $bakPath (" . (@filesize($bakPath) ?: 0) . " bytes)");
+            $bakSize = @filesize($bakPath);
+            if ($bakSize === false || $bakSize < 100) {
+                @unlink($bakPath);
+                ramLogMsg("WARN: backup escrito vacío/truncado ($bakSize bytes) — abortando DELETE de specials.");
+                throw new Exception("backup specials truncado o vacío");
+            }
+            ramLogMsg("Backup specials borrados: $bakPath ($bakSize bytes)");
 
             $delStmt = tep_db_query("DELETE FROM specials WHERE specials_id IN ($idList)");
             ramLogMsg("Specials borrados: " . tep_db_affected_rows($delStmt));

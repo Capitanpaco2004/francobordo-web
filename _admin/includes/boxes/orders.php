@@ -10,6 +10,7 @@
 <?php echo tep_admin_files_boxes("arreglar_pedidos_qfac.php", "<i class=\"bullet\"></i> Arreglar pedidos QFac"); ?>
 <?php echo tep_admin_files_boxes('arreglar-pedidos-sin-ciudad.php', '<i class="bullet"></i> Arreglar pedidos sin ciudad'); ?>
 <?php echo tep_admin_files_boxes('seur_envios.php', '<i class="bullet"></i> Env&iacute;os SEUR'); ?>
+<?php echo tep_admin_files_boxes('cex_envios.php', '<i class="bullet"></i> Env&iacute;os Correos Express'); ?>
 <?php echo tep_admin_files_boxes('correos_envios.php', '<i class="bullet"></i> Env&iacute;os Correos'); ?>
 <div>
 	<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> RMA <i class="fa fa-angle-right"></i></a>

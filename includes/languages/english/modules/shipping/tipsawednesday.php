@@ -10,9 +10,9 @@
   Released under the GNU General Public License
 */
 
-define('MODULE_TIPSA_WEDNESDAY_TEXT_TITLE', 'Messaging 24 Hours (Saturdays) (Peninsula)');
+define('MODULE_TIPSA_WEDNESDAY_TEXT_TITLE', 'Correos Express - Saturday Delivery');
 define('MODULE_TIPSA_WEDNESDAY_TEXT_DESCRIPTION', 'Fees for sending by courier, with delivery on Saturday.<br /><b>Shipping Courier</b>');
-define('MODULE_TIPSA_WEDNESDAY_TEXT_WAY', 'Weight');
+define('MODULE_TIPSA_WEDNESDAY_TEXT_WAY', 'Delivered this Saturday');
 define('MODULE_TIPSA_WEDNESDAY_TEXT_UNITS', 'Kg');
 define('MODULE_TIPSA_WEDNESDAY_INVALID_ZONE', 'There is no available post for that zone.');
 define('MODULE_TIPSA_WEDNESDAY_UNDEFINED_RATE', 'Weight outside rate, please consult customer attention');

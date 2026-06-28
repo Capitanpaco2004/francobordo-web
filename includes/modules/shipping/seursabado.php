@@ -31,6 +31,7 @@ class seursabado
 
     /* Margen sobre el coste SEUR (1.30 = +30%). */
     const MARGEN = 1.30;
+    const FUEL = 1.1654;  // sobrecoste fuel SEUR 16,54% repercutido al cliente (2026-06-25)
 
     /* Complemento "Entrega en Sábado" (contrato 01/11/2025), sin IVA. */
     const COMPLEMENTO_SABADO = 11.42;
@@ -136,7 +137,7 @@ class seursabado
         // Precio: (tarifa 24h + 11,42) * 1,30; redondeo a 0,05 sobre el CON IVA.
         $base = self::costePorPeso($kg);
         if ($base === null) { $this->enabled = false; return array(); }
-        $base = $base * self::MARGEN;
+        $base = $base * self::MARGEN * self::FUEL;
 
         $iva = ($this->tax_class > 0)
             ? tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id'])

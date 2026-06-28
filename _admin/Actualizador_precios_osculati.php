@@ -626,6 +626,11 @@ if (!$dryRun) {
 			$bakDir = '/home/francobordo/backups';
 			@mkdir($bakDir, 0755, true);
 			$bakPath = $bakDir . '/osculati_specials_purge_' . date('Ymd_His') . '.sql';
+			$freeBytes = @disk_free_space($bakDir);
+			if ($freeBytes !== false && $freeBytes < 100 * 1024 * 1024) {
+				echo '<p style="color:#c33;font-weight:bold">WARN: poco espacio en ' . htmlspecialchars($bakDir) . ' (' . round(($freeBytes ?: 0) / 1024 / 1024) . 'MB libres, mínimo 100MB) — abortando DELETE de specials.</p>';
+				throw new Exception("disco insuficiente para backup specials");
+			}
 			$fh = @fopen($bakPath, 'w');
 			if ($fh) {
 				fwrite($fh, "-- Backup specials borrados por Actualizador_precios_osculati.php " . date('Y-m-d H:i:s') . "\n");
@@ -641,7 +646,13 @@ if (!$dryRun) {
 					fwrite($fh, "INSERT INTO specials (" . implode(',', $cols) . ") VALUES (" . implode(',', $vals) . ");\n");
 				}
 				fclose($fh);
-				echo '<p style="color:#393">Backup specials borrados: <code>' . htmlspecialchars($bakPath) . '</code> (' . (@filesize($bakPath) ?: 0) . ' bytes)</p>';
+				$bakSize = @filesize($bakPath);
+				if ($bakSize === false || $bakSize < 100) {
+					@unlink($bakPath);
+					echo '<p style="color:#c33;font-weight:bold">WARN: backup escrito vacío/truncado (' . (int)$bakSize . ' bytes) — abortando DELETE de specials.</p>';
+					throw new Exception("backup specials truncado o vacío");
+				}
+				echo '<p style="color:#393">Backup specials borrados: <code>' . htmlspecialchars($bakPath) . '</code> (' . $bakSize . ' bytes)</p>';
 			} else {
 				echo '<p style="color:#c33;font-weight:bold">WARN: no pude crear backup en ' . htmlspecialchars($bakDir) . ' — abortando DELETE de specials por seguridad.</p>';
 				throw new Exception('backup specials no escribible');

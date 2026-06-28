@@ -376,6 +376,23 @@ class correos_express {
     }
 
     /* ================================================================== *
+     *  Manifiesto / Informe de envíos (apiRestGeneracionInformes)         *
+     * ================================================================== */
+
+    /** Genera el informe/manifiesto PDF de una lista de envíos para una fecha.
+     *  @param string $fecha     dd-MM-yyyy (fecha de los envíos)
+     *  @param array  $nEnvios   números de envío (strings)
+     *  @param string $keyclifac código de facturación (por defecto el cliente)
+     *  Devuelve array normalizado; el PDF (base64) viene en data.result. */
+    public function generarInforme($fecha, array $nEnvios, $keyclifac = self::CLIENTE) {
+        return $this->post('apiRestGeneracionInformes/json/generarInforme', array(
+            'fecha'     => (string) $fecha,
+            'keyclifac' => (string) $keyclifac,
+            'nEnvios'   => array_values(array_map('strval', $nEnvios)),
+        ));
+    }
+
+    /* ================================================================== *
      *  Helpers para construir desde una fila de la tabla `rma`           *
      * ================================================================== */
 

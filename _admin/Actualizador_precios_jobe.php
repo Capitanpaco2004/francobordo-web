@@ -118,6 +118,11 @@ function jobePurgeSpecials(array $badSpecials) {
 	$bakDir = '/home/francobordo/backups';
 	@mkdir($bakDir, 0755, true);
 	$bakPath = $bakDir . '/jobe_specials_purge_' . date('Ymd_His') . '.sql';
+	$freeBytes = @disk_free_space($bakDir);
+	if ($freeBytes !== false && $freeBytes < 100 * 1024 * 1024) {
+		jobeLogMsg("WARN: poco espacio en $bakDir (" . round(($freeBytes ?: 0) / 1024 / 1024) . "MB libres, mínimo 100MB) — abortando DELETE de specials.");
+		throw new Exception("disco insuficiente para backup specials");
+	}
 	$fh = @fopen($bakPath, 'w');
 	if (!$fh) {
 		jobeLogMsg("WARN: no pude crear backup en $bakDir — abortando DELETE de specials por seguridad.");
@@ -136,7 +141,13 @@ function jobePurgeSpecials(array $badSpecials) {
 		fwrite($fh, "INSERT INTO specials (" . implode(',', $cols) . ") VALUES (" . implode(',', $vals) . ");\n");
 	}
 	fclose($fh);
-	jobeLogMsg("Backup specials borrados: $bakPath (" . (@filesize($bakPath) ?: 0) . " bytes)");
+	$bakSize = @filesize($bakPath);
+	if ($bakSize === false || $bakSize < 100) {
+		@unlink($bakPath);
+		jobeLogMsg("WARN: backup escrito vacío/truncado ($bakSize bytes) — abortando DELETE de specials.");
+		throw new Exception("backup specials truncado o vacío");
+	}
+	jobeLogMsg("Backup specials borrados: $bakPath ($bakSize bytes)");
 
 	$del = tep_db_query("DELETE FROM specials WHERE specials_id IN ($idList)");
 	if ($del === false) throw new Exception("delete specials falló");

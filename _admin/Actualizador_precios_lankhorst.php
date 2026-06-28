@@ -425,6 +425,11 @@ try {
 	    $bakDir = '/home/francobordo/backups';
 	    @mkdir($bakDir, 0755, true);
 	    $bakPath = $bakDir . '/lankhorst_specials_purge_' . date('Ymd_His') . '.sql';
+	    $freeBytes = @disk_free_space($bakDir);
+	    if ($freeBytes !== false && $freeBytes < 100 * 1024 * 1024) {
+	        logMsg("WARN: poco espacio en $bakDir (" . round(($freeBytes ?: 0) / 1024 / 1024) . "MB libres, mínimo 100MB) — abortando DELETE de specials.");
+	        throw new Exception("disco insuficiente para backup specials");
+	    }
 	    $fh = @fopen($bakPath, 'w');
 	    if ($fh) {
 	        fwrite($fh, "-- Backup specials borrados por Actualizador_precios_lankhorst.php " . date('Y-m-d H:i:s') . "\n");
@@ -440,7 +445,13 @@ try {
 	            fwrite($fh, "INSERT INTO specials (" . implode(',', $cols) . ") VALUES (" . implode(',', $vals) . ");\n");
 	        }
 	        fclose($fh);
-	        logMsg("Backup specials borrados: $bakPath (" . (@filesize($bakPath) ?: 0) . " bytes)");
+	        $bakSize = @filesize($bakPath);
+	        if ($bakSize === false || $bakSize < 100) {
+	            @unlink($bakPath);
+	            logMsg("WARN: backup escrito vacío/truncado ($bakSize bytes) — abortando DELETE de specials.");
+	            throw new Exception("backup specials truncado o vacío");
+	        }
+	        logMsg("Backup specials borrados: $bakPath ($bakSize bytes)");
 	    } else {
 	        logMsg("WARN: no pude crear backup en $bakDir — abortando DELETE de specials por seguridad.");
 	        throw new Exception("backup specials no escribible");

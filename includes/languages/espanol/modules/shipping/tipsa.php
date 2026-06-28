@@ -10,7 +10,7 @@ Copyright (c) 2002 osCommerce
 Released under the GNU General Public License
  */
 
-define('MODULE_TIPSA_TEXT_TITLE', 'Mensajería');
+define('MODULE_TIPSA_TEXT_TITLE', 'Correos Express');
 define('MODULE_TIPSA_TEXT_DESCRIPTION', 'Tarifas para envios mediante mensajeria.<br><b>Envio Mensajeria</b>');
 define('MODULE_TIPSA_TEXT_WAY', 'Gastos Envío');
 define('MODULE_TIPSA_TEXT_UNITS', '');

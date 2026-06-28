@@ -23,13 +23,15 @@ class tipsa
     {
         global $order, $shipping_weight, $shipping_num_boxes;
 
-        // SEUR 24 (La Linea 11300 / Torremolinos 29620) tiene prioridad: si SEUR 24 (modulo
-        // seur48, ahora B2C 31/2, SIN tope de peso) cubre este destino, NO mostrar Mensajeria (CEX) ahi.
-        if (defined('MODULE_SEUR48_STATUS') && MODULE_SEUR48_STATUS == 'True') {
-            $cp48  = preg_replace('/\s+/', '', (string) ($order->delivery['postcode'] ?? ''));
-            $iso48 = strtoupper((string) ($order->delivery['country']['iso_code_2'] ?? ''));
-            if ($iso48 === 'ES' && in_array($cp48, array('29620', '11300'), true)) {
-                return array();
+        // CPs restringidos para Correos Express (campo admin MODULE_TIPSA_CP_RESTRINGIDOS,
+        // separados por comas; admite prefijos: 29 = provincia, 29620 = ese CP): no ofrecer ahi.
+        if (defined('MODULE_TIPSA_CP_RESTRINGIDOS') && trim((string) MODULE_TIPSA_CP_RESTRINGIDOS) !== '') {
+            $cpR = preg_replace('/[^0-9]/', '', (string) ($order->delivery['postcode'] ?? ''));
+            if ($cpR !== '') {
+                foreach (explode(',', (string) MODULE_TIPSA_CP_RESTRINGIDOS) as $r) {
+                    $r = preg_replace('/[^0-9]/', '', $r);
+                    if ($r !== '' && strncmp($cpR, $r, strlen($r)) === 0) return array();
+                }
             }
         }
 
@@ -118,7 +120,7 @@ class tipsa
             }
 
             if (tep_not_null($this->icon)) {
-                $this->quotes['icon'] = 'shipping_furgoneta.png';
+                $this->quotes['icon'] = 'shipping_correos_exp.png';
             }
 
             if ($error == true) {
@@ -147,6 +149,7 @@ class tipsa
         tep_db_query("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, set_function, date_added) VALUES ('Activar TIPSA �Pack', 'MODULE_TIPSA_STATUS', 'True', '&iquest;Quiere activar el m&oacute;dulo de env&iacute;os TIPSA EuroPack?', '6', '0', 'tep_cfg_select_option(array(\'True\', \'False\'), ', now())");
         tep_db_query("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, use_function, set_function, date_added) values ('Tipo Impuesto', 'MODULE_TIPSA_TAX_CLASS', '0', 'Utilizar el siguiente tipo de impuesto para aplicar al env&iacute;o..', '6', '0', 'tep_get_tax_class_title', 'tep_cfg_pull_down_tax_classes(', now())");
         tep_db_query("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Orden Visualizaci&oacute;n', 'MODULE_TIPSA_SORT_ORDER', '0', 'El menor se visualiza primero.', '6', '0', now())");
+        tep_db_query("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('CPs restringidos', 'MODULE_TIPSA_CP_RESTRINGIDOS', '', 'Codigos postales separados por comas donde NO ofrecer Correos Express. Admite prefijos: 29 = provincia, 29620 = ese CP.', '6', '0', now())");
         for ($i = 1; $i <= $this->num_zones; $i++) {
             tep_db_query("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, use_function, set_function, date_added) values ('Zona " . $i . "', 'MODULE_TIPSA_COUNTRIES_" . $i . "', '0', 'Debe seleccionar una Zona de Impuestos para activar el m&eacute;todo de env&iacute;o sobre esta zona" . $i . ".', '6', '0', 'tep_get_zone_class_title', 'tep_cfg_pull_down_zone_classes(', now())");
             tep_db_query("insert into " . TABLE_CONFIGURATION . " (configuration_title, configuration_key, configuration_value, configuration_description, configuration_group_id, sort_order, date_added) values ('Zona " . $i . " Tabla Env&iacute;os', 'MODULE_TIPSA_COST_" . $i . "', '3:13.46,10:15.55,15:17.64,20:21.09,31:24.54', 'Tarifas Env&iacute;o para la zona " . $i . ". Precios basados por grupos de peso. Ejemplo: 3:13.46,10:15.55,... Pedidos con Peso < 3 tienen 13.46 Euros de gastos de env&iacute;o. Pedidos con Peso >= 3 y < 10 tienen 15.55 euros de gastos de env&iacute; para la Zona " . $i . ".', '6', '0', now())");
@@ -163,7 +166,7 @@ class tipsa
 
     public function keys()
     {
-        $keys = array('MODULE_TIPSA_STATUS', 'MODULE_TIPSA_TAX_CLASS', 'MODULE_TIPSA_SORT_ORDER');
+        $keys = array('MODULE_TIPSA_STATUS', 'MODULE_TIPSA_TAX_CLASS', 'MODULE_TIPSA_SORT_ORDER', 'MODULE_TIPSA_CP_RESTRINGIDOS');
 
         for ($i = 1; $i <= $this->num_zones; $i++) {
             $keys[] = 'MODULE_TIPSA_COUNTRIES_' . $i;

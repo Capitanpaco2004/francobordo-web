@@ -25,6 +25,7 @@ class seurnacional
 
     /* Margen sobre el coste SEUR (1.20 = +20%). */
     const MARGEN = 1.20;
+    const FUEL = 1.1654;  // sobrecoste fuel SEUR 16,54% repercutido al cliente (2026-06-25)
 
     /* Tarifa S-13:30 Península (coste sin IVA, contrato 01/11/2025). kg => €/exp. */
     const TARIFA_1330_PENINSULA = array(
@@ -118,7 +119,7 @@ class seurnacional
 
         // Precio: tarifa S-13:30 + 20% de margen; redondeo a 0,05 sobre el CON IVA.
         $kg   = (float) (isset($shipping_weight) ? $shipping_weight : $cart->show_weight());
-        $base = self::costePorPeso($kg) * self::MARGEN;
+        $base = self::costePorPeso($kg) * self::MARGEN * self::FUEL;
 
         $iva = ($this->tax_class > 0)
             ? tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id'])

@@ -10,7 +10,7 @@
   Released under the GNU General Public License
 */
 
-define('MODULE_TIPSA_TEXT_TITLE', 'Transportation Agency');
+define('MODULE_TIPSA_TEXT_TITLE', 'Correos Express');
 define('MODULE_TIPSA_TEXT_DESCRIPTION', 'Tarifas para envios mediante TIPSA.<br><b>Envio Mensajeria</b>');
 define('MODULE_TIPSA_TEXT_WAY', 'Shipping Cost');
 define('MODULE_TIPSA_TEXT_UNITS', '');
