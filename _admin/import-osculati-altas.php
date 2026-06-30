@@ -90,17 +90,40 @@ function generateInternalEan13($productId, $providerPrefix) {
 }
 
 
-function osculatiDownload($remotePath, $localPath) {
+/**
+ * Descarga vía la PASARELA HTTPS de Osculati (puerto 443), no FTP crudo (puerto 21).
+ * El FTP por protocolo (ftp://, puerto 21) dejó de responder ~2026-06-25; la pasarela
+ * https://fw.osculati.it/ftp/?u=..&p=..&path=.. sigue operativa (es la que usa el cron
+ * de stock import-osculati.php). Requiere seguir redirecciones + cookie de sesión.
+ */
+function osculatiHttpGet($path, $localPath, $minBytes = 1) {
+	$url = 'https://fw.osculati.it/ftp/?u=' . OSC_USER . '&p=' . OSC_PASS . '&path=' . $path;
+	$ck = sys_get_temp_dir() . '/osc_gw_cookie.txt';
 	$fp = fopen($localPath, 'wb');
-	$ch = curl_init(OSC_FTP_BASE . $remotePath);
-	curl_setopt($ch, CURLOPT_USERPWD, OSC_USER . ':' . OSC_PASS);
-	curl_setopt($ch, CURLOPT_FILE, $fp);
-	curl_setopt($ch, CURLOPT_TIMEOUT, 600);
+	if (!$fp) return false;
+	$ch = curl_init($url);
+	curl_setopt_array($ch, [
+		CURLOPT_FILE           => $fp,
+		CURLOPT_FOLLOWLOCATION => true,
+		CURLOPT_SSL_VERIFYPEER => false,
+		CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.6) Gecko/20070725 Firefox/2.0.0.6',
+		CURLOPT_COOKIEJAR      => $ck,
+		CURLOPT_COOKIEFILE     => $ck,
+		CURLOPT_COOKIESESSION  => true,
+		CURLOPT_TIMEOUT        => 600,
+		CURLOPT_CONNECTTIMEOUT => 20,
+	]);
 	$ok = curl_exec($ch);
+	$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+	curl_close($ch);
 	fclose($fp);
-	$ok = $ok && filesize($localPath) > 0;
+	$ok = $ok && $code === 200 && filesize($localPath) >= $minBytes;
 	if (!$ok) @unlink($localPath);
 	return $ok;
+}
+
+function osculatiDownload($remotePath, $localPath) {
+	return osculatiHttpGet($remotePath, $localPath, 1);
 }
 
 function readUtf16File($path) {
@@ -264,19 +287,7 @@ function findOrCreateOptionValue($nameEs, $nameEn = null) {
 
 function downloadImage($imgName, $targetPath) {
 	if ($imgName === '') return false;
-	$remotePath = OSC_IMG_FOLDER . rawurlencode($imgName);
-	$ch = curl_init(OSC_FTP_BASE . $remotePath);
-	$fp = fopen($targetPath, 'wb');
-	curl_setopt($ch, CURLOPT_USERPWD, OSC_USER . ':' . OSC_PASS);
-	curl_setopt($ch, CURLOPT_FILE, $fp);
-	curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-	$ok = curl_exec($ch);
-	fclose($fp);
-	if (!$ok || filesize($targetPath) < 100) {
-		@unlink($targetPath);
-		return false;
-	}
-	return true;
+	return osculatiHttpGet(OSC_IMG_FOLDER . rawurlencode($imgName), $targetPath, 100);
 }
 
 /**

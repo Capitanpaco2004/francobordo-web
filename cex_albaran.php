@@ -85,6 +85,7 @@ $type   = strtoupper(trim((string) ($in['type'] ?? 'BOTH')));
 if (!in_array($type, array('ZPL', 'PDF', 'BOTH'), true)) $type = 'BOTH';
 $dry    = (($in['dry'] ?? '') === '1');
 $svc    = strtolower(trim((string) ($in['svc'] ?? '')));
+$regen  = (($in['regen'] ?? '') === '1');  // "modificar envío" desde el panel: salta dedup + acepta overrides de dirección
 
 $free    = (($in['free'] ?? '') === '1');
 $freeRef = trim((string) ($in['ref'] ?? ''));
@@ -101,8 +102,9 @@ if ($r = $db->query("SELECT config_value FROM cex_config WHERE config_key='env'"
     if ($row = $r->fetch_assoc()) $env = ($row['config_value'] === 'test') ? 'test' : 'pro';
 }
 
-/* ---- Dedup: envio OK no anulado para este albaran/pedido EN ESTE ENTORNO ---- */
-if (!$free) {
+/* ---- Dedup: envio OK no anulado para este albaran/pedido EN ESTE ENTORNO ----
+ *      En "modificar" (regen=1) NO se deduplica: se fuerza un alta nueva. ---- */
+if (!$free && !$regen) {
     $st = $alb !== ''
         ? $db->prepare("SELECT * FROM cex_shipments WHERE albaran_id=? AND entorno=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1")
         : $db->prepare("SELECT * FROM cex_shipments WHERE orders_id=? AND entorno=? AND ok=1 AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1");
@@ -150,6 +152,15 @@ if ($manual || $free) {
     $shipMod = (string) ($o['shipping_module'] ?? '');
 }
 
+/* Overrides de "modificar envío" (panel): pisan la dirección/datos del pedido.
+ * En el flujo normal del watcher estos campos no llegan, así que no afectan. */
+foreach (array('delivery_name' => 'dname', 'delivery_street_address' => 'dstreet', 'delivery_city' => 'dcity',
+               'delivery_postcode' => 'dcp', 'delivery_state' => 'dstate', 'customers_telephone' => 'dphone',
+               'customers_email_address' => 'demail') as $col => $param) {
+    $ov = trim((string) ($in[$param] ?? ''));
+    if ($ov !== '') $o[$col] = $ov;
+}
+
 /* Pais -> ISO-2 (orders.delivery_country guarda el NOMBRE) */
 $iso = 'ES';
 $cty = trim((string) $o['delivery_country']);
@@ -176,20 +187,36 @@ if ($pudoOver !== '') {
     if ($row = $st->get_result()->fetch_assoc()) { $pudoId = (string) $row['pudo_id']; $pudoName = (string) $row['name']; }
 }
 
+$intl = ($iso !== 'ES');   // PT, Andorra, etc.: envio internacional terrestre
 $producto  = correos_express::PROD_PAQPUNTO; // se sobreescribe abajo
 $entrSabado = '';
 if ($pudoId !== '') {
-    $producto = '18';  // Paq Punto
+    $producto = '18';  // Paq Punto (solo nacional)
 } else {
     $producto = '93';  // ePaq24 domicilio
     if ($svc === 'sabado' || $shipMod === 'tipsawednesday_tipsawednesday') $entrSabado = 'S';
+}
+if ($intl) {
+    // Internacional (PT/Andorra): PAQ24 terrestre iberico (63). OJO: el CP destino debe ir
+    // en codPosIntDest; codPosNacDest valida formato espanol 99999 y rechaza 'NNNN-NNN'
+    // (error 23 "CP NACIONAL DESTINATARIO: FORMATO INCORRECTO").
+    $producto = correos_express::PROD_PAQ24;  // 63
+    $entrSabado = '';                          // entrega sabado no aplica fuera de ES
 }
 
 /* Referencia (la sigue el cron de tracking: F{oid}). QFac-nativo -> Q{oid}. */
 $ref = $free ? $freeRef : (($manual || ($oid > 0 && $oid < 10000000)) ? 'Q' . $oid : 'F' . $oid);
 
-$cpDest = preg_replace('/\s+/', '', (string) $o['delivery_postcode']);
+/* CP destino: el campo a veces viene sucio ("36201 VIGO", "08193 BELLATERRA").
+ * Internacional -> conserva formato (PT 'NNNN-NNN', sin espacios). Nacional -> los 5 digitos. */
+$cpRaw  = trim((string) $o['delivery_postcode']);
+$cpInt  = preg_replace('/\s+/', '', $cpRaw);
+$cpNac  = preg_match('/\d{5}/', $cpRaw, $mmcp) ? $mmcp[0] : preg_replace('/\D/', '', $cpInt);
+$cpDest = $intl ? $cpInt : $cpNac;
+/* CEX limita longitudes del destinatario: nomDest/contacDest 40, pobDest 30, dirDest 100.
+ * (errores "NOMBRE DESTINATARIO: SUPERA LOS 40 CARACTERES", etc.) */
 $nomDest = trim((string) $o['delivery_name']) ?: trim((string) ($o['delivery_company'] ?? ''));
+$nomDest = mb_substr($nomDest, 0, 40);
 
 /* ---- Payload grabacionEnvio ---- */
 $opt = array(
@@ -212,9 +239,10 @@ $opt = array(
     'emailRte'     => correos_express::FB_EMAIL,
     // Destinatario = pedido
     'nomDest'       => $nomDest,
-    'dirDest'       => trim((string) $o['delivery_street_address'] . ' ' . (string) ($o['delivery_suburb'] ?? '')),
-    'pobDest'       => trim((string) $o['delivery_city']),
-    'codPosNacDest' => $cpDest,
+    'dirDest'       => mb_substr(trim((string) $o['delivery_street_address'] . ' ' . (string) ($o['delivery_suburb'] ?? '')), 0, 100),
+    'pobDest'       => mb_substr(trim((string) $o['delivery_city']), 0, 30),
+    'codPosNacDest' => $intl ? '' : $cpDest,
+    'codPosIntDest' => $intl ? $cpDest : '',
     'paisISODest'   => $iso,
     'contacDest'    => $nomDest,
     'telefDest'     => preg_replace('/\s+/', '', (string) $o['customers_telephone']),
@@ -257,15 +285,22 @@ if (!empty($d['listaBultos'][0]) && is_array($d['listaBultos'][0])) {
         if (!empty($d['listaBultos'][0][$k])) { $ecb = (string) $d['listaBultos'][0][$k]; break; }
     }
 }
-/* CEX devuelve el ZPL en TEXTO PLANO en etiqueta2 (NO base64; solo etiqueta1/PDF es
- * base64). Robusto: si no parece ZPL, intentar base64 como respaldo. */
-$zplRaw = (string) ($d['etiqueta'][0]['etiqueta2'] ?? '');
-if (strpos($zplRaw, '^XA') !== false) {
-    $zpl = $zplRaw;
-} else {
-    $dec = base64_decode($zplRaw, true);
-    $zpl = ($dec !== false && strpos((string) $dec, '^XA') !== false) ? $dec : $zplRaw;
+/* CEX devuelve UNA etiqueta por bulto en la lista 'etiqueta'; el ZPL va en TEXTO PLANO
+ * en etiqueta2 (NO base64; solo etiqueta1/PDF es base64). Concatenamos TODOS los bultos
+ * (cada uno un bloque ^XA..^XZ) para que la impresora saque las N etiquetas. Robusto:
+ * si una entrada no parece ZPL, intentar base64 como respaldo. */
+$zpl = '';
+$labelsArr = (isset($d['etiqueta']) && is_array($d['etiqueta'])) ? $d['etiqueta'] : array();
+foreach ($labelsArr as $lab) {
+    $raw = is_array($lab) ? (string) ($lab['etiqueta2'] ?? '') : '';
+    if ($raw === '') continue;
+    if (strpos($raw, '^XA') === false) {
+        $dec = base64_decode($raw, true);
+        if ($dec !== false && strpos((string) $dec, '^XA') !== false) $raw = $dec;
+    }
+    $zpl .= $raw;
 }
+$nLabels = substr_count($zpl, '^XA');   // nº de etiquetas reales producidas
 
 /* Guardar etiqueta ZPL en dir privado (fuera de public_html) */
 $dir = '/home/francobordo/cex_labels/' . $oid . '/';
@@ -295,6 +330,7 @@ $newId = $db->insert_id;
 out(array(
     'ok' => true, 'dedup' => false, 'env' => $env, 'shipment_id' => $newId,
     'shipmentCode' => $numEnvio, 'ecb' => $ecb, 'ref' => $ref, 'producto' => $producto,
+    'bultos' => $bultos, 'labels' => $nLabels,
     'entrSabado' => $entrSabado, 'idPtoExterno' => $pudoId, 'tracking_url' => $trackingUrl,
     'zpl' => in_array($type, array('ZPL', 'BOTH')) ? $zpl : null,
 ));

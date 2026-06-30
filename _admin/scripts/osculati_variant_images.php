@@ -23,6 +23,7 @@ const OSC_USER     = 'C54293';
 const OSC_PASS     = '0XxBkWSb';
 const OSC_FTP_BASE = 'ftp://fw.osculati.it/';
 const OSC_IMG_FOLDER = 'IMG/800/';
+require_once __DIR__ . '/osculati_gateway.inc.php';
 const IMG_PROD = '/home/francobordo/public_html/images/productos/';
 const IMG_ATTR = '/home/francobordo/public_html/images/atributos/';
 const XT_LOCAL = '/tmp/Code2SerXml.txt';
@@ -45,11 +46,7 @@ function readUtf16File($path) {
 }
 if (!file_exists(XT_LOCAL)) {
     echo "Descargando Code2SerXml.txt...\n";
-    $ch = curl_init(OSC_FTP_BASE . 'ENG/Code2SerXml.txt');
-    curl_setopt_array($ch, [CURLOPT_USERPWD => OSC_USER . ':' . OSC_PASS, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 180]);
-    $d = curl_exec($ch);
-    if ($d === false || strlen($d) < 1000) { fwrite(STDERR, "FTP Code2SerXml falló\n"); exit(1); }
-    file_put_contents(XT_LOCAL, $d); unset($d);
+    if (!osculatiGw('ENG/Code2SerXml.txt', XT_LOCAL, 1000)) { fwrite(STDERR, "Descarga (pasarela HTTPS) falló\n"); exit(1); }
 }
 $imgByCode = [];
 foreach (readUtf16File(XT_LOCAL) as $r) {
@@ -64,12 +61,7 @@ echo "Code2SerXml: " . count($imgByCode) . " ítems con imagen\n\n";
 function ftpDownloadImg($code, $destPath) {
     $name = $code;
     if (!preg_match('/\.(jpg|jpeg|png|gif|webp)$/i', $name)) $name .= '.jpg';
-    $ch = curl_init(OSC_FTP_BASE . OSC_IMG_FOLDER . rawurlencode($name));
-    $fp = fopen($destPath, 'wb');
-    curl_setopt_array($ch, [CURLOPT_USERPWD => OSC_USER . ':' . OSC_PASS, CURLOPT_FILE => $fp, CURLOPT_TIMEOUT => 90]);
-    $ok = curl_exec($ch); fclose($fp);
-    if (!$ok || filesize($destPath) < 200) { @unlink($destPath); return false; }
-    return true;
+    return osculatiGw(OSC_IMG_FOLDER . rawurlencode($name), $destPath, 200);
 }
 
 /* ---- Variantes del producto ---- */

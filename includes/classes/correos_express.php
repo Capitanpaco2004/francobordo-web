@@ -209,6 +209,32 @@ class correos_express {
             $info['referenciaRecogida'] = (string) ($r['ref'] ?? ($o['ref'] ?? ''));
         }
 
+        // listaBultos: CEX exige UN elemento por bulto y que numBultos coincida con
+        // count(listaBultos) (si no -> "NUMERO DE BULTOS NO COINCIDE CON LOS BULTOS").
+        // Si el llamante no da el detalle por bulto, lo generamos repartiendo el peso
+        // total entre los N bultos (el resto al primero para que la suma cuadre).
+        $nb = max(1, (int) ($o['numBultos'] ?? 1));
+        if (!empty($o['listaBultos']) && is_array($o['listaBultos'])) {
+            $listaBultos = array_values($o['listaBultos']);
+            $nb = count($listaBultos);
+        } else {
+            $kTot = (float) str_replace(',', '.', $kilos);
+            if ($kTot <= 0) $kTot = (float) $nb;
+            $kBase = floor(($kTot / $nb) * 1000) / 1000;   // peso por bulto (3 dec)
+            if ($kBase <= 0) $kBase = 0.001;
+            $kRem  = round($kTot - $kBase * $nb, 3);        // resto -> primer bulto
+            $listaBultos = array();
+            for ($i = 1; $i <= $nb; $i++) {
+                $kb = $kBase + ($i === 1 ? $kRem : 0);
+                if ($kb <= 0) $kb = 0.001;
+                $listaBultos[] = array(
+                    'orden'   => (string) $i,
+                    'kilos'   => rtrim(rtrim(number_format($kb, 3, '.', ''), '0'), '.'),
+                    'alto'    => $alto, 'largo' => $largo, 'ancho' => $ancho, 'volumen' => $volumen,
+                );
+            }
+        }
+
         $req = array(
             'solicitante'   => self::SOLICITANTE,
             'canalEntrada'  => '',
@@ -244,7 +270,7 @@ class correos_express {
             'telefOtrs'     => '',
             'emailOtrs'     => '',
             'observac'      => (string) ($o['observac'] ?? ''),
-            'numBultos'     => (string) ($o['numBultos'] ?? '1'),
+            'numBultos'     => (string) $nb,
             'kilos'         => $kilos,
             'volumen'       => $volumen,
             'alto'          => $alto,
@@ -256,12 +282,9 @@ class correos_express {
             'entrSabado'    => (string) ($o['entrSabado'] ?? ''),
             'seguro'        => (string) ($o['seguro'] ?? ''),
             'numEnvioVuelta' => (string) ($o['numEnvioVuelta'] ?? ''),
-            // El validador estricto de CEX exige bulto completo: kilos + alto +
-            // largo + ancho + volumen (omitir volumen => 999 VALIDA_FORMATO_DATOS_GE).
-            'listaBultos'   => array(array(
-                'orden' => '1', 'kilos' => $kilos,
-                'alto' => $alto, 'largo' => $largo, 'ancho' => $ancho, 'volumen' => $volumen,
-            )),
+            // Un elemento por bulto (kilos + alto + largo + ancho + volumen). Construido
+            // arriba; numBultos == count(listaBultos). Omitir volumen => 999 VALIDA_FORMATO.
+            'listaBultos'   => $listaBultos,
             'password'      => '',
             'listaInformacionAdicional' => array($info ?: array('etiquetaPDF' => '')),
         );

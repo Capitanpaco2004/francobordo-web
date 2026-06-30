@@ -14,6 +14,13 @@ if (!defined('TRUSTPILOT_MONTHLY_CAP')) define('TRUSTPILOT_MONTHLY_CAP', 200);
 // No reinvitar al mismo cliente (email) dentro de este periodo en dias. 0 = sin cooldown.
 if (!defined('TRUSTPILOT_REINVITE_COOLDOWN_DAYS')) define('TRUSTPILOT_REINVITE_COOLDOWN_DAYS', 180);
 
+// Fallback Google (ficha Google Business Profile, Alcobendas): cuando se AGOTA el cupo mensual de
+// Trustpilot, a los clientes con envio <=24h que se habrian invitado se les anade en su lugar un
+// boton de resena de Google en el email de envio. Maps no tiene tope y es gratis. Vacio = desactivado.
+if (!defined('GOOGLE_REVIEW_URL')) define('GOOGLE_REVIEW_URL', 'https://search.google.com/local/writereview?placeid=ChIJNSqEzhAtQg0Rn7xA5nBG9uw');
+// No volver a pedir Google al mismo cliente (email) dentro de este periodo en dias. 0 = sin cooldown.
+if (!defined('GOOGLE_REINVITE_COOLDOWN_DAYS')) define('GOOGLE_REINVITE_COOLDOWN_DAYS', 180);
+
 $orders_status_array = array();
 $orders_status_query = tep_db_query("select orders_status_id, orders_status_name from " . TABLE_ORDERS_STATUS . " where language_id = '" . (int) $languages_id . "'");
 
@@ -95,8 +102,41 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
                         echo '<pre>Trustpilot: invitado pedido ' . (int) $oID . ' (' . ($tp_usados + 1) . '/' . (int) TRUSTPILOT_MONTHLY_CAP . ' este mes)</pre>';
                     } else {
                         echo '<pre>Trustpilot: NO invitado pedido ' . (int) $oID . ' (' . ($tp_dup ? 'cliente ya invitado en cooldown' : ('tope mensual ' . $tp_usados . '/' . (int) TRUSTPILOT_MONTHLY_CAP)) . ')</pre>';
+
+                        // Fallback Google: solo si NO se invito por haberse AGOTADO el cupo (no por cooldown),
+                        // el email es valido y el cliente no fue invitado recientemente a Trustpilot. Se le anade
+                        // el boton de resena de Google al email de envio (Maps no tiene tope y es gratis).
+                        if ($tp_email !== '' && $tp_dup == 0 && $tp_usados >= (int) TRUSTPILOT_MONTHLY_CAP
+                            && defined('GOOGLE_REVIEW_URL') && GOOGLE_REVIEW_URL !== '') {
+
+                            // Cooldown propio de Google: no volver a pedirselo al mismo cliente.
+                            $g_dup = ((int) GOOGLE_REINVITE_COOLDOWN_DAYS > 0)
+                                ? tep_db_num_rows(tep_db_query("SELECT 1 FROM google_review_invites WHERE customers_email_address = '" . tep_db_input($tp_email) . "' AND sent_at >= ( NOW() - INTERVAL " . (int) GOOGLE_REINVITE_COOLDOWN_DAYS . " DAY ) LIMIT 1"))
+                                : 0;
+
+                            if ($g_dup == 0) {
+                                $g_inner = '<div style="border-top:1px solid #eaeef1;padding-top:24px;"><div style="font-size:16px;font-weight:700;color:#00374d;margin-bottom:7px;font-family:Arial,Helvetica,sans-serif;">&iquest;Qu&eacute; te ha parecido tu compra?</div><div style="font-size:14px;color:#5f6b72;line-height:21px;margin-bottom:16px;font-family:Arial,Helvetica,sans-serif;">Tu opini&oacute;n nos ayuda much&iacute;simo. Si tienes un momento, cu&eacute;ntanoslo en Google:</div><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td align="center" style="border:2px solid #00374d;border-radius:8px;"><a href="' . GOOGLE_REVIEW_URL . '" target="_blank" style="display:inline-block;padding:11px 26px;font-size:14px;font-weight:700;color:#00374d;text-decoration:none;font-family:Arial,Helvetica,sans-serif;">&#9733; Valorar en Google</a></td></tr></table></div>';
+                                // Fila CTA: reemplaza el marcador <!--GOOGLE_CTA--> de la plantilla (queda debajo de "Ver mi pedido").
+                                $g_row = '<tr><td class="px" align="center" style="padding:8px 44px 0;">' . $g_inner . '</td></tr>';
+                                // Fallback con tabla propia, por si la plantilla no tuviera el marcador.
+                                $g_table = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;"><tr><td align="center" style="padding:26px 20px 32px;border-top:3px solid #00aff0;font-family:Arial,Helvetica,sans-serif;">' . $g_inner . '</td></tr></table>';
+                                if (strpos($email, '<!--GOOGLE_CTA-->') !== false) {
+                                    $email = str_replace('<!--GOOGLE_CTA-->', $g_row, $email);
+                                } elseif (strpos($email, '</body>') !== false) {
+                                    $email = str_replace('</body>', $g_table . '</body>', $email);
+                                } else {
+                                    $email .= $g_table;
+                                }
+                                tep_db_query("INSERT IGNORE INTO google_review_invites (orders_id, customers_email_address, sent_at) VALUES ('" . (int) $oID . "', '" . tep_db_input($tp_email) . "', NOW())");
+                                echo '<pre>Google: boton de resena anadido al envio del pedido ' . (int) $oID . '</pre>';
+                            } else {
+                                echo '<pre>Google: NO anadido pedido ' . (int) $oID . ' (cliente ya invitado a Google en cooldown)</pre>';
+                            }
+                        }
                     }
                 }
+                // Quita el marcador del CTA de Google si no se uso (todos los emails que no son fallback Google).
+                if (strpos($email, '<!--GOOGLE_CTA-->') !== false) { $email = str_replace('<!--GOOGLE_CTA-->', '', $email); }
                 // 2026-06-25: el nombre del destinatario debe ser el del CLIENTE (antes iba orders_status_name = "Enviado", que ensucia el "To" y puede confundir al AFS de Trustpilot que lee ese header).
                 tep_mail($check_status['customers_firstname'], $check_status['customers_email_address'], EMAIL_TEXT_SUBJECT . ' (Nº de Pedido: ' . $oID . ')', $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS, false, $tp_bcc);
             }

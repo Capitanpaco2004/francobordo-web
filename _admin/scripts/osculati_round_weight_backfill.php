@@ -17,6 +17,7 @@
 $apply = in_array('APPLY', $argv ?? [], true);
 
 const OSC_USER = 'C54293'; const OSC_PASS = '0XxBkWSb'; const OSC_FTP = 'ftp://fw.osculati.it/';
+require_once __DIR__ . '/osculati_gateway.inc.php';
 const VAT_RATE = 0.21;
 const OSC_MFG = 259;
 const G1_GROUP = 1;
@@ -81,9 +82,7 @@ echo "\n========== PARTE B: recálculo pesos (18 con prefix %) ==========\n";
 $ipFile = '/tmp/ItemPrice4Web_bf.txt';
 if (!file_exists($ipFile)) {
     echo "Descargando ItemPrice4Web.txt...\n";
-    $ch = curl_init(OSC_FTP . 'ItemPrice4Web.txt');
-    curl_setopt_array($ch, [CURLOPT_USERPWD=>OSC_USER.':'.OSC_PASS, CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>150]);
-    $d = curl_exec($ch); if ($d===false||strlen($d)<1000){echo "FTP falló\n"; exit(1);} file_put_contents($ipFile,$d); unset($d);
+    if (!osculatiGw('ItemPrice4Web.txt', $ipFile, 1000)) { echo "Descarga (pasarela HTTPS) falló\n"; exit(1); }
 }
 $raw = file_get_contents($ipFile);
 $u8 = ltrim(mb_convert_encoding($raw, 'UTF-8', 'UTF-16LE'), "\xEF\xBB\xBF\xFF\xFE"); unset($raw);

@@ -14,12 +14,21 @@
 require 'includes/application_top.php';
 set_time_limit(60);
 
+/* No cachear el panel en el navegador: el form "Modificar" se abre por GET (?modify=)
+ * y, sin estas cabeceras, algunos navegadores servían una copia antigua del formulario
+ * (sin los campos de dirección/CP) -> el operario "no podía modificar la dirección". */
+if (!headers_sent()) {
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+}
+
 function cexEnvEnv() {
     $q = tep_db_query("SELECT config_value FROM cex_config WHERE config_key = 'env'");
     if ($q && tep_db_num_rows($q)) { $v = tep_db_fetch_array($q); return ($v['config_value'] === 'test') ? 'test' : 'pro'; }
     return 'pro';
 }
 $env = cexEnvEnv();
+define('CEX_ALB_TOKEN', 'cexalb_8b3e6d1f4a92');   // token del generador cex_albaran.php
 $msg = ''; $msgClass = '';
 
 if (empty($_SESSION['cex_csrf'])) $_SESSION['cex_csrf'] = tep_create_random_value(32);
@@ -90,6 +99,39 @@ if ($action !== '' && $shipId > 0) {
                 tep_db_query('UPDATE cex_shipments SET cancelled_at = NOW() WHERE id = ' . (int) $row['id']);
                 $msg = 'Envío ' . htmlspecialchars((string) $row['shipment_code']) . ' marcado como ANULADO (local).'; $msgClass = 'success';
             }
+        } elseif ($action === 'modify') {
+            /* Regenera el envío con datos corregidos. CEX no permite anular un envío de
+             * salida por API, así que: creamos uno NUEVO (regen, misma ref F{oid}), lo
+             * reencolamos para imprimir, y marcamos el viejo anulado en LOCAL. El operario
+             * debe descartar la etiqueta antigua (su nº de envío queda como fantasma). */
+            $oidM = (int) $row['orders_id'];
+            if ($oidM <= 0) { $msg = 'Solo se pueden modificar envíos de pedidos web.'; $msgClass = 'error'; }
+            else {
+                $kilosM  = (float) str_replace(',', '.', (string) ($_POST['m_kilos'] ?? $row['kilos']));
+                if ($kilosM <= 0) $kilosM = 1;
+                $bultosM = max(1, (int) ($_POST['m_bultos'] ?? 1));
+                $params = array('token' => CEX_ALB_TOKEN, 'oid' => $oidM, 'kilos' => $kilosM, 'bultos' => $bultosM,
+                                'regen' => '1', 'type' => 'ZPL', 'albaran' => (string) $row['albaran_id']);
+                foreach (array('dname', 'dstreet', 'dcp', 'dcity', 'dphone', 'demail') as $f) {
+                    $v = trim((string) ($_POST['m_' . $f] ?? ''));
+                    if ($v !== '') $params[$f] = $v;
+                }
+                $url = 'https://www.francobordo.com/cex_albaran.php?' . http_build_query($params);
+                $ctx = stream_context_create(array('http' => array('timeout' => 75), 'ssl' => array('verify_peer' => false, 'verify_peer_name' => false)));
+                $raw = @file_get_contents($url, false, $ctx);
+                $resp = $raw ? json_decode($raw, true) : null;
+                if (is_array($resp) && !empty($resp['ok']) && !empty($resp['zpl'])) {
+                    tep_db_perform('cex_reprint_queue', array(
+                        'shipment_id' => (int) ($resp['shipment_id'] ?? 0), 'orders_id' => $oidM,
+                        'zpl' => $resp['zpl'], 'done' => 0, 'date_added' => 'now()'));
+                    tep_db_query('UPDATE cex_shipments SET cancelled_at = NOW() WHERE id = ' . (int) $row['id']);
+                    $msg = 'Envío regenerado (nuevo nº ' . htmlspecialchars((string) ($resp['shipmentCode'] ?? '?')) . ', ' . number_format($kilosM, 2) . ' kg, ' . $bultosM . ' bultos). Etiqueta reencolada para imprimir. ⚠️ El envío anterior NO se puede anular en CEX — descarta la etiqueta antigua.';
+                    $msgClass = 'success';
+                } else {
+                    $err = is_array($resp) ? (string) ($resp['error'] ?? ('cod ' . ($resp['cod'] ?? '?'))) : 'sin respuesta del generador';
+                    $msg = 'No se pudo regenerar el envío: ' . htmlspecialchars($err) . ' (el envío original sigue como estaba).'; $msgClass = 'error';
+                }
+            }
         }
     }
     $_SESSION['cex_flash'] = array('m' => $msg, 'c' => $msgClass);
@@ -116,6 +158,15 @@ while ($r = tep_db_fetch_array($q)) $rows[] = $r;
 /* nº pendientes en cola de reimpresión */
 $qp = tep_db_fetch_array(tep_db_query('SELECT COUNT(*) c FROM cex_reprint_queue WHERE done = 0'));
 $pendImpr = (int) ($qp['c'] ?? 0);
+
+/* Fila en modificación + dirección del pedido para prefijar el formulario. */
+$modRow = null; $modAddr = array();
+if (isset($_GET['modify']) && (int) $_GET['modify'] > 0) {
+    $modRow = tep_db_fetch_array(tep_db_query('SELECT * FROM cex_shipments WHERE id = ' . (int) $_GET['modify']));
+    if ($modRow && (int) $modRow['orders_id'] > 0) {
+        $modAddr = tep_db_fetch_array(tep_db_query("SELECT delivery_name, delivery_street_address, delivery_suburb, delivery_postcode, delivery_city, customers_telephone, customers_email_address FROM " . TABLE_ORDERS . " WHERE orders_id = " . (int) $modRow['orders_id'])) ?: array();
+    }
+}
 ?>
 <?php require THEME . 'html/header.php'; ?>
 <style>
@@ -150,6 +201,32 @@ $pendImpr = (int) ($qp['c'] ?? 0);
   </div>
 
   <?php if ($msg !== ''): ?><div class="flash <?php echo htmlspecialchars($msgClass); ?>"><?php echo $msg; ?></div><?php endif; ?>
+
+  <?php if ($modRow): ?>
+  <div style="border:1px solid #27a5d2;border-radius:5px;padding:12px;margin:10px 0;background:#f0f9fd">
+    <strong>✎ Modificar envío #<?php echo (int) $modRow['id']; ?> &mdash; pedido <?php echo (int) $modRow['orders_id']; ?> (ref <?php echo htmlspecialchars((string) $modRow['ref']); ?>, actual <?php echo htmlspecialchars((string) $modRow['shipment_code']); ?>)</strong>
+    <p class="muted" style="font-size:12px;margin:4px 0">Corrige peso/bultos/dirección y regenera la etiqueta. El envío actual se marca anulado en local y se reencola la nueva para imprimir. <strong>⚠️ El envío anterior NO se puede anular en CEX</strong> — descarta la etiqueta antigua (su nº de envío queda sin uso).</p>
+    <form method="post">
+      <input type="hidden" name="do" value="modify"><input type="hidden" name="ship" value="<?php echo (int) $modRow['id']; ?>"><input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px">
+        <label>Kilos <input type="text" name="m_kilos" value="<?php echo htmlspecialchars((string) $modRow['kilos']); ?>" style="width:60px;padding:3px"></label>
+        <label>Bultos <input type="number" name="m_bultos" value="1" min="1" style="width:55px;padding:3px"></label>
+      </div>
+      <div style="font-size:12px;color:#888;margin:8px 0 3px">Dirección (editable; deja como está si no cambia):</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:13px">
+        <input type="text" name="m_dname" value="<?php echo htmlspecialchars((string) ($modAddr['delivery_name'] ?? '')); ?>" placeholder="Nombre" style="width:210px;padding:3px">
+        <input type="text" name="m_dstreet" value="<?php echo htmlspecialchars(trim((string) ($modAddr['delivery_street_address'] ?? '') . ' ' . (string) ($modAddr['delivery_suburb'] ?? ''))); ?>" placeholder="Dirección" style="width:280px;padding:3px">
+        <input type="text" name="m_dcp" value="<?php echo htmlspecialchars((string) ($modAddr['delivery_postcode'] ?? '')); ?>" placeholder="CP" style="width:70px;padding:3px">
+        <input type="text" name="m_dcity" value="<?php echo htmlspecialchars((string) ($modAddr['delivery_city'] ?? '')); ?>" placeholder="Población" style="width:170px;padding:3px">
+        <input type="text" name="m_dphone" value="<?php echo htmlspecialchars((string) ($modAddr['customers_telephone'] ?? '')); ?>" placeholder="Teléfono" style="width:110px;padding:3px">
+      </div>
+      <div style="margin-top:10px">
+        <button class="btn azul" type="submit" onclick="return confirm('¿Regenerar la etiqueta? El envío actual quedará anulado en local.');">Regenerar etiqueta</button>
+        <a class="btn" style="background:#888" href="<?php echo tep_href_link('cex_envios.php'); ?>">Cancelar</a>
+      </div>
+    </form>
+  </div>
+  <?php endif; ?>
 
   <form method="get" class="filtros">
     Estado:
@@ -190,6 +267,7 @@ $pendImpr = (int) ($qp['c'] ?? 0);
               <input type="hidden" name="do" value="cancel"><input type="hidden" name="ship" value="<?php echo (int) $s['id']; ?>"><input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
               <button class="btn rojo" type="submit">✕ Anular</button>
             </form>
+            <a class="btn" style="background:#2e9e44" href="<?php echo tep_href_link('cex_envios.php', 'modify=' . (int) $s['id']); ?>">✎ Modificar</a>
           <?php elseif ($s['cancelled_at']): ?>
             <span class="muted">anulado <?php echo htmlspecialchars((string) $s['cancelled_at']); ?></span>
           <?php else: ?><span class="muted">—</span><?php endif; ?>

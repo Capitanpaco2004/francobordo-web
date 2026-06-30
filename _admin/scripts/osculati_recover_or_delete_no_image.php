@@ -17,20 +17,12 @@ const OSC_USER = 'C54293';
 const OSC_PASS = '0XxBkWSb';
 const OSC_FTP_BASE = 'ftp://fw.osculati.it/';
 const OSC_IMG_FOLDER = 'IMG/800/';
+require_once __DIR__ . '/osculati_gateway.inc.php';
 const IMG_ABS_DIR = '/home/francobordo/public_html/images/productos/';
 
 function downloadImage($imgName, $targetPath) {
 	if ($imgName === '') return false;
-	$remotePath = OSC_IMG_FOLDER . rawurlencode($imgName);
-	$ch = curl_init(OSC_FTP_BASE . $remotePath);
-	$fp = fopen($targetPath, 'wb');
-	curl_setopt($ch, CURLOPT_USERPWD, OSC_USER . ':' . OSC_PASS);
-	curl_setopt($ch, CURLOPT_FILE, $fp);
-	curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-	$ok = curl_exec($ch);
-	fclose($fp);
-	if (!$ok || filesize($targetPath) < 100) { @unlink($targetPath); return false; }
-	return true;
+	return osculatiGw(OSC_IMG_FOLDER . rawurlencode($imgName), $targetPath, 100);
 }
 
 function imageCandidates($img, $sug) {
@@ -63,13 +55,7 @@ function slugify($s) {
 $codeFile = '/tmp/Code2Ser.txt';
 if (!file_exists($codeFile) || filesize($codeFile) < 1000000) {
 	echo "Descargando ENG/Code2Ser.txt...\n";
-	$ch = curl_init(OSC_FTP_BASE . 'ENG/Code2Ser.txt');
-	$fp = fopen($codeFile, 'wb');
-	curl_setopt($ch, CURLOPT_USERPWD, OSC_USER . ':' . OSC_PASS);
-	curl_setopt($ch, CURLOPT_FILE, $fp);
-	curl_setopt($ch, CURLOPT_TIMEOUT, 120);
-	curl_exec($ch);
-	fclose($fp);
+	osculatiGw('ENG/Code2Ser.txt', $codeFile, 1000000);
 }
 $raw = file_get_contents($codeFile);
 $raw = mb_convert_encoding($raw, 'UTF-8', 'UTF-16LE');

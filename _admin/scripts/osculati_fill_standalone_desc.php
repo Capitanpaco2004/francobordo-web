@@ -28,19 +28,13 @@ foreach (($argv ?? []) as $a) if (preg_match('/^LIMIT=(\d+)$/i', $a, $mm)) $limi
 const OSC_USER = 'C54293';
 const OSC_PASS = '0XxBkWSb';
 const OSC_FTP_BASE = 'ftp://fw.osculati.it/';
+require_once __DIR__ . '/osculati_gateway.inc.php';
 const LLM_URL   = 'http://217.127.199.171:28001/v1/chat/completions';
 const LLM_MODEL = 'qwen36-sakamaki-nvfp4';
 const LLM_PROMPT = 'Eres un traductor profesional de italiano/inglés a español especializado en productos náuticos y de pesca. Traduce con terminología técnica náutica precisa en español de España. Mantén las etiquetas HTML si las hay. Responde SOLO con la traducción, sin comentarios ni explicaciones.';
 
 function ftpDownload($remote, $local) {
-	$ch = curl_init(OSC_FTP_BASE . $remote);
-	$fp = fopen($local, 'wb');
-	curl_setopt_array($ch, [CURLOPT_USERPWD => OSC_USER . ':' . OSC_PASS, CURLOPT_FILE => $fp, CURLOPT_TIMEOUT => 180]);
-	$ok = curl_exec($ch);
-	$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	curl_close($ch);
-	fclose($fp);
-	return $ok !== false && filesize($local) > 1000;
+	return osculatiGw($remote, $local, 1000);
 }
 
 function readUtf16($path) {

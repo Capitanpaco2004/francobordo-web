@@ -20,6 +20,7 @@ $apply = in_array('APPLY', $argv ?? [], true);
 const OSC_USER     = 'C54293';
 const OSC_PASS     = '0XxBkWSb';
 const OSC_FTP_BASE = 'ftp://fw.osculati.it/';
+require_once __DIR__ . '/osculati_gateway.inc.php';
 const LLM_URL      = 'http://217.127.199.171:28001/v1/chat/completions';
 const LLM_MODEL    = 'qwen36-sakamaki-nvfp4';
 const LANG_ES = 3;
@@ -49,12 +50,7 @@ function readUtf16File($path) {
 }
 $xtFile = sys_get_temp_dir() . '/Code2SerXml_backfill.txt';
 echo "Descargando Code2SerXml.txt...\n";
-$ch = curl_init(OSC_FTP_BASE . 'ENG/Code2SerXml.txt');
-curl_setopt_array($ch, [CURLOPT_USERPWD => OSC_USER . ':' . OSC_PASS, CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 180]);
-$data = curl_exec($ch);
-if ($data === false || strlen($data) < 1000) { fwrite(STDERR, "FTP download falló\n"); exit(1); }
-file_put_contents($xtFile, $data);
-unset($data);
+if (!osculatiGw('ENG/Code2SerXml.txt', $xtFile, 1000)) { fwrite(STDERR, "Descarga (pasarela HTTPS) falló\n"); exit(1); }
 $xtMap = [];
 foreach (readUtf16File($xtFile) as $r) {
     if (count($r) < 5) continue;

@@ -322,8 +322,8 @@ define('BOX_FAQ_MANAGER', 'Faq manager');
 define('BOX_TOOLS_NEWS_MANAGER', 'Support News');
 
 // Politicas
-define('EMAIL_POLITICA', 'De acuerdo con lo establecido en la ley Orgánica 15/1999, de 13 de diciembre, de Protección de datos de carácter personal, le informamos que sus datos personales incluidos en nuestra base de datos, forman parte de un fichero automatizado responsabilidad de la empresa y que se encuentra registrado en la Agencia Española de Protección de Datos. Estos Datos Personales solamente serán utilizados para realizar una correcta Gestión de nuestra Relación Comercial. Si lo desean,podrán ejercitar en todo momento los derechos de acceso,rectificación,cancelación y, en su caso, el de oposición, dirigiéndose por correo electronico a info@francobordo.com o al teléfono 916 528 858.');
-define('PIE_EMAIL', 'Calle San Rafael nº 8. Alcobenda. 28108 MADRID<br>+34 916 528 858 info@francobordo.com<br>Copyright © ' . date('Y') . '   www.francobordo.com');
+define('EMAIL_POLITICA', 'En cumplimiento del Reglamento (UE) 2016/679 (RGPD) y la Ley Org&aacute;nica 3/2018, de 5 de diciembre (LOPDGDD), le informamos de que sus datos personales son tratados por Francobordo como responsable del tratamiento, con la finalidad de gestionar su pedido y la relaci&oacute;n comercial. Puede ejercer sus derechos de acceso, rectificaci&oacute;n, supresi&oacute;n, oposici&oacute;n, limitaci&oacute;n y portabilidad escribiendo a info@francobordo.com o llamando al 916 528 858. M&aacute;s informaci&oacute;n en nuestra Pol&iacute;tica de Privacidad: https://www.francobordo.com/politica-de-privacidad-i-15.html');
+define('PIE_EMAIL', 'Calle San Rafael nº 8. Alcobendas. 28108 MADRID<br>+34 916 528 858 info@francobordo.com<br>Copyright © ' . date('Y') . '   www.francobordo.com');
 
 define('BOX_TAXES_GEO_ZONES_TYPE', 'Type Zones');
 define('TEXT_YES', 'Yes');
