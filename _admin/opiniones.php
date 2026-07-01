@@ -257,7 +257,7 @@ switch( $sAction )
 			$oInfo->addProperties( $aDato );
 
 			// Saltos, br
-			$oInfo->opinion = str_replace( '<br />', chr(13), $oInfo->opinion );
+			$oInfo->opinion = str_replace( '<br />', chr(13), (string)( $oInfo->opinion ?? '' ) );
 		}
 
 		// Lenguaje

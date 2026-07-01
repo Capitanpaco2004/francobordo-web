@@ -219,9 +219,19 @@ class correosoficina {
         $lon = $sug['suggestions'][0]['longitude'] ?? null;
         if ($lat === null || $lon === null) return array();
 
-        // 2) oficinas por lat/lon (¡minúscula!). El endpoint a veces devuelve vacío
-        //    aunque haya oficinas → reintentar hasta 4 veces antes de rendirse.
+        // 2) oficinas por lat/lon (¡minúscula!). Primero radio normal; si NO sale ninguna oficina
+        //    válida (CP de pueblo sin oficina propia → el localizador solo da enlaces rurales que
+        //    se filtran), reintentar ampliando a 20 km (&distance) para dar con la más cercana.
         $officesUrl = self::LOC_BASE . 'offices?latitude=' . rawurlencode($lat) . '&longitude=' . rawurlencode($lon);
+        $out = self::fetchOficinas($officesUrl);
+        if (!$out) $out = self::fetchOficinas($officesUrl . '&distance=20000');
+        if ($out) @file_put_contents($cacheFile, json_encode($out, JSON_UNESCAPED_UNICODE));
+        return array_slice($out, 0, $limit);
+    }
+
+    /** Descarga (con reintentos por respuesta vacía transitoria), ordena por distancia y filtra
+     *  (excluye unidades de reparto rural) las oficinas que devuelve una URL del localizador. */
+    private static function fetchOficinas($officesUrl) {
         $list = array();
         for ($try = 0; $try < 4 && !$list; $try++) {
             if ($try > 0) usleep(300000);   // 0,3 s
@@ -251,8 +261,7 @@ class correosoficina {
             );
             if (count($out) >= 30) break;
         }
-        if ($out) @file_put_contents($cacheFile, json_encode($out, JSON_UNESCAPED_UNICODE));
-        return array_slice($out, 0, $limit);
+        return $out;
     }
 
     /** Resuelve una oficina por su id contra la lista del CP (anti-tampering). */

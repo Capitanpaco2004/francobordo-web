@@ -159,7 +159,7 @@
 
 					// Si no contemos description
 					if( $aMetas['description'] == '' )
-						$aMetas['description'] = trim( substr( preg_replace("/[\n|\r|\n\r]/", ' ', strip_tags( $aDatos['information_description'] )), 0, 350) );
+						$aMetas['description'] = trim( substr( preg_replace("/[\n|\r|\n\r]/", ' ', strip_tags( preg_replace('/\[\/?[a-z0-9_]+(?:[^\]]*)?\]/i', '', (string)$aDatos['information_description']) )), 0, 350) );
 				}
 			}
 		}

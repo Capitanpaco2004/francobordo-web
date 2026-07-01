@@ -59,6 +59,9 @@ class PriceFormatter {
 
       $product_info_query = tep_db_query($sql);
       $product_info = tep_db_fetch_array($product_info_query);
+      // Si el producto no existe en ese idioma, fetch devuelve false; escribir claves en false
+      // dispara "Automatic conversion of false to array" (PHP 8.1+). Normalizamos a array.
+      if (!is_array($product_info)) $product_info = [];
 
   if ($this->cg_id != '0') {
   // re-set qty blocks and min order qty to 1: do not use values for retail customers

@@ -163,10 +163,11 @@ if( tep_not_null($action) )
 				error_reporting(E_ALL);
 
 				// Gateways con devolucion soportada:
-				//  - Redsys (transaccion tipo 3): redsys, bizum, redsys_xpay (Apple/Google Pay via Redsys, mismo terminal)
-				//  - PayPal NVP legacy: paypal (paypal_express)
+				//  - Redsys (transaccion tipo 3): redsys, redsys1 (pago en 1 click), bizum, redsys_xpay
+				//    (Apple/Google Pay via Redsys) — TODOS comparten FUC/terminal/clave (285582425 / term 8).
+				//  - PayPal NVP legacy: paypal, paypal_express
 				//  - PayPal REST (refund de capture): paypal_rest, paypal_applepay, paypal_googlepay
-				$allowed = ['redsys', 'bizum', 'redsys_xpay', 'paypal', 'paypal_rest', 'paypal_applepay', 'paypal_googlepay'];
+				$allowed = ['redsys', 'redsys1', 'bizum', 'redsys_xpay', 'paypal', 'paypal_express', 'paypal_rest', 'paypal_applepay', 'paypal_googlepay'];
 
 				if (!class_exists("RedsysAPI")) {
 					require_once '../includes/modules/payment/apiRedsys/apiRedsysFinal.php';
@@ -185,7 +186,7 @@ if( tep_not_null($action) )
 					tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$_GET['oID'] . '&action=edit'));
 				}
 
-				if (in_array($order['module'], ['redsys', 'bizum', 'redsys_xpay'])) {
+				if (in_array($order['module'], ['redsys', 'redsys1', 'bizum', 'redsys_xpay'])) {
 					if ($_GET['amount'] > $order['amount']) {
 						$_GET['amount'] = $order['amount'];
 					}
@@ -304,7 +305,7 @@ if( tep_not_null($action) )
 					} else {
 						$messageStack->add_session('Ha ocurrido un error al generar la devolución.', 'error');
 					}
-				} */elseif(in_array($order['module'], ['paypal'])) {
+				} */elseif(in_array($order['module'], ['paypal', 'paypal_express'])) {
 
 					if ($_GET['amount'] > $order['amount']) {
 						$_GET['amount'] = $order['amount'];
@@ -1930,7 +1931,7 @@ if (!empty($_GET['ship'])) {
 	$sh = tep_db_prepare_input($_GET['ship']);
 	if ($sh === 'seururgente') {
 		// SEUR 13:30 (seurnacional) + SEUR 10 (seurdiez) = los urgentes a priorizar
-		$where[] = "o.shipping_module IN ('seurnacional_seurnacional', 'seurdiez_seurdiez', 'seursabado_seursabado')";
+		$where[] = "o.shipping_module IN ('seurnacional_seurnacional', 'seurdiez_seurdiez')";
 	} else {
 		$where[] = "o.shipping_module = '" . tep_db_input($sh) . "'";
 	}
@@ -2029,7 +2030,7 @@ $orders_query = tep_db_query($orders_query_raw);
 					</li>
 					<li>
 						<?php echo tep_draw_form('status', FILENAME_ORDERS, '', 'get', 'style="position:relative; top: 2px;"'); ?>
-						<?php echo HEADING_TITLE_STATUS . ' ' . tep_draw_pull_down_menu('status', array_merge(array(array('id' => '', 'text' => TEXT_ALL_ORDERS)), $orders_statuses), (isset($_GET['status']) ? $_GET['status'] : ''), 'onChange="this.form.submit();"'); ?>&nbsp;&nbsp;<?php $aShipFilter = array(array('id'=>'','text'=>'Forma de envío: todas'), array('id'=>'seururgente','text'=>'SEUR urgentes (10h + 13:30 + Sabado)'), array('id'=>'seurdiez_seurdiez','text'=>'SEUR antes de las 10h'), array('id'=>'seurnacional_seurnacional','text'=>'SEUR antes 13:30h'), array('id'=>'seursabado_seursabado','text'=>'SEUR Sabado'), array('id'=>'seur48_seur48','text'=>'SEUR 24'), array('id'=>'seurpunto_seurpunto','text'=>'SEUR Punto de Recogida'), array('id'=>'seureuropack_seureuropack','text'=>'SEUR EuroPACK'), array('id'=>'tipsa_tipsa','text'=>'Mensajería (Tipsa)'), array('id'=>'correos_Normal','text'=>'Correos Domicilio'), array('id'=>'correosoficina_correosoficina','text'=>'Correos - Recoger en oficina'), array('id'=>'correoscert_Normal','text'=>'Correos Certificado'), array('id'=>'retira_retira','text'=>'Recogida en tienda'), array('id'=>'freeamount_freeamount','text'=>'Envío Gratis')); echo 'Forma de envío ' . tep_draw_pull_down_menu('ship', $aShipFilter, (isset($_GET['ship']) ? $_GET['ship'] : ''), 'onChange="this.form.submit();"'); ?></td>
+						<?php echo HEADING_TITLE_STATUS . ' ' . tep_draw_pull_down_menu('status', array_merge(array(array('id' => '', 'text' => TEXT_ALL_ORDERS)), $orders_statuses), (isset($_GET['status']) ? $_GET['status'] : ''), 'onChange="this.form.submit();"'); ?>&nbsp;&nbsp;<?php $aShipFilter = array(array('id'=>'','text'=>'Forma de envío: todas'), array('id'=>'seururgente','text'=>'SEUR urgentes (10h + 13:30)'), array('id'=>'seurdiez_seurdiez','text'=>'SEUR antes de las 10h'), array('id'=>'seurnacional_seurnacional','text'=>'SEUR antes 13:30h'), array('id'=>'seurpunto_seurpunto','text'=>'SEUR Punto de Recogida'), array('id'=>'seureuropack_seureuropack','text'=>'SEUR EuroPACK'), array('id'=>'tipsa_tipsa','text'=>'Mensajería (Tipsa)'), array('id'=>'correos_Normal','text'=>'Correos Domicilio'), array('id'=>'correosoficina_correosoficina','text'=>'Correos - Recoger en oficina'), array('id'=>'correoscert_Normal','text'=>'Correos Certificado'), array('id'=>'retira_retira','text'=>'Recogida en tienda'), array('id'=>'freeamount_freeamount','text'=>'Envío Gratis')); echo 'Forma de envío ' . tep_draw_pull_down_menu('ship', $aShipFilter, (isset($_GET['ship']) ? $_GET['ship'] : ''), 'onChange="this.form.submit();"'); ?></td>
 						<?php echo tep_hide_session_id(); ?>
 						<input style="visibility:hidden;height: 0px;width: 0px;float: right;" type="submit"/>
 						</form>

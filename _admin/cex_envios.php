@@ -75,6 +75,45 @@ function cexEnvTrack($ref) {
     return tep_db_num_rows($q) ? tep_db_fetch_array($q) : null;
 }
 
+/* === Envío manual CEX (sin pedido): crea un envío libre (free=1) y encola su etiqueta
+ *     para la Zebra. Para RMA a proveedor, muestras, reenvíos, etc. === */
+if (($_POST['do'] ?? '') === 'crear_manual') {
+    if (($_POST['csrf'] ?? '') !== $csrf) {
+        $_SESSION['cex_flash'] = array('m' => 'Token CSRF inválido.', 'c' => 'error');
+    } else {
+        $g = function ($k) { return trim((string) ($_POST[$k] ?? '')); };
+        $dname = $g('m_dname'); $dstreet = $g('m_dstreet'); $dcp = $g('m_dcp'); $dcity = $g('m_dcity');
+        $dstate = $g('m_dstate'); $dcountry = $g('m_dcountry') ?: 'ES'; $dphone = $g('m_dphone'); $demail = $g('m_demail');
+        $mkilos = str_replace(',', '.', $g('m_kilos')); if ((float) $mkilos <= 0) $mkilos = '1';
+        $mbultos = max(1, (int) ($_POST['m_bultos'] ?? 1));
+        $mref = $g('m_ref'); if ($mref === '') $mref = 'M-' . date('ymd-His');
+        $msvc = $g('m_service');
+        if ($dname === '' || $dstreet === '' || $dcp === '' || $dcity === '' || $dcountry === '') {
+            $_SESSION['cex_flash'] = array('m' => 'Faltan campos obligatorios: destinatario, dirección, CP, ciudad y país.', 'c' => 'error');
+        } else {
+            $params = array('token' => CEX_ALB_TOKEN, 'free' => '1', 'ref' => $mref,
+                'dname' => $dname, 'dstreet' => $dstreet, 'dcp' => $dcp, 'dcity' => $dcity, 'dstate' => $dstate,
+                'dcountry' => $dcountry, 'dphone' => $dphone, 'demail' => $demail,
+                'kilos' => $mkilos, 'bultos' => $mbultos, 'type' => 'ZPL');
+            if ($msvc === 'sabado') $params['svc'] = 'sabado';
+            $ch = curl_init('https://www.francobordo.com/cex_albaran.php');
+            curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 90, CURLOPT_POST => 1,
+                CURLOPT_POSTFIELDS => http_build_query($params), CURLOPT_SSL_VERIFYPEER => 0, CURLOPT_SSL_VERIFYHOST => 0));
+            $raw = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
+            $resp = json_decode((string) $raw, true);
+            if (is_array($resp) && !empty($resp['ok']) && !empty($resp['shipmentCode'])) {
+                if (!empty($resp['zpl']))
+                    tep_db_perform('cex_reprint_queue', array('shipment_id' => (int) ($resp['shipment_id'] ?? 0), 'orders_id' => 0, 'zpl' => $resp['zpl'], 'done' => 0, 'date_added' => 'now()'));
+                $_SESSION['cex_flash'] = array('m' => 'Envío manual creado: nº <strong>' . htmlspecialchars((string) $resp['shipmentCode']) . '</strong> (ref ' . htmlspecialchars($resp['ref'] ?? $mref) . '). La etiqueta saldrá por la Zebra en ~1 min.', 'c' => 'success');
+            } else {
+                $why = is_array($resp) ? ($resp['error'] ?? 'respuesta no concluyente') : ('sin respuesta' . ($cerr ? ': ' . $cerr : ''));
+                $_SESSION['cex_flash'] = array('m' => 'No se pudo crear el envío manual: ' . htmlspecialchars((string) $why), 'c' => 'error');
+            }
+        }
+    }
+    tep_redirect(tep_href_link('cex_envios.php'));
+}
+
 /* ---- Acciones (POST con CSRF) ---- */
 $action = $_POST['do'] ?? '';
 $shipId = (int) ($_POST['ship'] ?? 0);
@@ -201,6 +240,31 @@ if (isset($_GET['modify']) && (int) $_GET['modify'] > 0) {
   </div>
 
   <?php if ($msg !== ''): ?><div class="flash <?php echo htmlspecialchars($msgClass); ?>"><?php echo $msg; ?></div><?php endif; ?>
+
+  <details class="cex-manual" style="margin:12px 0;border:1px solid #cde;border-radius:6px;padding:6px 14px;background:#f7fbff;">
+    <style>.cex-manual label{display:flex;flex-direction:column;font-size:12px;gap:3px;color:#333}.cex-manual input,.cex-manual select{width:100%;padding:3px}</style>
+    <summary style="cursor:pointer;font-weight:600;color:#2e7d32;">&#10010; Nuevo env&iacute;o manual Correos Express (sin pedido &mdash; RMA a proveedor, muestras, reenv&iacute;os&hellip;)</summary>
+    <form method="post" style="margin-top:10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;max-width:840px;">
+      <input type="hidden" name="do" value="crear_manual">
+      <input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
+      <label>Destinatario *<input type="text" name="m_dname" required></label>
+      <label>Direcci&oacute;n *<input type="text" name="m_dstreet" required></label>
+      <label>CP *<input type="text" name="m_dcp" required></label>
+      <label>Ciudad *<input type="text" name="m_dcity" required></label>
+      <label>Provincia<input type="text" name="m_dstate"></label>
+      <label>Pa&iacute;s * (ISO2 o nombre; ES = nacional, PT/otro = internacional)<input type="text" name="m_dcountry" value="ES" required></label>
+      <label>Servicio<select name="m_service">
+        <option value="">Domicilio (ePaq24 / internacional autom&aacute;tico)</option>
+        <option value="sabado">Entrega en S&aacute;bado</option>
+      </select></label>
+      <label>Tel&eacute;fono<input type="text" name="m_dphone"></label>
+      <label>Email<input type="text" name="m_demail"></label>
+      <label>Peso (kg)<input type="text" name="m_kilos" value="1"></label>
+      <label>Bultos<input type="number" name="m_bultos" value="1" min="1"></label>
+      <label style="grid-column:1/3;">Referencia (sale en la columna Pedido/Ref y es buscable &mdash; p.ej. n&ordm; de RMA, proveedor&hellip;)<input type="text" name="m_ref" placeholder="auto: M-aaaammdd-hhmmss"></label>
+      <div style="grid-column:1/3;margin-top:4px;"><button class="btn" style="background:#2e9e44" type="submit">Crear env&iacute;o y mandar etiqueta a la Zebra</button></div>
+    </form>
+  </details>
 
   <?php if ($modRow): ?>
   <div style="border:1px solid #27a5d2;border-radius:5px;padding:12px;margin:10px 0;background:#f0f9fd">

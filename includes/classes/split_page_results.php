@@ -72,7 +72,26 @@
 		}
 	 }
 	 else
-		  $count_query = tep_db_query( $sQueryCount );
+	 {
+		// DIAGNÓSTICO TEMPORAL (2026-06-30): el count del buscador entra por AQUÍ (changePriceCustomer
+		// pasa QUERY_COUNT = 'select count(*) FROM (<$sSql>) as cnt'), no por la rama === false.
+		// Capturamos la query COUNT completa + SQL original + URL/UA si falla, y re-lanzamos.
+		// QUITAR tras capturar muestra. Ver francobordo_php8_gotchas.md.
+		try {
+			$count_query = tep_db_query( $sQueryCount );
+		} catch ( \Throwable $__e2 ) {
+			@error_log(
+				"==== [SPLITCOUNT-DEBUG/else] " . date('Y-m-d H:i:s') . " ====\n"
+				. "MSG: "       . $__e2->getMessage() . "\n"
+				. "URL: "       . ( $_SERVER['REQUEST_URI'] ?? 'cli' ) . "\n"
+				. "UA:  "       . ( $_SERVER['HTTP_USER_AGENT'] ?? '' ) . "\n"
+				. "QUERY_COUNT: " . $sQueryCount . "\n"
+				. "FULL_SQL:   " . $this->sql_query . "\n\n",
+				3, '/home/francobordo/logs/splitcount_debug.log'
+			);
+			throw $__e2;
+		}
+	 }
 
 		// Obtenemos el total de filas //
 

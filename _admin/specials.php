@@ -287,7 +287,7 @@
       $form_action = 'update';
 
 // BOF Separate Pricing Per Customer
-      $product_query = tep_db_query("select p.products_id, p.products_tax_class_id, venta_flash, portada_flash, DATE_FORMAT( s.start_date, '%d/%m/%Y %H:%i:%s') as start_date, pd.products_name, p.products_price, s.specials_new_products_price, DATE_FORMAT( s.expires_date, '%d/%m/%Y %H:%i:%s') as expires_date, s.expires_repeat, s.customers_group_id, DATE_FORMAT( s.specials_last_modified, '%d/%m/%Y %H:%i:%s') as specials_last_modified, DATE_FORMAT( s.specials_date_added, '%d/%m/%Y %H:%i:%s') as specials_date_added from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_SPECIALS . " s where p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "' and p.products_id = s.products_id and s.specials_id = '" . (int)$_GET['sID'] . "'");
+      $product_query = tep_db_query("select p.products_id, p.products_tax_class_id, p.products_cost, venta_flash, portada_flash, DATE_FORMAT( s.start_date, '%d/%m/%Y %H:%i:%s') as start_date, pd.products_name, p.products_price, s.specials_new_products_price, DATE_FORMAT( s.expires_date, '%d/%m/%Y %H:%i:%s') as expires_date, s.expires_repeat, s.customers_group_id, DATE_FORMAT( s.specials_last_modified, '%d/%m/%Y %H:%i:%s') as specials_last_modified, DATE_FORMAT( s.specials_date_added, '%d/%m/%Y %H:%i:%s') as specials_date_added from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_SPECIALS . " s where p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "' and p.products_id = s.products_id and s.specials_id = '" . (int)$_GET['sID'] . "'");
 
       $product = tep_db_fetch_array($product_query);
 
@@ -372,17 +372,36 @@
 					</tr>
          <tr>
             <td class="main"><?php echo TEXT_SPECIALS_2_SPECIAL_PRICE; ?>&nbsp;</td>
-            <td class="main"><?php echo tep_draw_input_field('specials_price', (isset($sInfo->specials_new_products_price) ? $sInfo->specials_new_products_price : ''), 'onKeyUp="updateGross();updateMarkdown()"'); ?></td>
+            <td class="main"><?php echo tep_draw_input_field('specials_price', (isset($sInfo->specials_new_products_price) ? $sInfo->specials_new_products_price : ''), 'onKeyUp="updateGross();updateMarkdown();updateMargin();"'); ?></td>
           </tr>
           <tr>
             <td class="main"><?php echo TEXT_SPECIALS_2_SPECIAL_PRICE . ' (Gross)'; ?>&nbsp;</td>
-            <td class="main"><?php echo tep_draw_input_field('specials_price_gross', (isset($sInfo->specials_new_products_price) ? $sInfo->specials_new_products_price : ''), 'OnKeyUp="updateNet();updateMarkdown()"'); ?></td>
+            <td class="main"><?php echo tep_draw_input_field('specials_price_gross', (isset($sInfo->specials_new_products_price) ? $sInfo->specials_new_products_price : ''), 'OnKeyUp="updateNet();updateMarkdown();updateMargin();"'); ?></td>
           </tr>
           <tr>
             <td class="main">Porcentaje:</td>
-            <td class="main"><?php echo tep_draw_input_field('specials_markdown', (isset($sInfo->specials_new_products_price) ? $sInfo->specials_new_products_price : ''), 'OnKeyUp="updateNetFromMarkdown();updateGross();"'); ?></td>
+            <td class="main"><?php echo tep_draw_input_field('specials_markdown', (isset($sInfo->specials_new_products_price) ? $sInfo->specials_new_products_price : ''), 'OnKeyUp="updateNetFromMarkdown();updateGross();updateMargin();"'); ?></td>
           </tr>
-		  
+<?php if ($form_action == 'update') {
+    $as_tax = tep_get_tax_rate($sInfo->products_tax_class_id);
+    $as_cost = (float)$sInfo->products_cost;
+    $as_offer_net = (float)$sInfo->specials_new_products_price;
+    $as_margin = ($as_offer_net > 0) ? round((($as_offer_net - $as_cost) / $as_offer_net) * 100, 1) : 0;
+?>
+          <tr>
+            <td class="main">PVP sin oferta (c/IVA):</td>
+            <td class="main"><b><?php echo $currencies->display_price($sInfo->products_price, $as_tax); ?></b></td>
+          </tr>
+          <tr>
+            <td class="main">Precio de compra (s/IVA):</td>
+            <td class="main"><?php echo $currencies->format($as_cost); ?></td>
+          </tr>
+          <tr>
+            <td class="main">Margen con la oferta:</td>
+            <td class="main"><b><span id="as_margin"><?php echo number_format($as_margin, 1, ',', '.'); ?>%</span></b> <small style="color:#888">(sobre venta, s/IVA)</small></td>
+          </tr>
+<?php } ?>
+
 		  <tr><td height="30" colspan="2" style="vertical-align: middle;" align="center"><b>---- Oferta Express ----</b></td></tr>
 	
           <tr>
@@ -730,6 +749,7 @@
 			
 			updateGross();
 			updateMarkdown();
+			updateMargin();
 		}
 	});
 
@@ -805,9 +825,23 @@
 	}
 
 	function resetMarkdown() {
-	  
+
 	  document.forms["new_special"].specials_markdown.value = 0;
 
+	}
+
+	// Coste (s/IVA) del producto en edición, para calcular margen en vivo
+	var as_product_cost = <?php echo ($form_action == 'update') ? (float)$sInfo->products_cost : 0; ?>;
+
+	function updateMargin() {
+	  var el = document.getElementById('as_margin');
+	  if (!el) return;
+	  var net = parseFloat(document.forms["new_special"].specials_price.value);
+	  if (isNaN(net) || net <= 0) { el.innerHTML = '—'; return; }
+	  var margin = ((net - as_product_cost) / net) * 100;
+	  var txt = (Math.round(margin * 10) / 10).toString().replace('.', ',') + '%';
+	  el.innerHTML = txt;
+	  el.style.color = (margin < 0) ? '#c00' : (margin < 10 ? '#a16207' : '#166534');
 	}
 </script>
 
