@@ -245,7 +245,7 @@ $opt = array(
     'codPosIntDest' => $intl ? $cpDest : '',
     'paisISODest'   => $iso,
     'contacDest'    => $nomDest,
-    'telefDest'     => preg_replace('/\s+/', '', (string) $o['customers_telephone']),
+    'telefDest'     => preg_replace('/\D/', '', (string) $o['customers_telephone']),  // solo dígitos: CEX rechaza '+'/'?'/espacios ("TELEFONO NO VALIDO")
     'emailDest'     => trim((string) $o['customers_email_address']),
     'observac'      => $free ? ('Envio manual CEX / ' . $freeRef)
                              : ('Pedido ' . ($manual ? 'QFac ' : 'web ') . $oid . ($alb !== '' ? ' / Albaran ' . $alb : '')),

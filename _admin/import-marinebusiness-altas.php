@@ -12,6 +12,12 @@ const MB_DIR        = '/home/francobordo/public_html/import/MB/';
 const MB_CACHE_DIR  = '/home/francobordo/public_html/import/MB/cache/';
 const MB_WEB_BASE_ES = 'https://marinebusiness.net/wp-json/wc/store/v1/products';
 const MB_WEB_BASE_EN = 'https://marinebusiness.net/en/wp-json/wc/store/v1/products';
+// Portal B2B inaCatalog — reemplaza la WC API (bloqueada por Cloudflare desde ~2026-06-25).
+// Accesible desde el servidor (nginx, sin challenge). Login por Base64 + sesión.
+const MB_PORTAL_BASE = 'https://marinebusiness.b2binacatalog.com';
+const MB_PORTAL_USER = 'CL1166';
+const MB_PORTAL_PASS = 'B82574690';
+const MB_PORTAL_UA   = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36';
 define('IMG_ABS_DIR',     dirname(dirname(__FILE__)) . '/images/productos/');
 
 const PARENT_CATEGORY_ID = 1743;          // "Marine Business Nuevos" — padre
@@ -40,7 +46,7 @@ const SUBCAT_MIN_ROWS      = 2;           // prefijos con menos filas → FALLBA
 const LLM_URL    = 'http://217.127.199.171:28001/v1/chat/completions';
 const LLM_MODEL  = 'qwen36-sakamaki-nvfp4';
 
-const LLM_FORMAT_PROMPT_ES = "Eres un experto en maquetar fichas de producto náuticas/marinas. Recibes una descripción comercial en ESPAÑOL y la transformas en HTML legible y atractivo.\n\nREGLAS OBLIGATORIAS:\n\n1. PÁRRAFO INTRODUCTORIO: el primer <p> es la frase descriptiva más completa del producto. Si el texto introductorio tiene más de 5 frases, parte en varios <p> de 5 frases máximo cada uno.\n\n2. TÍTULOS DE SECCIÓN (si el producto tiene >6 features, agrupa en secciones): cada título es <p><strong>Título</strong></p>. NUNCA uses <h1>..<h6>. Antes de cada título de sección inserta <p>&nbsp;</p> como separador. Ejemplos de títulos: \"Características principales\", \"Materiales\", \"Especificaciones técnicas\", \"Cuidados y mantenimiento\".\n\n3. LISTAS DE FEATURES: cada bullet va en su propio <p>• texto</p>. NUNCA uses <ul> ni <li>. Identifica el concepto clave (1-4 palabras al inicio) y envuélvelo en <strong>, seguido de dos puntos. Ejemplo: <p>• <strong>Melamina 100%:</strong> material ligero e irrompible.</p>. NO inventes texto.\n\n4. SÍMBOLOS PROHIBIDOS: elimina ™ ® © en todo el texto (incluido el de los títulos).\n\n5. PALABRAS EN MAYÚSCULAS: si una palabra está toda en mayúsculas y tiene 4 letras o más, pásala a Title Case (\"TRITAN\" → \"Tritan\", \"POLIESTER\" → \"Poliester\"). Preserva acrónimos cortos (BPA, UV, LED, IP, USB, ABS, PVC, AISI…).\n\n6. PRESERVA enlaces <a href> existentes sin tocarlos.\n\n7. NO resumas, NO parafrasees, NO inventes información: conserva TODO el texto original. Solo añades estructura HTML, secciones, bold, dos puntos y formato.\n\n8. Si el texto de entrada es solo 1-2 frases cortas, devuelve <p>texto</p> sin lista.\n\n9. Etiquetas permitidas: <p>, <strong>, <a>. Prohibidas: <h1>..<h6>, <br>, <div>, <span>, <ul>, <li>, <table>, <ol>.\n\n10. Salida: SOLO el HTML, sin markdown, sin comentarios, sin tres-back-ticks.";
+const LLM_FORMAT_PROMPT_ES = "Eres un experto en maquetar fichas de producto náuticas/marinas. Recibes una descripción comercial que PUEDE venir en inglés, italiano o mezclada, y la transformas en HTML legible y atractivo EN ESPAÑOL DE ESPAÑA. Si el texto (o cualquier parte) NO está en español, TRADÚCELO al español — traducir al español NO cuenta como inventar ni parafrasear, es OBLIGATORIO. Ej.: \"Break Resistant\"->\"Resistente a roturas\", \"Dishwasher & Microwave Safe\"->\"Apto para lavavajillas y microondas\", \"BPA Free\"->\"Sin BPA\", \"Non slip\"->\"Antideslizante\".\n\nREGLAS OBLIGATORIAS:\n\n1. PÁRRAFO INTRODUCTORIO: el primer <p> es la frase descriptiva más completa del producto. Si el texto introductorio tiene más de 5 frases, parte en varios <p> de 5 frases máximo cada uno.\n\n2. TÍTULOS DE SECCIÓN (si el producto tiene >6 features, agrupa en secciones): cada título es <p><strong>Título</strong></p>. NUNCA uses <h1>..<h6>. Antes de cada título de sección inserta <p>&nbsp;</p> como separador. Ejemplos de títulos: \"Características principales\", \"Materiales\", \"Especificaciones técnicas\", \"Cuidados y mantenimiento\".\n\n3. LISTAS DE FEATURES: cada bullet va en su propio <p>• texto</p>. NUNCA uses <ul> ni <li>. Identifica el concepto clave (1-4 palabras al inicio) y envuélvelo en <strong>, seguido de dos puntos. Ejemplo: <p>• <strong>Melamina 100%:</strong> material ligero e irrompible.</p>. NO inventes texto.\n\n4. SÍMBOLOS PROHIBIDOS: elimina ™ ® © en todo el texto (incluido el de los títulos).\n\n5. PALABRAS EN MAYÚSCULAS: si una palabra está toda en mayúsculas y tiene 4 letras o más, pásala a Title Case (\"TRITAN\" → \"Tritan\", \"POLIESTER\" → \"Poliester\"). Preserva acrónimos cortos (BPA, UV, LED, IP, USB, ABS, PVC, AISI…).\n\n6. PRESERVA enlaces <a href> existentes sin tocarlos.\n\n7. NO resumas, NO parafrasees, NO inventes información: conserva TODO el texto original. Solo añades estructura HTML, secciones, bold, dos puntos y formato.\n\n8. Si el texto de entrada es solo 1-2 frases cortas, devuelve <p>texto</p> sin lista.\n\n9. Etiquetas permitidas: <p>, <strong>, <a>. Prohibidas: <h1>..<h6>, <br>, <div>, <span>, <ul>, <li>, <table>, <ol>.\n\n10. Salida: SOLO el HTML, sin markdown, sin comentarios, sin tres-back-ticks.";
 
 const LLM_FORMAT_PROMPT_EN = "You are an expert in formatting nautical/marine product datasheets. You receive a commercial description in ENGLISH and transform it into clean, readable HTML.\n\nMANDATORY RULES:\n\n1. INTRODUCTORY PARAGRAPH: the first <p> is the most complete descriptive sentence about the product. If introductory text has more than 5 sentences, split into several <p> blocks of max 5 sentences each.\n\n2. SECTION TITLES (if product has >6 features, group into sections): each title is <p><strong>Title</strong></p>. NEVER use <h1>..<h6>. Before each section title insert <p>&nbsp;</p> as separator. Title examples: \"Key features\", \"Materials\", \"Technical specs\", \"Care\".\n\n3. FEATURE LISTS: each bullet goes in its own <p>• text</p>. NEVER use <ul> or <li>. Identify the key concept (1-4 words at start) and wrap it in <strong>, followed by colon. Example: <p>• <strong>100% melamine:</strong> lightweight and unbreakable.</p>. DO NOT invent text.\n\n4. FORBIDDEN SYMBOLS: remove ™ ® © from all text (titles included).\n\n5. ALL-CAPS WORDS: any word in all caps with 4+ letters → Title Case (\"TRITAN\" → \"Tritan\", \"POLYESTER\" → \"Polyester\"). Preserve short acronyms (BPA, UV, LED, IP, USB, ABS, PVC, AISI…).\n\n6. PRESERVE existing <a href> tags untouched.\n\n7. DO NOT summarize, DO NOT paraphrase, DO NOT invent information: keep ALL original text. Only add HTML structure, sections, bold, colons and formatting.\n\n8. If input is only 1-2 short sentences, return <p>text</p> without list.\n\n9. Allowed tags: <p>, <strong>, <a>. Forbidden: <h1>..<h6>, <br>, <div>, <span>, <ul>, <li>, <table>, <ol>.\n\n10. Output: ONLY the HTML, no markdown, no comments, no triple-backticks.";
 
@@ -183,38 +189,89 @@ function mbBrowserHeaders() {
     ];
 }
 
-function mbWcFetch($sku, $lang) {
-    $sku = trim((string) $sku);
-    if ($sku === '') return null;
-    $base = ($lang === 'en') ? MB_WEB_BASE_EN : MB_WEB_BASE_ES;
-    $cacheFile = MB_CACHE_DIR . preg_replace('/[^A-Za-z0-9_-]+/', '_', $sku) . '.' . $lang . '.json';
-    if (file_exists($cacheFile) && filesize($cacheFile) >= 2) {
-        $body = @file_get_contents($cacheFile);
-        if ($body !== false) {
-            $j = json_decode($body, true);
-            if (is_array($j)) return $j[0] ?? null;
-        }
-    }
-    if (!is_dir(MB_CACHE_DIR)) @mkdir(MB_CACHE_DIR, 0775, true);
-    $url = $base . '?sku=' . rawurlencode($sku);
+function mbPortalCookie() { return sys_get_temp_dir() . '/mb_portal_ck.txt'; }
+
+function mbPortalCurl($method, $url, $post = null, $hdr = []) {
+    $ck = mbPortalCookie();
     $ch = curl_init($url);
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_TIMEOUT => WEB_HTTP_TIMEOUT,
-        CURLOPT_CONNECTTIMEOUT => 8,
-        CURLOPT_HTTPHEADER => mbBrowserHeaders(),
-        CURLOPT_ENCODING => '',
+        CURLOPT_COOKIEJAR      => $ck,
+        CURLOPT_COOKIEFILE     => $ck,
         CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_TIMEOUT        => WEB_HTTP_TIMEOUT,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_USERAGENT      => MB_PORTAL_UA,
+        CURLOPT_HTTPHEADER     => array_merge(['Accept: */*'], $hdr),
     ]);
-    $body = curl_exec($ch);
-    $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    unset($ch);
-    if ($body === false || $http !== 200) return null;
-    $j = json_decode($body, true);
+    if ($method === 'POST') { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, $post); }
+    $b = curl_exec($ch); $c = curl_getinfo($ch, CURLINFO_HTTP_CODE); unset($ch);
+    return [$c, $b];
+}
+
+/** Login una vez por ejecución en el portal inaCatalog. Éxito = respuesta vacía. */
+function mbPortalLogin() {
+    static $done = false, $ok = false;
+    if ($done) return $ok;
+    $done = true;
+    @unlink(mbPortalCookie());
+    $enc = function ($x) { return '_enc_' . str_replace('/', '_', base64_encode((string) $x)); };
+    mbPortalCurl('GET', MB_PORTAL_BASE . '/login');
+    list($code, $body) = mbPortalCurl('POST', MB_PORTAL_BASE . '/Usuario/Login', http_build_query([
+        'datLoginEncoded'    => $enc(MB_PORTAL_USER),
+        'datPasswordEncoded' => $enc(MB_PORTAL_PASS),
+        'codIdioma'          => 'es',
+    ]), ['X-Requested-With: XMLHttpRequest', 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8', 'Referer: ' . MB_PORTAL_BASE . '/login']);
+    $ok = ($code === 200 && trim((string) $body) === '');
+    return $ok;
+}
+
+/** Devuelve el artículo del portal por código (cache en memoria + disco). */
+function mbPortalArticle($code) {
+    static $mem = [];
+    $code = trim((string) $code);
+    if ($code === '') return null;
+    if (array_key_exists($code, $mem)) return $mem[$code];
+    $mem[$code] = null;
+    if (!is_dir(MB_CACHE_DIR)) @mkdir(MB_CACHE_DIR, 0775, true);
+    $cf = MB_CACHE_DIR . 'portal_' . preg_replace('/[^A-Za-z0-9_-]+/', '_', $code) . '.json';
+    if (file_exists($cf) && filesize($cf) >= 2) {
+        $j = json_decode(@file_get_contents($cf), true);
+        if (is_array($j)) { $mem[$code] = $j[$code] ?? null; return $mem[$code]; }
+    }
+    if (!mbPortalLogin()) return null;
+    list($hc, $hb) = mbPortalCurl('POST', MB_PORTAL_BASE . '/Articulo/ObtenerArticulos/?t',
+        '["' . addslashes($code) . '"]',
+        ['X-Requested-With: XMLHttpRequest', 'Content-Type: application/json; charset=UTF-8', 'Referer: ' . MB_PORTAL_BASE . '/']);
+    if ($hc !== 200 || $hb === false) return null;
+    $j = json_decode($hb, true);
     if (!is_array($j)) return null;
-    @file_put_contents($cacheFile, $body);
-    return $j[0] ?? null;
+    @file_put_contents($cf, $hb);
+    $mem[$code] = $j[$code] ?? null;
+    return $mem[$code];
+}
+
+/**
+ * Reemplazo de la WC API: obtiene el artículo del portal B2B y lo devuelve con la
+ * MISMA forma que consumía el importador (name / description / images[].src).
+ * Imagen full-size (768px) = MB_PORTAL_BASE + imagen + '.jpg' (estática, pública).
+ * ES: nombre+descripción del portal. EN: solo imágenes (el importador cae al xlsx inglés).
+ */
+function mbWcFetch($sku, $lang) {
+    $art = mbPortalArticle($sku);
+    if (!is_array($art)) return null;
+    $imgs = [];
+    $imagen = trim((string) ($art['imagen'] ?? ''));
+    if ($imagen !== '') $imgs[] = ['src' => MB_PORTAL_BASE . $imagen . '.jpg'];
+    if ($lang === 'es') {
+        return [
+            'name'        => (string) ($art['desarticulo'] ?? ''),
+            'description' => (string) ($art['obsarticulo'] ?? ''),
+            'images'      => $imgs,
+        ];
+    }
+    return ['name' => '', 'description' => '', 'images' => $imgs];
 }
 
 function downloadImage($url, $destAbs) {
@@ -383,6 +440,20 @@ function llmCall($systemPrompt, $userText, $maxTokens = 2500, $maxRetries = 2) {
         usleep(500000);
     }
     return '';
+}
+
+/**
+ * Traduce el NOMBRE del producto al español (el desarticulo del portal a veces viene en
+ * inglés — ej. colección Cocoa: "Round Fish", "Tuna", "Tray"). Preserva colección/marca/
+ * medidas. Si ya está en español, el LLM lo devuelve igual. Devuelve '' si falla.
+ */
+function mbTranslateName($name) {
+    $name = trim((string) $name);
+    if ($name === '') return '';
+    $sys = 'Traduces nombres de producto de menaje náutico de la marca Marine Business al español de España. REGLAS: (1) mantén INTACTOS el nombre de colección (primera palabra: Cocoa, Sailor, Mare, Ibiza, Northwind, Wob…), medidas/códigos (30x20, 38x15) y "Set Nu"/"Set N u."; (2) traduce las palabras descriptivas al español: Round Fish→Plato Pez, Small→Pequeño, Big→Grande, Tray→Bandeja, Tuna→Atún, Whale→Ballena, Bowl→Bol, Plate→Plato, Dish→Fuente, Cup→Taza, Mug→Taza, Glass→Vaso; (3) colores: White→Blanco, Black→Negro, Blue→Azul, Clear→Transparente; deja igual nombres de color propios como Acqua; (4) Title Case, sin MAYÚSCULAS completas. Si ya está en español, devuélvelo igual. Responde SOLO el nombre, sin comillas ni comentarios.';
+    $out = trim((string) llmCall($sys, $name, 100), "\"' \n\r\t");
+    if ($out === '' || mb_strlen($out, 'UTF-8') > 120) return '';
+    return $out;
 }
 
 function mbFormatLooksValid($html, $minLenInput) {
@@ -671,6 +742,11 @@ foreach ($candidates as $code => $row) {
     // Nombres: API si existe, si no xlsx col B
     $nameEsRaw = ($apiEs['name'] ?? '') !== '' ? $apiEs['name'] : ($row['DESC_ES'] ?? '');
     $nameEnRaw = ($apiEn['name'] ?? '') !== '' ? $apiEn['name'] : (($row['DESC_EN'] !== '') ? $row['DESC_EN'] : ($row['DESC_ES'] ?? ''));
+    // Traducir el nombre ES al español si el desarticulo del portal vino en inglés (LLM up)
+    if (!$skipFormat && !$dryRun && $nameEsRaw !== '') {
+        $tn = mbTranslateName($nameEsRaw);
+        if ($tn !== '') $nameEsRaw = $tn;
+    }
     $nameEs = mbApplySuffix($nameEsRaw);
     $nameEn = mbApplySuffix($nameEnRaw);
 
@@ -684,7 +760,7 @@ foreach ($candidates as $code => $row) {
 
     $rawDescEs = trim($apiDescEs);
     if ($rawDescEs === '' && $row['DESC_ES'] !== '') $rawDescEs = '<p>' . htmlspecialchars($row['DESC_ES']) . '</p>';
-    if ($charsEs !== '') $rawDescEs .= "\n\n<p><strong>" . htmlspecialchars($charsEs) . "</strong></p>";
+    if ($charsEs !== '' && mb_stripos(strip_tags((string)$rawDescEs), $charsEs) === false) $rawDescEs .= "\n\n<p><strong>" . htmlspecialchars($charsEs) . "</strong></p>";
 
     $rawDescEn = trim($apiDescEn);
     if ($rawDescEn === '' && $row['DESC_EN'] !== '') $rawDescEn = '<p>' . htmlspecialchars($row['DESC_EN']) . '</p>';

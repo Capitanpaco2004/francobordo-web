@@ -9,8 +9,9 @@ include DIR_WS_LANGUAGES . $language . '/orders_check.php';
 if (!defined('TRUSTPILOT_AFS_BCC')) define('TRUSTPILOT_AFS_BCC', 'francobordo.com+7c408a2e65@invite.trustpilot.com');
 // Solo se invita a pedidos ENVIADOS (estado 5) dentro de este margen desde la compra.
 if (!defined('TRUSTPILOT_MAX_SHIP_SECONDS')) define('TRUSTPILOT_MAX_SHIP_SECONDS', 86400); // 24h
-// Tope de invitaciones Trustpilot por mes natural (plan Plus = 200, decision del usuario 2026-06-24 usar el maximo).
-if (!defined('TRUSTPILOT_MONTHLY_CAP')) define('TRUSTPILOT_MONTHLY_CAP', 200);
+// Tope de invitaciones Trustpilot por mes natural. Trustpilot amplio el cupo a 300 y reseteo su contador el 2026-07-01;
+// nuestro contador va por mes natural (rueda el dia 1), asi que queda alineado con el reset de Trustpilot.
+if (!defined('TRUSTPILOT_MONTHLY_CAP')) define('TRUSTPILOT_MONTHLY_CAP', 300);
 // No reinvitar al mismo cliente (email) dentro de este periodo en dias. 0 = sin cooldown.
 if (!defined('TRUSTPILOT_REINVITE_COOLDOWN_DAYS')) define('TRUSTPILOT_REINVITE_COOLDOWN_DAYS', 180);
 

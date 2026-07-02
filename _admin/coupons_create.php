@@ -250,11 +250,16 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
 		if( $sDateStart != '' ) $aAuxDateStart = explode( '/', $sDateStart );
 		if( $sDateEnd != '' ) $aAuxDateEnd = explode( '/', $sDateEnd );
 
+		// En porcentaje el admin escribe el número humano (10 = 10%); guardamos la fracción (0.1)
+		$sDiscountAmountStore = $sDiscountAmount;
+		if( $sDiscountType == 'percent' && is_numeric( $sDiscountAmount ) )
+			$sDiscountAmountStore = $sDiscountAmount / 100;
+
 		// Preparamos los datos
 		$aDatas = array(
 			'coupons_id' => $sCoupon,
 			'coupons_description' => $sDescription,
-			'coupons_discount_amount' => $sDiscountAmount,
+			'coupons_discount_amount' => $sDiscountAmountStore,
 			'coupons_discount_type' => $sDiscountType,
 			'coupons_date_start' => ($sDateStart == '' ? 'null' : $aAuxDateStart[2] . '-' . $aAuxDateStart[1] . '-' . $aAuxDateStart[0] ),
 			'coupons_date_end' => ($sDateEnd == '' ? 'null' : $aAuxDateEnd[2] . '-' . $aAuxDateEnd[1] . '-' . $aAuxDateEnd[0]),
@@ -393,8 +398,11 @@ else
 		// Obtenemos los valores
 		$sCoupon = $aCoupon['coupons_id'];
 		$sDescription = $aCoupon['coupons_description'];
-		$sDiscountAmount = $aCoupon['coupons_discount_amount'];
 		$sDiscountType = $aCoupon['coupons_discount_type'];
+		$sDiscountAmount = $aCoupon['coupons_discount_amount'];
+		// En porcentaje la BD guarda la fracción (0.1); mostramos el número humano (10)
+		if( $sDiscountType == 'percent' && is_numeric( $sDiscountAmount ) )
+			$sDiscountAmount = strval( round( $sDiscountAmount * 100, 6 ) );
 		$sDateStart = $aCoupon['coupons_date_start'];
 		$sDateEnd = $aCoupon['coupons_date_end'];
 		$sMaxUse = $aCoupon['coupons_max_use'];
@@ -562,7 +570,7 @@ else
 									</div>
 									<div class="formRow">
 										<div class="grid2"><label>Descuento de:</label></div>
-										<div class="grid2"><?php echo tep_draw_input_field( 'coupons_discount_amount', strval($sDiscountAmount) ) . ( $sErrorDiscountAmount !== false ? '<span class="note"><font color="red">' . $sErrorDiscountAmount . '</font></span>' : '' ); ?></div>
+										<div class="grid2"><?php echo tep_draw_input_field( 'coupons_discount_amount', strval($sDiscountAmount) ) . ( $sErrorDiscountAmount !== false ? '<span class="note"><font color="red">' . $sErrorDiscountAmount . '</font></span>' : '<span class="note">En porcentaje escribe el número (ej. 10 = 10%). En cantidad fija, el importe en €.</span>' ); ?></div>
 										<div class="grid1"><label>del tipo</label></div>
 										<div class="grid3"><?php echo tep_draw_pull_down_menu( 'coupons_discount_type', array( array( 'id' => 'fixed', 'text' => 'Cantidad fija (€)' ), array( 'id' => 'percent', 'text' => 'Porcentaje de descuento (%)' ), array( 'id' => 'shipping', 'text' => 'Descuento sobre el envío (€)' ) ), $sDiscountType ) . ( $sErrorDiscountType !== false ? '<span class="note">' . $sErrorDiscountType . '</span>' : '' ); ?></div>
 										<div class="clear"></div>

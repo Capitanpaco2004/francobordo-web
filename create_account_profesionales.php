@@ -254,7 +254,7 @@ if (isset($_POST['action']) && $_POST['action'] == 'getStates' && isset($_POST['
       }
     }
 
-    if (strlen($telephone) < ENTRY_TELEPHONE_MIN_LENGTH) {
+    if (strlen(preg_replace('/\D/', '', (string) $telephone)) < 9) {
       $error = true;
 
       $messageStack->add('create_account', ENTRY_TELEPHONE_NUMBER_ERROR);

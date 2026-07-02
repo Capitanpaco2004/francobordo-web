@@ -104,19 +104,40 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
         $_SESSION['correos_flash'] = array('m' => 'Token CSRF invalido.', 'c' => 'danger');
     } else {
         $g = function ($k) { return trim((string) ($_POST[$k] ?? '')); };
-        $dname = $g('m_dname'); $dstreet = $g('m_dstreet'); $dcp = $g('m_dcp'); $dcity = $g('m_dcity');
-        $dstate = $g('m_dstate'); $dphone = $g('m_dphone'); $demail = $g('m_demail');
+        $dname = $g('m_dname'); $dphone = $g('m_dphone'); $demail = $g('m_demail');
         $mkilos = str_replace(',', '.', $g('m_kilos')); if ((float) $mkilos <= 0) $mkilos = '1';
         $mbultos = max(1, min(10, (int) ($_POST['m_bultos'] ?? 1)));
         $mref = $g('m_ref'); if ($mref === '') $mref = 'M-' . date('ymd-His') . '-' . substr(bin2hex(random_bytes(2)), 0, 4);
         $mdvalue = str_replace(',', '.', $g('m_dvalue')); $mddesc = $g('m_ddesc');
-        if ($dname === '' || $dstreet === '' || $dcp === '' || $dcity === '') {
-            $_SESSION['correos_flash'] = array('m' => 'Faltan campos obligatorios: destinatario, direccion, CP y ciudad.', 'c' => 'danger');
+        $mmode = ($g('m_mode') === 'ofi') ? 'ofi' : 'dom';
+        $err = ''; $dest = null;
+        if ($mmode === 'ofi') {
+            // Entrega en OFICINA: la direccion del destinatario ES la oficina; chosenOffice = su codigo.
+            // OFUAOF exige email del destinatario (Correos le avisa cuando el paquete llega a la oficina).
+            $office = preg_replace('/[^0-9A-Za-z]/', '', $g('m_office'));
+            $ocp    = preg_replace('/\D/', '', $g('m_office_cp'));
+            if ($dname === '' || $office === '' || $ocp === '') {
+                $err = 'Para entrega en oficina: indica el destinatario y elige una oficina de la lista (busca por CP).';
+            } elseif ($demail === '') {
+                $err = 'Para entrega en oficina, el email del destinatario es obligatorio (Correos le avisa cuando llega el paquete).';
+            } else {
+                $dest = array('mode' => 'ofi', 'oficina' => $office, 'dname' => $dname,
+                    'dstreet' => $g('m_office_addr'), 'dcp' => $ocp, 'dcity' => $g('m_office_city'), 'dstate' => '');
+            }
         } else {
-            $params = array('token' => CORREOS_ALB_TOKEN, 'free' => '1', 'ref' => $mref,
-                'dname' => $dname, 'dstreet' => $dstreet, 'dcp' => $dcp, 'dcity' => $dcity, 'dstate' => $dstate,
+            $dstreet = $g('m_dstreet'); $dcp = $g('m_dcp'); $dcity = $g('m_dcity'); $dstate = $g('m_dstate');
+            if ($dname === '' || $dstreet === '' || $dcp === '' || $dcity === '') {
+                $err = 'Faltan campos obligatorios: destinatario, direccion, CP y ciudad.';
+            } else {
+                $dest = array('mode' => 'dom', 'dname' => $dname, 'dstreet' => $dstreet, 'dcp' => $dcp, 'dcity' => $dcity, 'dstate' => $dstate);
+            }
+        }
+        if ($err !== '') {
+            $_SESSION['correos_flash'] = array('m' => $err, 'c' => 'danger');
+        } else {
+            $params = array_merge(array('token' => CORREOS_ALB_TOKEN, 'free' => '1', 'ref' => $mref,
                 'dcountry' => 'ESP', 'dphone' => $dphone, 'demail' => $demail,
-                'kilos' => $mkilos, 'bultos' => $mbultos, 'type' => 'ZPL');
+                'kilos' => $mkilos, 'bultos' => $mbultos, 'type' => 'ZPL'), $dest);
             if ($mdvalue !== '' && (float) $mdvalue > 0) $params['dvalue'] = $mdvalue;
             if ($mddesc !== '') $params['ddesc'] = $mddesc;
             $ch = curl_init('https://www.francobordo.com/correos_albaran.php');
@@ -127,8 +148,9 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
             if (is_array($resp) && !empty($resp['ok']) && !empty($resp['shipmentCode'])) {
                 if (!empty($resp['zpl']))
                     tep_db_perform('correos_reprint_queue', array('shipment_id' => 0, 'orders_id' => 0, 'zpl' => $resp['zpl'], 'done' => 0, 'date_added' => 'now()'));
+                $donde = ($mmode === 'ofi') ? ' (entrega en oficina)' : '';
                 $extra = empty($resp['zpl']) ? ' (sin ZPL: descarga el PDF / reimprime desde el listado).' : ' La etiqueta saldra por la impresora del almacen en ~1 min.';
-                $_SESSION['correos_flash'] = array('m' => 'Envio manual creado: <strong>' . htmlspecialchars($resp['shipmentCode']) . '</strong> (ref ' . htmlspecialchars($mref) . ').' . $extra, 'c' => 'success');
+                $_SESSION['correos_flash'] = array('m' => 'Envio manual creado' . $donde . ': <strong>' . htmlspecialchars($resp['shipmentCode']) . '</strong> (ref ' . htmlspecialchars($mref) . ').' . $extra, 'c' => 'success');
             } else {
                 $why = is_array($resp) ? ($resp['error'] ?? 'respuesta no concluyente') : ('sin respuesta' . ($cerr ? ': ' . $cerr : ''));
                 $_SESSION['correos_flash'] = array('m' => 'No se pudo crear el envio manual: ' . htmlspecialchars($why), 'c' => 'danger');
@@ -360,24 +382,98 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
   <details style="margin:12px 0;border:1px solid #cde;border-radius:6px;padding:6px 14px;background:#f7fbff;">
     <style>.cor-manual label{display:flex;flex-direction:column;font-size:12px;gap:3px;color:#333}.cor-manual input{width:100%}</style>
     <summary style="cursor:pointer;font-weight:600;color:#2e7d32;">&#10010; Nuevo env&iacute;o manual Correos (sin pedido &mdash; RMA a proveedor, muestras, etc.)</summary>
-    <form class="cor-manual" method="post" onsubmit="var b=this.querySelector('button[type=submit]');if(b){b.disabled=true;b.textContent='Creando&hellip;';}" style="margin-top:10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;max-width:840px;">
+    <form id="corManForm" class="cor-manual" method="post" style="margin-top:10px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;max-width:840px;">
       <input type="hidden" name="do" value="crear_manual">
       <input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
+      <label style="grid-column:1/3;flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap">Entrega:
+        <label style="flex-direction:row;align-items:center;gap:4px;font-weight:normal"><input type="radio" name="m_mode" value="dom" checked> Domicilio</label>
+        <label style="flex-direction:row;align-items:center;gap:4px;font-weight:normal"><input type="radio" name="m_mode" value="ofi"> Oficina de Correos</label>
+      </label>
       <label>Destinatario *<input type="text" name="m_dname" required></label>
-      <label>Direcci&oacute;n *<input type="text" name="m_dstreet" required></label>
-      <label>CP *<input type="text" name="m_dcp" required></label>
-      <label>Ciudad *<input type="text" name="m_dcity" required></label>
-      <label>Provincia<input type="text" name="m_dstate"></label>
+      <label>Email <span style="color:#999;font-weight:normal">(oblig. para oficina)</span><input type="email" name="m_demail"></label>
       <label>Tel&eacute;fono<input type="text" name="m_dphone"></label>
-      <label>Email<input type="text" name="m_demail"></label>
       <label>Peso (kg)<input type="text" name="m_kilos" value="1"></label>
       <label>Bultos<input type="number" name="m_bultos" value="1" min="1" max="10"></label>
+      <div id="mDomBox" style="grid-column:1/3;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px">
+        <label>Direcci&oacute;n *<input type="text" name="m_dstreet"></label>
+        <label>CP *<input type="text" name="m_dcp"></label>
+        <label>Ciudad *<input type="text" name="m_dcity"></label>
+        <label>Provincia<input type="text" name="m_dstate"></label>
+      </div>
+      <div id="mOfiBox" style="grid-column:1/3;display:none;padding:10px;background:#fff;border:1px solid #ddd;border-radius:4px">
+        <div style="font-size:12px;color:#333;margin-bottom:6px">Oficina de Correos donde recoger&aacute; el destinatario (busca por CP de la zona):</div>
+        <input type="text" id="mCpOfi" maxlength="5" placeholder="CP" style="width:110px;padding:5px 8px;border:1px solid #aaa;border-radius:4px">
+        <button type="button" id="mBtnBuscarOfi" class="btn" data-searching="Buscando&hellip;">Buscar oficinas</button>
+        <span id="mMsgOfi" style="color:#a00;font-size:12px"></span><br>
+        <div id="mSelOfiSel" style="margin-top:8px;margin-bottom:4px;font-size:12px;color:#2e7d32;font-weight:600"></div>
+        <div id="mSelOfi" style="margin-top:0;max-height:200px;overflow:auto;border:1px solid #ddd;border-radius:4px;display:none;background:#fff"></div>
+        <input type="hidden" name="m_office" id="mHOfi"><input type="hidden" name="m_office_name" id="mHOfiName">
+        <input type="hidden" name="m_office_addr" id="mHOfiAddr"><input type="hidden" name="m_office_cp" id="mHOfiCp"><input type="hidden" name="m_office_city" id="mHOfiCity">
+      </div>
       <label style="grid-column:1/3;">Referencia / concepto <span style="color:#999;font-weight:normal">(aparece en la columna Pedido/RMA del listado y es buscable; d&eacute;jalo vac&iacute;o para auto)</span><input type="text" name="m_ref" placeholder="p.ej. RMA proveedor 123, n&ordm; factura, pedido relacionado&hellip;"></label>
       <label>Valor declarado &euro; <span style="color:#999">(Canarias/Ceuta/Melilla)</span><input type="text" name="m_dvalue" placeholder="p.ej. 1234.56"></label>
       <label>Contenido <span style="color:#999">(solo islas)</span><input type="text" name="m_ddesc" placeholder="p.ej. recambios nauticos"></label>
-      <div style="grid-column:1/3;margin-top:2px;color:#777;font-size:11px;">Solo destino nacional (Espa&ntilde;a), Paq Est&aacute;ndar a domicilio. Para Canarias/Ceuta/Melilla rellena <strong>valor y contenido</strong> (declaraci&oacute;n DUA obligatoria).</div>
+      <div style="grid-column:1/3;margin-top:2px;color:#777;font-size:11px;">Solo destino nacional (Espa&ntilde;a), Paq Est&aacute;ndar. Domicilio o recogida en oficina. Para Canarias/Ceuta/Melilla rellena <strong>valor y contenido</strong> (declaraci&oacute;n DUA obligatoria).</div>
       <div style="grid-column:1/3;margin-top:4px;"><button class="btn verde" type="submit">Crear env&iacute;o y mandar etiqueta a la impresora</button></div>
     </form>
+    <script>
+    (function () {
+      var f = document.getElementById('corManForm'); if (!f) return;
+      var domBox = document.getElementById('mDomBox'), ofiBox = document.getElementById('mOfiBox');
+      function mode() { var r = f.querySelector('input[name="m_mode"]:checked'); return r ? r.value : 'dom'; }
+      function sync() {
+        var ofi = mode() === 'ofi';
+        domBox.style.display = ofi ? 'none' : 'grid'; ofiBox.style.display = ofi ? 'block' : 'none';
+        ['m_dstreet', 'm_dcp', 'm_dcity'].forEach(function (n) { var el = f.querySelector('[name="' + n + '"]'); if (el) el.required = !ofi; });
+        var em = f.querySelector('[name="m_demail"]'); if (em) em.required = ofi;
+      }
+      f.querySelectorAll('input[name="m_mode"]').forEach(function (r) { r.addEventListener('change', sync); });
+      sync();
+      var btn = document.getElementById('mBtnBuscarOfi');
+      btn.addEventListener('click', function () {
+        var cp = (document.getElementById('mCpOfi').value || '').replace(/\D/g, '');
+        var mm = document.getElementById('mMsgOfi'); mm.textContent = '';
+        if (cp.length !== 5) { mm.textContent = 'CP de 5 digitos'; return; }
+        ['mHOfi', 'mHOfiName', 'mHOfiAddr', 'mHOfiCp', 'mHOfiCity'].forEach(function (id) { document.getElementById(id).value = ''; });
+        var t0 = btn.textContent; btn.textContent = btn.getAttribute('data-searching'); btn.disabled = true;
+        fetch('/correos_oficinas.php?cp=' + cp).then(function (r) { return r.json(); }).then(function (d) {
+          btn.textContent = t0; btn.disabled = false;
+          var sel = document.getElementById('mSelOfi'); sel.innerHTML = ''; sel.style.display = 'none';
+          document.getElementById('mSelOfiSel').textContent = '';
+          if (!d.ok || !(d.oficinas || []).length) { mm.textContent = 'Sin oficinas en ese CP'; return; }
+          sel.style.display = 'block';
+          d.oficinas.forEach(function (o) {
+            var it = document.createElement('div');
+            it.textContent = o.name + ' — ' + o.address + ' (' + o.cp + ' ' + o.city + ')';
+            it.style.cssText = 'padding:6px 10px;cursor:pointer;border-bottom:1px solid #eee;font-size:12px';
+            it.dataset.id = o.id; it.dataset.name = o.name; it.dataset.addr = o.address; it.dataset.cp = o.cp; it.dataset.city = o.city;
+            it.addEventListener('mouseover', function () { if (it.dataset.sel !== '1') it.style.background = '#f3f7ff'; });
+            it.addEventListener('mouseout', function () { if (it.dataset.sel !== '1') it.style.background = ''; });
+            it.addEventListener('click', function () { pick(it); });
+            sel.appendChild(it);
+          });
+        }).catch(function () { btn.textContent = t0; btn.disabled = false; mm.textContent = 'Error, reintenta'; });
+      });
+      function pick(it) {
+        var sel = document.getElementById('mSelOfi');
+        Array.prototype.forEach.call(sel.children, function (c) { c.style.background = ''; c.dataset.sel = ''; });
+        it.style.background = '#e8f6ee'; it.dataset.sel = '1';
+        document.getElementById('mHOfi').value = it.dataset.id || '';
+        document.getElementById('mHOfiName').value = it.dataset.name || '';
+        document.getElementById('mHOfiAddr').value = it.dataset.addr || '';
+        document.getElementById('mHOfiCp').value = it.dataset.cp || '';
+        document.getElementById('mHOfiCity').value = it.dataset.city || '';
+        document.getElementById('mSelOfiSel').textContent = '✓ Oficina elegida: ' + (it.dataset.name || '') + ' — ' + (it.dataset.addr || '') + ' (' + (it.dataset.cp || '') + ')';
+      }
+      f.addEventListener('submit', function (e) {
+        if (mode() === 'ofi') {
+          if (!document.getElementById('mHOfi').value) { e.preventDefault(); alert('Elige una oficina de Correos de la lista (busca por CP).'); return; }
+          if (!f.querySelector('[name="m_demail"]').value.trim()) { e.preventDefault(); alert('Para entrega en oficina, el email del destinatario es obligatorio.'); return; }
+        }
+        var b = f.querySelector('button[type=submit]'); if (b) { b.disabled = true; b.textContent = 'Creando…'; }
+      });
+    })();
+    </script>
   </details>
 
   <?php
@@ -405,7 +501,8 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
         <input type="text" id="cpOfi" maxlength="5" placeholder="CP" style="width:90px">
         <button type="button" id="btnBuscarOfi" class="btn" data-searching="Buscando&hellip;">Buscar oficinas</button>
         <span id="msgOfi" style="color:#a00;font-size:12px"></span><br>
-        <select id="selOfi" style="margin-top:8px;max-width:100%"></select>
+        <div id="selOfiSel" style="margin-top:8px;margin-bottom:4px;font-size:12px;color:#2e7d32;font-weight:600"></div>
+        <div id="selOfi" style="margin-top:0;max-height:200px;overflow:auto;border:1px solid #ddd;border-radius:4px;display:none;background:#fff"></div>
         <input type="hidden" name="oficina" id="hOfi"><input type="hidden" name="ofi_name" id="hOfiName">
         <input type="hidden" name="ofi_addr" id="hOfiAddr"><input type="hidden" name="ofi_cp" id="hOfiCp"><input type="hidden" name="ofi_city" id="hOfiCity">
       </div>
@@ -439,26 +536,33 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
       var t0 = btn.textContent; btn.textContent = btn.getAttribute('data-searching'); btn.disabled = true;
       fetch('/correos_oficinas.php?cp=' + cp).then(function (r) { return r.json(); }).then(function (d) {
         btn.textContent = t0; btn.disabled = false;
-        var sel = document.getElementById('selOfi'); sel.innerHTML = '';
+        var sel = document.getElementById('selOfi'); sel.innerHTML = ''; sel.style.display = 'none';
+        document.getElementById('selOfiSel').textContent = '';
         if (!d.ok || !(d.oficinas || []).length) { m.textContent = 'Sin oficinas en ese CP'; return; }
+        sel.style.display = 'block';
         d.oficinas.forEach(function (o) {
-          var op = document.createElement('option');
-          op.value = o.id; op.textContent = o.name + ' — ' + o.address + ' (' + o.cp + ' ' + o.city + ')';
-          op.dataset.name = o.name; op.dataset.addr = o.address; op.dataset.cp = o.cp; op.dataset.city = o.city;
-          sel.appendChild(op);
+          var it = document.createElement('div');
+          it.textContent = o.name + ' — ' + o.address + ' (' + o.cp + ' ' + o.city + ')';
+          it.style.cssText = 'padding:6px 10px;cursor:pointer;border-bottom:1px solid #eee;font-size:12px';
+          it.dataset.id = o.id; it.dataset.name = o.name; it.dataset.addr = o.address; it.dataset.cp = o.cp; it.dataset.city = o.city;
+          it.addEventListener('mouseover', function () { if (it.dataset.sel !== '1') it.style.background = '#f3f7ff'; });
+          it.addEventListener('mouseout', function () { if (it.dataset.sel !== '1') it.style.background = ''; });
+          it.addEventListener('click', function () { pickOfi(it); });
+          sel.appendChild(it);
         });
-        fillOfi();
       }).catch(function () { btn.textContent = t0; btn.disabled = false; m.textContent = 'Error, reintenta'; });
     });
-    function fillOfi() {
-      var sel = document.getElementById('selOfi'); if (!sel) return; var o = sel.options[sel.selectedIndex]; if (!o) return;
-      document.getElementById('hOfi').value = o.value;
-      document.getElementById('hOfiName').value = o.dataset.name || '';
-      document.getElementById('hOfiAddr').value = o.dataset.addr || '';
-      document.getElementById('hOfiCp').value = o.dataset.cp || '';
-      document.getElementById('hOfiCity').value = o.dataset.city || '';
+    function pickOfi(it) {
+      var sel = document.getElementById('selOfi');
+      Array.prototype.forEach.call(sel.children, function (c) { c.style.background = ''; c.dataset.sel = ''; });
+      it.style.background = '#e8f6ee'; it.dataset.sel = '1';
+      document.getElementById('hOfi').value = it.dataset.id || '';
+      document.getElementById('hOfiName').value = it.dataset.name || '';
+      document.getElementById('hOfiAddr').value = it.dataset.addr || '';
+      document.getElementById('hOfiCp').value = it.dataset.cp || '';
+      document.getElementById('hOfiCity').value = it.dataset.city || '';
+      document.getElementById('selOfiSel').textContent = '✓ Oficina elegida: ' + (it.dataset.name || '') + ' — ' + (it.dataset.addr || '') + ' (' + (it.dataset.cp || '') + ')';
     }
-    var selO = document.getElementById('selOfi'); if (selO) selO.addEventListener('change', fillOfi);
   })();
   </script>
   <?php endif; ?>

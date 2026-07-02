@@ -201,7 +201,7 @@ define('ENTRY_COUNTRY', 'Country:');
 define('ENTRY_COUNTRY_ERROR', 'You must select a country from the Countries pull down menu.');
 define('ENTRY_COUNTRY_TEXT', '*');
 define('ENTRY_TELEPHONE_NUMBER', 'Telephone Number:');
-define('ENTRY_TELEPHONE_NUMBER_ERROR', 'Your Telephone Number must contain a minimum of ' . ENTRY_TELEPHONE_MIN_LENGTH . ' characters.');
+define('ENTRY_TELEPHONE_NUMBER_ERROR', 'Please enter a valid phone number with at least 9 digits (no spaces or symbols).');
 define('ENTRY_TELEPHONE_NUMBER_TEXT', '*');
 define('ENTRY_FAX_NUMBER', 'Fax Number:');
 define('ENTRY_FAX_NUMBER_ERROR', '');

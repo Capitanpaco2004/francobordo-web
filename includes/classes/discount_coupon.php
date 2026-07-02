@@ -671,7 +671,8 @@ class discount_coupon {
 				break;
 			// Porcentual
 			case 'percent':
-				$discount_amount = $this->coupon['coupons_discount_amount'] . '%';
+				// El valor se guarda como fracción (0.1 = 10%); lo mostramos como porcentaje humano.
+				$discount_amount = round( $this->coupon['coupons_discount_amount'] * 100, 6 ) . '%';
 				break;
 			// Fijo
 			case 'fixed':

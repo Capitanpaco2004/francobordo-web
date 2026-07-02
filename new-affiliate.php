@@ -229,7 +229,7 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
     }
     //NIF end
 
-    if (strlen((string)$telephone) < ENTRY_TELEPHONE_MIN_LENGTH) {
+    if (strlen(preg_replace('/\D/', '', (string) $telephone)) < 9) {
         if (!tep_session_is_registered('customer_id')) {
             $error = true;
             $messageStack->add('create_account', ENTRY_TELEPHONE_NUMBER_ERROR . "<br/>");

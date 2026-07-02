@@ -215,7 +215,7 @@ define('ENTRY_COUNTRY', 'País:');
 define('ENTRY_COUNTRY_ERROR', 'Debe seleccionar un país de la lista desplegable.');
 define('ENTRY_COUNTRY_TEXT', '*');
 define('ENTRY_TELEPHONE_NUMBER', 'Teléfono:');
-define('ENTRY_TELEPHONE_NUMBER_ERROR', 'Su número de teléfono debe tener al menos ' . ENTRY_TELEPHONE_MIN_LENGTH . ' letras.');
+define('ENTRY_TELEPHONE_NUMBER_ERROR', 'Introduce un teléfono válido: al menos 9 dígitos (sin espacios ni símbolos).');
 define('ENTRY_TELEPHONE_NUMBER_TEXT', '*');
 define('ENTRY_FAX_NUMBER', 'Fax:');
 define('ENTRY_FAX_NUMBER_ERROR', '');
