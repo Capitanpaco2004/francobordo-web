@@ -327,6 +327,17 @@ $st->bind_param('issssssssdssssss', $oid, $alb, $env, $numEnvio, $ecb, $producto
 $st->execute();
 $newId = $db->insert_id;
 
+/* Tracking visible AL INSTANTE (cliente "Envío registrado" + caja admin), sin esperar
+ * al cron horario. El cron irá pisando estado/eventos según CEX escanee. En regen
+ * (modificar) resetea el timeline: el envío es nuevo. */
+$st2 = $db->prepare("INSERT INTO cex_tracking (referencia, num_envio, estado_code, estado_desc, entregado, last_checked)
+                     VALUES (?, ?, '1', 'Envío registrado', 0, NOW())
+                     ON DUPLICATE KEY UPDATE num_envio=VALUES(num_envio), estado_code='1',
+                       estado_desc=VALUES(estado_desc), entregado=0, last_checked=NOW(),
+                       timeline_json=NULL, timeline_at=NULL");
+$st2->bind_param('ss', $ref, $numEnvio);
+$st2->execute();
+
 out(array(
     'ok' => true, 'dedup' => false, 'env' => $env, 'shipment_id' => $newId,
     'shipmentCode' => $numEnvio, 'ecb' => $ecb, 'ref' => $ref, 'producto' => $producto,

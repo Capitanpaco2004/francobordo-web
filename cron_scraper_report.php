@@ -26,6 +26,12 @@ $_r1 = tep_db_query("DELETE FROM scraper_blacklist WHERE expires_at <= NOW()");
 $del_bl = tep_db_affected_rows($_r1);
 $_r2 = tep_db_query("DELETE FROM scraper_observed WHERE window_start < NOW() - INTERVAL 1 HOUR");
 $del_obs = tep_db_affected_rows($_r2);
+tep_db_query("DELETE FROM scraper_radar WHERE last_seen < NOW() - INTERVAL 7 DAY");
+
+// --- RADAR (deteccion pasiva, NO baneada): amenazas emergentes detectadas por cron_scraper_radar.php ---
+$radar = [];
+$rr = tep_db_query("SELECT ip, kind, detail, hits, last_seen FROM scraper_radar WHERE last_seen > NOW() - INTERVAL 24 HOUR ORDER BY kind, hits DESC LIMIT 60");
+while ($x = tep_db_fetch_array($rr)) $radar[] = $x;
 
 // --- 2) STATS ---
 $q = tep_db_query("SELECT
@@ -113,11 +119,38 @@ if ($allow) {
     $h .= '</table>';
 }
 
+// --- RADAR: amenazas emergentes (NO baneadas, solo detectadas) ---
+$radar_spoof = array_filter($radar, fn($r) => $r['kind'] === 'spoofed_bot');
+$radar_walk  = array_filter($radar, fn($r) => $r['kind'] === 'catalog_walker');
+$h .= '<h3 style="margin-top:25px;">&#x1F4E1; Radar (detecci&oacute;n pasiva, NO baneado &mdash; revisi&oacute;n manual)</h3>';
+if (!$radar) {
+    $h .= '<p style="color:#2a7;font-size:13px;">&#x2705; Sin amenazas emergentes en 24h (ni bots falsificados ni paginadores de cat&aacute;logo no cazados).</p>';
+} else {
+    if ($radar_walk) {
+        $h .= '<p style="font-size:13px;margin:8px 0 4px;"><strong>&#x1F577; Paginadores de cat&aacute;logo NO cazados</strong> (IPs que barren products_new sin comprar y que las reglas por-IP no atrapan &mdash; posible flota nueva):</p>';
+        $h .= '<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="background:#fff3f0;"><th style="padding:5px;text-align:left;border-bottom:1px solid #ddd;">IP</th><th style="padding:5px;text-align:left;border-bottom:1px solid #ddd;">Detalle</th><th style="padding:5px;text-align:right;border-bottom:1px solid #ddd;">Hits</th></tr>';
+        foreach ($radar_walk as $r) {
+            $h .= '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px;font-family:monospace;">' . htmlspecialchars($r['ip']) . '</td><td style="padding:5px;color:#777;">' . htmlspecialchars($r['detail']) . '</td><td style="padding:5px;text-align:right;">' . (int)$r['hits'] . '</td></tr>';
+        }
+        $h .= '</table>';
+    }
+    if ($radar_spoof) {
+        $h .= '<p style="font-size:13px;margin:14px 0 4px;"><strong>&#x1F3AD; Bots falsificados</strong> (UA dice ser buscador pero FCrDNS falla &mdash; scraper disfraz&aacute;ndose de crawler):</p>';
+        $h .= '<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="background:#fff3f0;"><th style="padding:5px;text-align:left;border-bottom:1px solid #ddd;">IP</th><th style="padding:5px;text-align:left;border-bottom:1px solid #ddd;">Detalle</th></tr>';
+        foreach ($radar_spoof as $r) {
+            $h .= '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px;font-family:monospace;">' . htmlspecialchars($r['ip']) . '</td><td style="padding:5px;color:#777;">' . htmlspecialchars($r['detail']) . '</td></tr>';
+        }
+        $h .= '</table>';
+    }
+    $h .= '<p style="font-size:11px;color:#999;margin-top:6px;">Si confirmas que alguna es scraper, ba&ntilde;eala desde el panel; si es leg&iacute;tima, a&ntilde;&aacute;dela a la allowlist.</p>';
+}
+
 $h .= '<p style="margin-top:25px;font-size:12px;color:#999;">Panel completo: <a href="https://www.francobordo.com/_admin/scraper_reports.php">scraper_reports.php</a> (Herramientas &rarr; Scraper Reports)</p>';
 $h .= '</div>';
 
 // --- 4) ENVIAR ---
-$asunto = 'Reporte anti-scraper: ' . (int)$s['active_bans'] . ' bans activos, +' . (int)$s['bans_24h'] . ' en 24h';
+$radar_tag = $radar ? (' | radar:' . count($radar)) : '';
+$asunto = 'Reporte anti-scraper: ' . (int)$s['active_bans'] . ' bans activos, +' . (int)$s['bans_24h'] . ' en 24h' . $radar_tag;
 $sent = tep_mail('Francisco', 'f.rodriguez@francobordo.com', $asunto, $h, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS);
 
 echo "OK cleanup: -$del_bl blacklist, -$del_obs observed\n";

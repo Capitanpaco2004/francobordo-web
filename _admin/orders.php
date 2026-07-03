@@ -1318,7 +1318,9 @@ if( tep_not_null($action) )
 									if( !empty( $aTrkRes['ok'] ) && !empty( $aTrkRes['data']['estadoEnvios'] ) ) {
 										$aTrkTl = array();
 										foreach( $aTrkRes['data']['estadoEnvios'] as $eTrk )
-											$aTrkTl[] = array( 'd' => $eTrk['descEstado'] ?? '', 'f' => $eTrk['fechaEstado'] ?? '', 'h' => $eTrk['horaEstado'] ?? '', 'i' => $eTrk['descIncEstado'] ?? '', 'e' => ( ( $eTrk['codEstado'] ?? '' ) === '12' ) ? 1 : 0 );
+											$dTrkD = trim( (string)( $eTrk['descEstado'] ?? '' ) );
+											if( strcasecmp( $dTrkD, 'SIN RECEPCION' ) === 0 ) $dTrkD = 'Envío registrado';
+											$aTrkTl[] = array( 'd' => $dTrkD, 'f' => $eTrk['fechaEstado'] ?? '', 'h' => $eTrk['horaEstado'] ?? '', 'i' => $eTrk['descIncEstado'] ?? '', 'e' => ( ( $eTrk['codEstado'] ?? '' ) === '12' ) ? 1 : 0 );
 										tep_db_query( "UPDATE cex_tracking SET timeline_json = '" . tep_db_input( json_encode( $aTrkTl, JSON_UNESCAPED_UNICODE ) ) . "', timeline_at = now() WHERE referencia = 'F" . (int)$oID . "'" );
 									}
 								}

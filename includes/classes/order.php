@@ -363,7 +363,7 @@ class order {
 		if (tep_session_is_registered('coupon') && tep_not_null($coupon)) {
 			require_once DIR_WS_CLASSES . 'discount_coupon.php';
 			$this->coupon = new discount_coupon($coupon, $this->delivery);
-			$this->coupon->total_valid_products($products);
+			$this->coupon->total_valid_products($products, $tax_address); // #FB-IVA-CUPON (2026-07-02): pasa la direccion fiscal real usada por el IVA por producto (linea 402)
 			$this->coupon->verify_code();
 			$valid_products_count = 0;
 		}

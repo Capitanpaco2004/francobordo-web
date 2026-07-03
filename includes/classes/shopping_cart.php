@@ -75,6 +75,9 @@ class shoppingCart {
 			foreach (array_keys($this->contents) as $products_id) {
 				// only check attributes if they are set for the product in the cart
 				if (isset($this->contents[$products_id]['attributes'])) {
+					// Init por producto: mismo patrón count(null) que add_cart; además sin esto los
+					// atributos del producto anterior se acumulaban entre iteraciones del foreach.
+					$check_attributes = [];
 					$check_attributes_query = tep_db_query("select options_id, options_values_id, IF(find_in_set('" . $this->cg_id . "', attributes_hide_from_groups) = 0, '0', '1') as hide_attr_status from " . TABLE_PRODUCTS_ATTRIBUTES . " where products_id = '" . tep_get_prid($products_id) . "'");
 					while ($_check_attributes = tep_db_fetch_array($check_attributes_query)) {
 						$check_attributes[] = $_check_attributes;
@@ -798,6 +801,9 @@ function attributes_price($products_id) {
 
 
 			// BOF SPPC attribute hide check, original query expanded to include attributes
+			// Init: si el producto ya no existe (p.ej. buy-all de un pedido antiguo) la query
+			// devuelve 0 filas y $check_product quedaba sin definir → count(null) Fatal en PHP 8.
+			$check_product = [];
 			$check_product_query = tep_db_query("select p.products_status, options_id, options_values_id, IF(find_in_set('" . $this->cg_id . "', attributes_hide_from_groups) = 0, '0', '1') as hide_attr_status from " . TABLE_PRODUCTS . " p left join " . TABLE_PRODUCTS_ATTRIBUTES . " using(products_id) where p.products_id = '" . (int)$products_id . "'");
 			while ($_check_product = tep_db_fetch_array($check_product_query)) {
 				$check_product[] = $_check_product;

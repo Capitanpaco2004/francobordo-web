@@ -811,6 +811,37 @@ function fb_pickup_store_tax_zone($store_id)
     return ['country_id' => (int) STORE_COUNTRY, 'zone_id' => (int) STORE_ZONE];
 }
 
+// #FB-IVA-EXPORT (2026-07-02): destinos con IVA propio configurado, que NO deben tratarse como
+// exportacion exenta. = UE-27 (por country_id) + Francia metropolitana (74) + Monaco (141, territorio
+// IVA frances) + Reino Unido (222, conserva su zona OSS configurada -> mismo trato storefront/admin).
+// Fuera de este set, y con un destino REAL conocido (country_id > 0), una entrega es EXPORTACION
+// exenta -> IVA 0%. Usado por tep_get_tax_rate y tep_get_tax_description. Guardado con
+// function_exists por si el fichero se incluye dos veces.
+if (!function_exists('fb_is_eu_vat_country')) {
+	function fb_is_eu_vat_country($country_id) {
+		static $eu = array(
+			14, 21, 33, 53, 55, 56, 57, 67, 72, 73, 74, 81, 84, 97, 103, 105,
+			117, 123, 124, 132, 141, 150, 170, 171, 175, 189, 190, 195, 203, 222
+		); // AT BE BG HR CY CZ DK EE FI FR FX DE GR HU IE IT LV LT LU MT MC NL PL PT RO SK SI ES SE GB
+		return in_array((int) $country_id, $eu, true);
+	}
+}
+
+// #FB-VIES (2026-07-02): reverse charge intracomunitario. true si el cliente es Profesional con VAT
+// validado en VIES (flag de sesion sppc_vies_reverse_charge, fijado en login desde fb_vies_status) Y la
+// entrega es a otro pais del area IVA-UE distinto de Espana (195) -> operacion exenta (inversion del
+// sujeto pasivo, art. 25 Ley 37/1992) -> IVA 0%.
+if (!function_exists('fb_vies_reverse_charge_applies')) {
+	function fb_vies_reverse_charge_applies($country_id) {
+		return isset($_SESSION['sppc_vies_reverse_charge'])
+			&& $_SESSION['sppc_vies_reverse_charge'] === '1'
+			&& (int) $country_id !== 195
+			&& (int) $country_id !== 222   // UK: fuera del area IVA UE (Brexit) -> es export, no reverse charge
+			&& function_exists('fb_is_eu_vat_country')
+			&& fb_is_eu_vat_country($country_id);
+	}
+}
+
 ////
 // Returns the tax rate for a zone / class
 // TABLES: tax_rates, zones_to_geo_zones
@@ -860,6 +891,13 @@ function tep_get_tax_rate($class_id, $country_id = -1, $zone_id = -1)
 	if( array_key_exists( $class_id . '_' . $country_id . '_' . $zone_id, $aTaxCache ) )
 		return $aTaxCache[$class_id . '_' . $country_id . '_' . $zone_id];
 
+	// #FB-VIES: reverse charge intracomunitario (inversion del sujeto pasivo) -> 0%. Depende del pais de
+	// entrega (country_id), por lo que la cache con clave class_country_zone es correcta.
+	if (fb_vies_reverse_charge_applies($country_id)) {
+		$aTaxCache[$class_id . '_' . $country_id . '_' . $zone_id] = 0;
+		return 0;
+	}
+
     // BOF Separate Pricing Per Customer, specific taxes exempt modification
     $tax_query = tep_db_query("select sum(tax_rate) as tax_rate
 								from " . TABLE_TAX_RATES . " tr
@@ -878,6 +916,17 @@ function tep_get_tax_rate($class_id, $country_id = -1, $zone_id = -1)
 	}
 
 	if (count($taxes) == 0) {
+		// #FB-IVA-EXPORT (2026-07-02): la 1a query no caso ninguna fila OSS. La query fallback de abajo
+		// aplica la zona catch-all 31 (IVA 21/10/4% con zone_country_id NULL) a CUALQUIER pais. Correcto
+		// para Espana y el resto del area IVA de la UE, pero para un destino REAL fuera de la UE es una
+		// entrega de EXPORTACION exenta -> 0%. El "> 0" evita eximir por error cuando el country_id llega
+		// 0/desconocido (p.ej. llamadas sin direccion, como el bug de $tax_address en discount_coupon):
+		// en ese caso se mantiene el comportamiento anterior (cae al fallback -> tasa de la tienda).
+		if ((int) $country_id > 0 && !fb_is_eu_vat_country($country_id)) {
+			$aTaxCache[$class_id . '_' . $country_id . '_' . $zone_id] = 0;
+			return 0;
+		}
+
 		$tax_query = tep_db_query("select sum(tax_rate) as tax_rate
 									from " . TABLE_TAX_RATES . " tr
 									left join " . TABLE_ZONES_TO_GEO_ZONES . " za on (tr.tax_zone_id = za.geo_zone_id)
@@ -926,6 +975,18 @@ function tep_get_tax_rate($class_id, $country_id = -1, $zone_id = -1)
 function tep_get_tax_description($class_id, $country_id, $zone_id)
 {
 	$taxes = array();
+
+	// #FB-VIES: reverse charge intracomunitario -> sin descripcion de IVA (la nota legal de inversion del
+	// sujeto pasivo se anade en la factura). Coherente con tep_get_tax_rate (0%).
+	if (fb_vies_reverse_charge_applies($country_id)) {
+		return '';
+	}
+
+	// #FB-IVA-EXPORT (2026-07-02): coherente con tep_get_tax_rate. Destino REAL fuera del area IVA-UE
+	// = exportacion exenta -> sin descripcion de IVA (evita etiquetar "IVA 21%" en facturas de export).
+	if ((int) $country_id > 0 && !fb_is_eu_vat_country($country_id)) {
+		return '';
+	}
 
 // BOF Separate Pricing Per Customer, specific taxes exempt modification
     if (isset($_SESSION['sppc_customer_specific_taxes_exempt']) && tep_not_null($_SESSION['sppc_customer_specific_taxes_exempt'])) {

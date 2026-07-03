@@ -43,19 +43,19 @@ class seurpunto {
         }
     }
 
-    /* Tarifa 2SHOP 24 SEUR (coste sin IVA, vigente 01/11/2025). Tramos "hasta N kg".
+    /* Tarifa 2SHOP 24 SEUR (coste sin IVA, contrato AUTORIZADO julio 2026). Tramos "hasta N kg".
      * Solo zonas que ofrece el módulo: Península y Baleares (Canarias/Ceuta/Melilla
-     * y Portugal quedan excluidos por el gate). se repercute el fuel SEUR 16,54% (const FUEL). */
+     * y Portugal quedan excluidos por el gate). Se aplica MARGEN +10% y el fuel SEUR 16,54%. */
+    const MARGEN = 1.10;   // margen sobre el coste SEUR (+10%, decisión usuario 2026-07-02)
     const TARIFA_PENINSULA = array(   // kg => €/expedición
-        1=>4.20, 2=>4.26, 3=>4.46, 4=>4.78, 5=>5.22, 7=>5.66, 10=>5.66,
-        15=>6.50, 20=>7.47, 25=>8.83, 30=>10.20, 40=>15.03, 50=>18.12,
+        1=>2.90, 2=>3.21, 3=>3.43, 4=>3.65, 5=>3.84, 6=>4.19, 7=>4.48,
+        8=>4.78, 9=>5.08, 10=>5.36, 15=>7.24, 20=>8.94,
     );
     const TARIFA_BALEARES = array(
-        1=>5.67, 2=>6.32, 3=>6.91, 4=>7.46, 5=>8.03, 7=>10.88, 10=>10.88,
-        15=>13.71, 20=>16.54, 25=>19.35, 30=>22.19, 40=>29.17, 50=>35.06,
+        1=>5.50, 2=>6.45, 3=>7.19, 4=>7.73, 5=>8.35, 6=>9.21, 7=>10.08,
+        8=>11.04, 9=>12.06, 10=>13.07, 15=>16.62, 20=>20.76,
     );
-    const TARIFA_EXTRA_KG = array('PEN'=>0.36, 'BAL'=>0.58);  // €/kg por encima de 50 kg
-    const MAX_KG = 20;   // SEUR 2shop/punto de recogida: tope de peso por envío
+    const MAX_KG = 20;   // SEUR 2shop/punto de recogida: tope de peso por envío (>15 kg = tarifa plana)
     const FUEL = 1.1654;  // sobrecoste fuel SEUR (16,54%) repercutido al cliente (2026-06-25)
 
     /** Coste SEUR (sin IVA) según peso (kg) y zona ('BAL' Baleares / 'PEN' resto). */
@@ -65,8 +65,8 @@ class seurpunto {
         foreach ($tabla as $maxkg => $precio) {
             if ($kg <= $maxkg) return $precio;
         }
-        // > 50 kg: precio del último tramo + €/kg sobre 50
-        return end($tabla) + (ceil($kg) - 50) * self::TARIFA_EXTRA_KG[$zona === 'BAL' ? 'BAL' : 'PEN'];
+        // > 15 kg (hasta MAX_KG): tarifa plana del último tramo (2shop no cobra €/kg extra)
+        return end($tabla);
     }
 
     public function quote($method = '') {
@@ -98,7 +98,7 @@ class seurpunto {
             return array();
         }
         $zona = (strncmp($cp, '07', 2) === 0) ? 'BAL' : 'PEN';
-        $base = self::costePorPeso($kg, $zona) * self::FUEL;   // coste sin IVA + fuel 16,54%
+        $base = self::costePorPeso($kg, $zona) * self::MARGEN * self::FUEL;   // coste sin IVA + margen 10% + fuel 16,54%
 
         $iva = ($this->tax_class > 0)
             ? tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id'])

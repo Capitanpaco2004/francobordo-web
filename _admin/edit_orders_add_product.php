@@ -107,6 +107,19 @@
         $product = tep_db_fetch_array($product_query);
         $country_id = oe_get_country_id($order->delivery["country"]);
         $zone_id = oe_get_zone_id($country_id, $order->delivery['state']);
+        // #FB-VIES: reverse charge intracomunitario tambien en el editor MANUAL de pedidos. Esta via
+        // directa NO inicia sesion como el cliente (a diferencia del recalculo curl_oe, que hace
+        // checkoutCurl->login y por eso ya aplica el 0%). Derivamos la elegibilidad del cliente del
+        // pedido y fijamos el flag antes de calcular el IVA de la linea, para que el guard de
+        // tep_get_tax_rate (admin) aplique 0% si procede (UE!=ES/UK). Nunca rompe (class_exists+casts).
+        $_SESSION['sppc_vies_reverse_charge'] = '0';
+        if (!class_exists('fb_vies') && defined('DIR_FS_CATALOG')) { @require_once DIR_FS_CATALOG . 'includes/classes/fb_vies.php'; }
+        if (class_exists('fb_vies')) {
+            $oe_vies = tep_db_fetch_array(tep_db_query("select c.customers_id, c.customers_group_id from orders o join customers c on c.customers_id = o.customers_id where o.orders_id = '" . (int) $oID . "'"));
+            if ($oe_vies && fb_vies::reverseChargeAllowed((int) $oe_vies['customers_id'], (int) $oe_vies['customers_group_id'])) {
+                $_SESSION['sppc_vies_reverse_charge'] = '1';
+            }
+        }
         $products_tax = tep_get_tax_rate($product['products_tax_class_id'], $country_id, $zone_id);
 		
 		

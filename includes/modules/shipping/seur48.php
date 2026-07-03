@@ -8,9 +8,10 @@
  * SEUR capa a 20 kg (ship-methods maxExpeditionKg=20). Cambiado a B2C 31/2 (sin tope de
  * peso) por decisión del usuario (2026-06-23) para poder enviar cualquier peso.
  *
- * Tarifa B2C / Entrega Particular — España Peninsular (contrato 2026), coste sin IVA:
- *   1kg 4,20 · 2kg 4,26 · 3kg 4,46 · 4kg 4,78 · 5kg 5,22 · 7-10kg 5,66 · 15kg 6,50
- *   20kg 7,47 · 25kg 8,83 · 30kg 10,20 · 40kg 15,03 · 50kg 18,12 · +0,36 €/kg sobre 50.
+ * Tarifa B2C / Entrega Particular — España Peninsular (contrato AUTORIZADO julio 2026),
+ * coste sin IVA:
+ *   1kg 3,04 · 2kg 3,37 · 3kg 3,60 · 4kg 3,83 · 5kg 4,05 · 6kg 4,40 · 7kg 4,70 · 8kg 5,02
+ *   9kg 5,31 · 10kg 5,61 · 15kg 8,04 · 20kg 9,94 · 25kg 12,14 · 30kg 13,95 · +0,37 €/kg sobre 30.
  * MARGEN +10% (decisión usuario). Redondeo a 0,05 sobre el precio CON IVA. SIN tope de peso.
  *
  * SIN restricciones de stock ni de día/hora. Se ofrece en TODA España (península + Baleares +
@@ -55,7 +56,7 @@ class seur48
     }
 
     /** Tarifa B2C / Entrega Particular, sin IVA, por peso (kg) y ZONA del CP:
-     *  'PEN' peninsula (tarifa anterior), 'BAL' Baleares, 'CAN' Canarias, 'CEU' Ceuta/Melilla
+     *  'PEN' peninsula (tarifa autorizada julio 2026), 'BAL' Baleares, 'CAN' Canarias, 'CEU' Ceuta/Melilla
      *  (islas = columnas del contrato autorizado 2026). Sin tope de peso. */
     public static function tarifaB2C($kg, $zona = 'PEN')
     {
@@ -64,7 +65,7 @@ class seur48
         $kg = (int) ceil($kg);
         // zona => array(tramos 'hasta N kg' => precio, peso del ultimo tramo, €/kg extra sobre el)
         $zonas = array(
-            'PEN' => array(array(1=>4.20,2=>4.26,3=>4.46,4=>4.78,5=>5.22,7=>5.66,10=>5.66,15=>6.50,20=>7.47,25=>8.83,30=>10.20,40=>15.03,50=>18.12), 50, 0.36),
+            'PEN' => array(array(1=>3.04,2=>3.37,3=>3.60,4=>3.83,5=>4.05,6=>4.40,7=>4.70,8=>5.02,9=>5.31,10=>5.61,15=>8.04,20=>9.94,25=>12.14,30=>13.95), 30, 0.37),
             'BAL' => array(array(1=>6.13,2=>7.16,3=>7.99,4=>8.58,5=>9.28,6=>10.24,7=>11.19,8=>12.26,9=>13.41,10=>14.53,15=>18.47,20=>23.06,25=>28.62,30=>34.77), 30, 0.74),
             'CAN' => array(array(1=>9.83,2=>13.51,3=>16.82,4=>19.99,5=>23.17,6=>26.78,7=>31.25,8=>36.43,9=>42.75,10=>50.92,15=>64.62,20=>89.06,25=>114.94,30=>148.64), 30, 3.48),
             'CEU' => array(array(1=>11.14,2=>12.99,3=>14.36,4=>15.62,5=>16.86,6=>20.27,7=>23.43,8=>24.06,9=>25.20,10=>26.60,15=>33.38,20=>43.00,25=>49.58,30=>62.74), 30, 1.36),

@@ -3,7 +3,7 @@
  * Módulo de envío "SEUR antes de las 13:30" (servicio SEUR 13:30, 9/2).
  *
  * REESCRITO 2026-06-11 (antes: zonas genéricas expedición+€/kg, desactivado).
- * Tarifa S-13:30 [P,L] del contrato 2026 (01/11/2025) Península, con MARGEN
+ * Tarifa S-13:30 [P,L] del contrato AUTORIZADO julio 2026, Península, con MARGEN
  * del 20% (decisión usuario; a diferencia de seurpunto/europack que van a coste).
  * Redondeo a múltiplos de 0,05 sobre el importe CON IVA (regla de la tienda).
  *
@@ -27,13 +27,12 @@ class seurnacional
     const MARGEN = 1.20;
     const FUEL = 1.1654;  // sobrecoste fuel SEUR 16,54% repercutido al cliente (2026-06-25)
 
-    /* Tarifa S-13:30 Península (coste sin IVA, contrato 01/11/2025). kg => €/exp. */
+    /* Tarifa S-13:30 Península (coste sin IVA, contrato AUTORIZADO julio 2026). kg => €/exp. */
     const TARIFA_1330_PENINSULA = array(
-        1=>7.09, 2=>8.20, 3=>8.20, 4=>8.59, 5=>8.59, 10=>13.29,
-        15=>23.10, 20=>27.85, 25=>32.58, 30=>37.34, 40=>48.88, 50=>60.42,
-        70=>80.82, 90=>103.93, 110=>127.02, 130=>150.12, 150=>173.19,
+        1=>4.43, 3=>5.14, 5=>6.17, 10=>8.74, 15=>14.13, 20=>19.75,
+        25=>24.22, 30=>27.98, 40=>37.82, 50=>45.40,
     );
-    const TARIFA_1330_EXTRA_KG = 1.16;   // €/kg por encima de 150 kg
+    const TARIFA_1330_EXTRA_KG = 0.85;   // €/kg por encima de 50 kg
 
     /* Ventana de oferta: días laborables (1=lunes..5=viernes) y franja horaria. */
     const HORA_DESDE = 6;    // se ofrece desde las 06:00...
@@ -68,8 +67,8 @@ class seurnacional
         foreach (self::TARIFA_1330_PENINSULA as $maxkg => $precio) {
             if ($kg <= $maxkg) return $precio;
         }
-        // > 150 kg: último tramo + €/kg sobre 150
-        return self::TARIFA_1330_PENINSULA[150] + (ceil($kg) - 150) * self::TARIFA_1330_EXTRA_KG;
+        // > 50 kg: último tramo + €/kg sobre 50
+        return self::TARIFA_1330_PENINSULA[50] + (ceil($kg) - 50) * self::TARIFA_1330_EXTRA_KG;
     }
 
     public function quote($method = '')

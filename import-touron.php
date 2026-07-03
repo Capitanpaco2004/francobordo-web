@@ -424,13 +424,28 @@ function updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAl
     showProgressWeb("Buscando productos no presentes en XML...");
     
     try {
-        $productosParaActualizar = array();
-        $atributosParaActualizar = array();
+        // MMEF (motores Mercury EFI): excluidos del marcado -900. Si NO estan en el XML de
+        // Touron se dejan a stock 0 (no descatalogado). Resto de marcas: comportamiento -900.
+        $mmefIds = array();
+        foreach ($aAllProducts as $modeloKey => $prodKey) {
+            if (strpos($modeloKey, 'mmef') === 0) {
+                $mmefIds[$prodKey['products_id']] = true;
+            }
+        }
+
+        $productosParaActualizar = array();  // -> -900 (fuera de catalogo del proveedor)
+        $productosParaCero       = array();  // -> 0    (MMEF no presente en XML)
+        $atributosParaActualizar = array();  // -> -900
+        $atributosParaCero       = array();  // -> 0    (MMEF no presente en XML)
 
         // Encontrar productos a actualizar
         foreach ($aAllProducts as $modelo => $producto) {
             if (!in_array($modelo, $productosEnXML) && $producto['products_quantity'] <= 0) {
-                $productosParaActualizar[] = $producto['products_id'];
+                if (strpos($modelo, 'mmef') === 0) {
+                    $productosParaCero[] = $producto['products_id'];
+                } else {
+                    $productosParaActualizar[] = $producto['products_id'];
+                }
             }
         }
 
@@ -438,14 +453,19 @@ function updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAl
         foreach ($aAllAtris as $referencia => $atributo) {
             if (!in_array($referencia, $productosEnXML)) {
                 $stockKey = $atributo['options_id'] . '-' . $atributo['options_values_id'];
-                $stockActual = isset($aAllStockAtris[$atributo['products_id']][$stockKey]) ? 
+                $stockActual = isset($aAllStockAtris[$atributo['products_id']][$stockKey]) ?
                               $aAllStockAtris[$atributo['products_id']][$stockKey] : 0;
-                
+
                 if ($stockActual <= 0) {
-                    $atributosParaActualizar[] = array(
+                    $fila = array(
                         'products_id' => $atributo['products_id'],
                         'stock_attributes' => $stockKey
                     );
+                    if (isset($mmefIds[$atributo['products_id']])) {
+                        $atributosParaCero[] = $fila;
+                    } else {
+                        $atributosParaActualizar[] = $fila;
+                    }
                 }
             }
         }
@@ -462,10 +482,22 @@ function updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAl
             }
         }
 
+        // MMEF no en XML -> stock 0 (excluidos del -900)
+        if (!empty($productosParaCero)) {
+            $chunks = array_chunk($productosParaCero, 1000);
+            foreach ($chunks as $chunk) {
+                $ids = implode(',', $chunk);
+                $result = tep_db_query("UPDATE products SET products_quantity = 0 WHERE products_id IN ($ids)");
+                if (!$result) {
+                    throw new Exception("Error actualizando MMEF a 0");
+                }
+            }
+        }
+
         if (!empty($atributosParaActualizar)) {
             foreach ($atributosParaActualizar as $attr) {
-                $result = tep_db_query("UPDATE products_stock SET products_stock_quantity = -900 
-                                       WHERE products_id = {$attr['products_id']} 
+                $result = tep_db_query("UPDATE products_stock SET products_stock_quantity = -900
+                                       WHERE products_id = {$attr['products_id']}
                                        AND products_stock_attributes = '{$attr['stock_attributes']}'");
                 if (!$result) {
                     throw new Exception("Error actualizando atributo a -900");
@@ -473,8 +505,20 @@ function updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAl
             }
         }
 
-        showProgressWeb("Productos no en XML actualizados: " . count($productosParaActualizar) . " productos, " . count($atributosParaActualizar) . " atributos");
-        
+        // Atributos MMEF no en XML -> stock 0
+        if (!empty($atributosParaCero)) {
+            foreach ($atributosParaCero as $attr) {
+                $result = tep_db_query("UPDATE products_stock SET products_stock_quantity = 0
+                                       WHERE products_id = {$attr['products_id']}
+                                       AND products_stock_attributes = '{$attr['stock_attributes']}'");
+                if (!$result) {
+                    throw new Exception("Error actualizando atributo MMEF a 0");
+                }
+            }
+        }
+
+        showProgressWeb("Productos no en XML: " . count($productosParaActualizar) . " a -900 y " . count($productosParaCero) . " MMEF a 0 (productos); " . count($atributosParaActualizar) . " a -900 y " . count($atributosParaCero) . " MMEF a 0 (atributos)");
+
     } catch (Exception $e) {
         throw new Exception("Error en updateProductsNotInXMLOptimizedWeb: " . $e->getMessage());
     }

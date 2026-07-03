@@ -4,13 +4,15 @@
  *
  * Clon del módulo seurdiez (SEUR 10). SEUR no tiene tarifa propia de sábado: lo
  * cobra como "Servicio Complementario Entrega en Sábados" = +11,42 € sobre la
- * tarifa de portes (contrato 01/11/2025). Coste = tarifa SEUR 24 / Entrega
+ * tarifa de portes (contrato autorizado julio 2026). Coste = tarifa SEUR 24 / Entrega
  * Particular (Medio España Peninsular, por peso) + 11,42 €. Precio = coste × 1,30
  * (MARGEN +30%, decisión usuario). Redondeo a 0,05 sobre el importe CON IVA.
  *
- * Tarifa SEUR 24 / Entrega Particular — Medio España Peninsular (coste sin IVA):
- *   1kg 4,20 · 2kg 4,26 · 3kg 4,46 · 4kg 4,78 · 5kg 5,22 · 7kg 5,66 · 10kg 5,66
- *   15kg 6,50 · 20kg 7,47 · 25kg 8,83 · 30kg 10,20  (> 30 kg: no se ofrece)
+ * Tarifa SEUR 24 / Entrega Particular — Medio España Peninsular (coste sin IVA,
+ * contrato AUTORIZADO julio 2026):
+ *   1kg 3,04 · 2kg 3,37 · 3kg 3,60 · 4kg 3,83 · 5kg 4,05 · 6kg 4,40 · 7kg 4,70
+ *   8kg 5,02 · 9kg 5,31 · 10kg 5,61 · 15kg 8,04 · 20kg 9,94 · 25kg 12,14 · 30kg 13,95
+ *   (> 30 kg: no se ofrece)
  *
  * Solo se ofrece si:
  *   - es VIERNES (Europe/Madrid) y antes de las 15:00 (el almacén lo expide hoy
@@ -33,7 +35,7 @@ class seursabado
     const MARGEN = 1.30;
     const FUEL = 1.1654;  // sobrecoste fuel SEUR 16,54% repercutido al cliente (2026-06-25)
 
-    /* Complemento "Entrega en Sábado" (contrato 01/11/2025), sin IVA. */
+    /* Complemento "Entrega en Sábado" (contrato autorizado julio 2026), sin IVA. */
     const COMPLEMENTO_SABADO = 11.42;
 
     /* Peso máximo del envío (kg). */
@@ -70,8 +72,8 @@ class seursabado
         $kg = (float) $kg;
         if ($kg <= 0) $kg = 1;
         $kg = (int) ceil($kg);
-        $tramos = array(1 => 4.20, 2 => 4.26, 3 => 4.46, 4 => 4.78, 5 => 5.22,
-                        7 => 5.66, 10 => 5.66, 15 => 6.50, 20 => 7.47, 25 => 8.83, 30 => 10.20);
+        $tramos = array(1 => 3.04, 2 => 3.37, 3 => 3.60, 4 => 3.83, 5 => 4.05, 6 => 4.40,
+                        7 => 4.70, 8 => 5.02, 9 => 5.31, 10 => 5.61, 15 => 8.04, 20 => 9.94, 25 => 12.14, 30 => 13.95);
         foreach ($tramos as $max => $rate) {
             if ($kg <= $max) return $rate;
         }

@@ -53,6 +53,8 @@ class seureuropack
 {
   var $code, $title, $description, $enabled, $num_zones, $sort_order, $icon, $tax_class, $_check, $quotes;
 
+  const FUEL = 1.1654;  // sobrecoste fuel SEUR 16,54% repercutido al cliente (2026-07-02)
+
   // class constructor
   function __construct()
   {
@@ -170,6 +172,9 @@ class seureuropack
                 $additional = round($shipping_weight - intval(constant('MODULE_EUROPACK_KG_MAX_' . $dest_zone)));
                 $shipping_cost = $shipping_cost + ($additional * floatval(constant('MODULE_EUROPACK_KG_ADICIONAL_' . $dest_zone)));
               }
+
+              // Repercutir el suplemento de combustible SEUR (16,54%) sobre el coste calculado (porte + handling + kg adicional).
+              $shipping_cost = $shipping_cost * self::FUEL;
 
               break;
             }

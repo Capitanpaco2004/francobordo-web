@@ -157,6 +157,7 @@ class Customer
 		tep_session_unregister('sppc_customer_group_show_tax');
 		tep_session_unregister('sppc_customer_group_tax_exempt');
 		tep_session_unregister('sppc_customer_specific_taxes_exempt');
+		tep_session_unregister('sppc_vies_reverse_charge');
 		tep_session_unregister('customer_country_id');
 		tep_session_unregister('customer_zone_id');
 		tep_session_unregister('customer_zone_name');
@@ -373,6 +374,7 @@ class Customer
 		global $customer_country_id;
 		global $customer_zone_id;
 		global $customer_zone_name;
+		global $sppc_vies_reverse_charge;
 
 		$customer_id = $this->id;
 		$sCustomersEmailAddress = $this->email;
@@ -386,6 +388,17 @@ class Customer
 		$sppc_customer_group_show_tax = (int)$this->showTax;
 		$sppc_customer_group_tax_exempt = $this->taxesExempt;
 		$sppc_customer_specific_taxes_exempt = $this->specificTaxesExempt;
+		// #FB-VIES: reverse charge intracomunitario. Grupo 0 (retail con empresa) o 1 (Profesionales) con
+		// VAT validado en VIES de OTRO estado miembro UE (no ES nacional, no GB/XI) -> flag de sesion; la
+		// condicion de pais de ENTREGA (UE!=ES,!=UK) la aplica tep_get_tax_rate por pedido. Try/catch para
+		// NUNCA romper el login.
+		$sppc_vies_reverse_charge = '0';
+		if (in_array((int) $this->groupId, array(0, 1), true)) {
+			try {
+				$vq = tep_db_query("select valid from fb_vies_status where customers_id = '" . (int) $this->id . "' and valid = '1' and country_code not in ('ES', 'GB', 'XI', '')");
+				if ($vq && tep_db_num_rows($vq)) $sppc_vies_reverse_charge = '1';
+			} catch (\Throwable $e) { $sppc_vies_reverse_charge = '0'; }
+		}
 		$customer_country_id = $this->countryId;
 		$customer_zone_id = $this->zoneId;
 		$customer_zone_name = $this->zoneName;
@@ -402,6 +415,7 @@ class Customer
 		tep_session_register('sppc_customer_group_show_tax');
 		tep_session_register('sppc_customer_group_tax_exempt');
 		tep_session_register('sppc_customer_specific_taxes_exempt');
+		tep_session_register('sppc_vies_reverse_charge');
 		tep_session_register('customer_country_id');
 		tep_session_register('customer_zone_id');
 		tep_session_register('customer_zone_name');
@@ -485,5 +499,17 @@ class Customer
 
 		$result = pharaonix_queryOne('SELECT customers_password FROM customers WHERE customers_id = "' . $this->id . '"', true);
 		$this->password = $result->records['customers_password'] ?? null;
+
+		// #FB-VIES fix B: refrescar el flag de reverse charge en CADA request (no solo en login), para
+		// reflejar revocaciones/altas de VIES sin esperar a un re-login. PK lookup barato; try/catch.
+		global $sppc_vies_reverse_charge;
+		$sppc_vies_reverse_charge = '0';
+		if (in_array((int) $this->groupId, array(0, 1), true)) {
+			try {
+				$vq = tep_db_query("select valid from fb_vies_status where customers_id = '" . (int) $this->id . "' and valid = '1' and country_code not in ('ES', 'GB', 'XI', '')");
+				if ($vq && tep_db_num_rows($vq)) $sppc_vies_reverse_charge = '1';
+			} catch (\Throwable $e) { $sppc_vies_reverse_charge = '0'; }
+		}
+		$_SESSION['sppc_vies_reverse_charge'] = $sppc_vies_reverse_charge;
 	}
 }

@@ -381,7 +381,7 @@ class correos_express {
     public static function estadoDescripcion($code) {
         // Códigos verificados contra el detalle (codEstado) de la API.
         $map = array(
-            '1' => 'Sin recepción', '2' => 'En arrastre', '4' => 'En tránsito',
+            '1' => 'Envío registrado', '2' => 'En arrastre', '4' => 'En tránsito',
             '6' => 'En delegación destino', '8' => 'En reparto', '11' => 'Nuevo reparto',
             '12' => 'Entregado', '39' => 'Disponible en punto de recogida',
         );

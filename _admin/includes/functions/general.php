@@ -1719,7 +1719,7 @@ function tep_display_tax_value($value, $padding = TAX_DECIMAL_PLACES) {
 	return $value;
 }
 
-function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $from_email_name, $from_email_address, $attachFile = false) {
+function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $from_email_name, $from_email_address, $attachFile = false, $bcc = '') {
 	// Replica la lógica de envío del frontend (includes/functions/general.php).
 	// Antes el admin enviaba siempre por sendmail local, lo que dejaba todos los
 	// emails atascados en la cola de exim. Ahora respeta STORE_OWNER_EMAIL_ADDRESS_GROUP
@@ -1790,6 +1790,13 @@ function tep_mail($to_name, $to_email_address, $email_subject, $email_text, $fro
 
 	$mail->Body    = $email_text;
 	$mail->AltBody = htmlentities((string) $mail->Body);
+
+	// Trustpilot AFS: BCC opcional (8o parametro) para invitar a opinar. Portado del storefront.
+	// OJO: NO eliminar al subir copias del admin general.php — ya se ha clobbereado antes (26-jun -> 1-jul)
+	// desde una copia vieja y dejo de invitar a Trustpilot en SILENCIO. Ver memoria francobordo_trustpilot.
+	if ($bcc !== '' && filter_var($bcc, FILTER_VALIDATE_EMAIL)) {
+		$mail->AddBCC($bcc);
+	}
 
 	try {
 		$mail->send();
@@ -1884,6 +1891,33 @@ function tep_calculate_tax($price, $tax) {
 	return $price * $tax / 100;
 }
 
+// #FB-IVA-EXPORT (2026-07-02): identico al helper del storefront (includes/functions/general.php).
+// Destinos con IVA propio configurado (NO exportacion exenta): UE-27 (por country_id) + Francia
+// metropolitana (74) + Monaco (141) + Reino Unido (222). Guardado con function_exists por si
+// storefront y admin general.php coinciden en un mismo request.
+if (!function_exists('fb_is_eu_vat_country')) {
+	function fb_is_eu_vat_country($country_id) {
+		static $eu = array(
+			14, 21, 33, 53, 55, 56, 57, 67, 72, 73, 74, 81, 84, 97, 103, 105,
+			117, 123, 124, 132, 141, 150, 170, 171, 175, 189, 190, 195, 203, 222
+		); // AT BE BG HR CY CZ DK EE FI FR FX DE GR HU IE IT LV LT LU MT MC NL PL PT RO SK SI ES SE GB
+		return in_array((int) $country_id, $eu, true);
+	}
+}
+
+// #FB-VIES (2026-07-02): identico al helper del storefront. Reverse charge intracomunitario (0%). En el
+// admin la sesion del cliente no esta -> normalmente es no-op; presente por consistencia y para el editor.
+if (!function_exists('fb_vies_reverse_charge_applies')) {
+	function fb_vies_reverse_charge_applies($country_id) {
+		return isset($_SESSION['sppc_vies_reverse_charge'])
+			&& $_SESSION['sppc_vies_reverse_charge'] === '1'
+			&& (int) $country_id !== 195
+			&& (int) $country_id !== 222
+			&& function_exists('fb_is_eu_vat_country')
+			&& fb_is_eu_vat_country($country_id);
+	}
+}
+
 ////
 // Returns the tax rate for a zone / class
 // TABLES: tax_rates, zones_to_geo_zones
@@ -1898,6 +1932,18 @@ function tep_get_tax_rate($class_id, $country_id = -1, $zone_id = -1) {
 			$country_id = $customer_country_id;
 			$zone_id    = $customer_zone_id;
 		}
+	}
+
+	// #FB-VIES: reverse charge intracomunitario (0%) tambien en el editor de pedidos admin.
+	if (fb_vies_reverse_charge_applies($country_id)) {
+		return 0;
+	}
+
+	// #FB-IVA-EXPORT (2026-07-02): destino REAL fuera del area IVA-UE = exportacion exenta -> 0%.
+	// Mismo criterio que el storefront; necesario porque el editor de pedidos admin
+	// (edit_orders_add_product.php) escribe orders_products.products_tax con esta funcion.
+	if ((int) $country_id > 0 && !fb_is_eu_vat_country($country_id)) {
+		return 0;
 	}
 
 	$tax_query = tep_db_query("select tax_rate from " . TABLE_TAX_RATES . " tr left join " . TABLE_ZONES_TO_GEO_ZONES . " za ON tr.tax_zone_id = za.geo_zone_id left join " . TABLE_GEO_ZONES . " tz ON tz.geo_zone_id = tr.tax_zone_id WHERE (za.zone_country_id IS NULL OR za.zone_country_id = '0' OR za.zone_country_id = '" . (int)$country_id . "') AND (za.zone_id IS NULL OR za.zone_id = '0' OR za.zone_id = '" . (int)$zone_id . "') AND tr.tax_class_id = '" . (int)$class_id . "' GROUP BY tr.tax_class_id");

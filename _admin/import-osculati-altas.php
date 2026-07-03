@@ -115,7 +115,6 @@ function osculatiHttpGet($path, $localPath, $minBytes = 1) {
 	]);
 	$ok = curl_exec($ch);
 	$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	curl_close($ch);
 	fclose($fp);
 	$ok = $ok && $code === 200 && filesize($localPath) >= $minBytes;
 	if (!$ok) @unlink($localPath);

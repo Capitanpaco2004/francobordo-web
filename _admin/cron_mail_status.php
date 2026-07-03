@@ -22,6 +22,27 @@ if (!defined('GOOGLE_REVIEW_URL')) define('GOOGLE_REVIEW_URL', 'https://search.g
 // No volver a pedir Google al mismo cliente (email) dentro de este periodo en dias. 0 = sin cooldown.
 if (!defined('GOOGLE_REINVITE_COOLDOWN_DAYS')) define('GOOGLE_REINVITE_COOLDOWN_DAYS', 180);
 
+// --- Auto-chequeo anti-clobber del BCC de Trustpilot (2026-07-02) ---
+// El fix del BCC en el admin includes/functions/general.php se ha revertido 2 veces al subir copias viejas.
+// Si tep_mail pierde el 8o parametro ($bcc), Trustpilot deja de recibir invitaciones EN SILENCIO
+// (PHP ignora el arg extra sin error). Este bloque lo detecta y avisa por email (throttle 6h).
+try {
+    $tp_ref = new ReflectionFunction('tep_mail');
+    if ($tp_ref->getNumberOfParameters() < 8) {
+        $tp_alert_file = '/home/francobordo/logs/tp_bcc_alert.last';
+        $tp_last = (is_file($tp_alert_file) ? (int) @file_get_contents($tp_alert_file) : 0);
+        if (time() - $tp_last > 21600) {
+            @file_put_contents($tp_alert_file, (string) time());
+            @tep_mail('Francisco', 'f.rodriguez@francobordo.com', '[' . STORE_NAME . '] ALERTA: BCC de Trustpilot roto',
+                '<p>El admin <b>includes/functions/general.php</b> ha perdido el soporte de BCC en <code>tep_mail()</code> (firma con menos de 8 parametros). '
+                . 'Trustpilot ha dejado de recibir invitaciones <b>en silencio</b>. Suele ocurrir al subir una copia vieja del fichero. '
+                . 'Hay que re-aplicar el fix (parametro <code>$bcc</code> + <code>$mail-&gt;AddBCC($bcc)</code>). Ver memoria francobordo_trustpilot.</p>',
+                STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS);
+        }
+        echo '<pre style="color:#c00">ALERTA: tep_mail SIN soporte BCC — Trustpilot no invitara hasta re-aplicar el fix.</pre>';
+    }
+} catch (Throwable $e) { /* el chequeo nunca debe romper el cron */ }
+
 $orders_status_array = array();
 $orders_status_query = tep_db_query("select orders_status_id, orders_status_name from " . TABLE_ORDERS_STATUS . " where language_id = '" . (int) $languages_id . "'");
 

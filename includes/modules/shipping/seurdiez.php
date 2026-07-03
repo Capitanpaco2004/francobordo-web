@@ -2,14 +2,15 @@
 /**
  * Módulo de envío "SEUR antes de las 10h" (servicio SEUR 10, 3/2).
  *
- * Clon del módulo seurnacional (SEUR 13:30). Tarifa S-10 [P,L] del contrato 2026
- * (01/11/2025), con MARGEN del 20% (decisión usuario). Redondeo a múltiplos de
- * 0,05 sobre el importe CON IVA (regla de la tienda).
+ * Clon del módulo seurnacional (SEUR 13:30). Tarifa S-10 [P,L] del contrato
+ * AUTORIZADO julio 2026, con MARGEN del 20% (decisión usuario). Redondeo a
+ * múltiplos de 0,05 sobre el importe CON IVA (regla de la tienda).
  *
- * Tarifa S-10 (coste sin IVA), IDÉNTICA para Medio España Peninsular y Medio
- * España Pen Portugal (las dos columnas del contrato coinciden):
- *   - hasta 1 kg: 16,78 €
- *   - > 1 kg: 15,07 € + 1,78 €/kg (kilos facturables, redondeo al alza)
+ * Tarifa S-10 Medio España Peninsular (coste sin IVA); se aplica también a
+ * Portugal continental (la columna Portugal es algo superior a partir de 10 kg;
+ * se usa la peninsular por simplicidad, como venía haciendo el módulo):
+ *   1kg 5,58 · 3kg 7,14 · 5kg 8,67 · 10kg 10,74 · 15kg 20,28 · 20kg 30,21
+ *   25kg 36,05 · 30kg 41,88 · 40kg 55,38 · 50kg 67,44 · +1,21 €/kg sobre 50.
  *
  * Solo se ofrece si:
  *   - destino España PENINSULAR (sin Baleares 07, Canarias 35/38, Ceuta 51,
@@ -31,10 +32,12 @@ class seurdiez
     const MARGEN = 1.20;
     const FUEL = 1.1654;  // sobrecoste fuel SEUR 16,54% repercutido al cliente (2026-06-25)
 
-    /* Tarifa S-10 (coste sin IVA, contrato 01/11/2025) — Península ES = Portugal. */
-    const TARIFA_S10_HASTA_1KG = 16.78;   // <= 1 kg
-    const TARIFA_S10_BASE      = 15.07;   // base para > 1 kg
-    const TARIFA_S10_KG        = 1.78;    // €/kg para > 1 kg
+    /* Tarifa S-10 Península (coste sin IVA, contrato AUTORIZADO julio 2026). kg => €/exp. */
+    const TARIFA_S10_PENINSULA = array(
+        1=>5.58, 3=>7.14, 5=>8.67, 10=>10.74, 15=>20.28, 20=>30.21,
+        25=>36.05, 30=>41.88, 40=>55.38, 50=>67.44,
+    );
+    const TARIFA_S10_EXTRA_KG = 1.21;   // €/kg por encima de 50 kg
 
     /* Ventana de oferta: días laborables (1=lunes..5=viernes) y franja horaria. */
     const HORA_DESDE = 6;    // se ofrece desde las 06:00...
@@ -61,13 +64,16 @@ class seurdiez
         }
     }
 
-    /** Coste SEUR S-10 (sin IVA, sin margen) por peso en kg. */
+    /** Coste SEUR S-10 (sin IVA, sin margen) por peso en kg (Península). */
     public static function costePorPeso($kg)
     {
         $kg = (float) $kg;
         if ($kg <= 0) $kg = 1;
-        if ($kg <= 1) return self::TARIFA_S10_HASTA_1KG;
-        return self::TARIFA_S10_BASE + self::TARIFA_S10_KG * ceil($kg);
+        foreach (self::TARIFA_S10_PENINSULA as $maxkg => $precio) {
+            if ($kg <= $maxkg) return $precio;
+        }
+        // > 50 kg: último tramo + €/kg sobre 50
+        return self::TARIFA_S10_PENINSULA[50] + (ceil($kg) - 50) * self::TARIFA_S10_EXTRA_KG;
     }
 
     public function quote($method = '')

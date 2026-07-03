@@ -182,6 +182,29 @@
 					</td>
 				</tr>
 			</table>
+			<?php
+				// #FB-VIES: nota legal de inversion del sujeto pasivo en facturas intracomunitarias exentas.
+				// Heuristica: entrega a UE, distinta de Espana (195) y de UK (222, export post-Brexit), con
+				// IVA total del pedido = 0 (lo realmente cobrado). Export fuera-UE falla fb_is_eu_vat_country;
+				// nacional ES lleva IVA>0. Nunca rompe la factura.
+				$fb_rc_cid = 0;
+				if (isset($order->delivery['country']['id']) && (int) $order->delivery['country']['id'] > 0) $fb_rc_cid = (int) $order->delivery['country']['id'];
+				elseif (isset($order->billing['country']['id'])) $fb_rc_cid = (int) $order->billing['country']['id'];
+				$fb_rc_tax = isset($order->info['tax']) ? (float) $order->info['tax'] : 0.0;
+				$fb_rc = ($fb_rc_cid > 0 && $fb_rc_cid !== 195 && $fb_rc_cid !== 222 && $fb_rc_tax == 0.0
+						  && function_exists('fb_is_eu_vat_country') && fb_is_eu_vat_country($fb_rc_cid));
+				if ($fb_rc) {
+					$fb_rc_nif = isset($order->billing['nif']) ? trim((string) $order->billing['nif']) : '';
+			?>
+			<table width="650" border="0" cellspacing="0" align="center">
+				<tr><td class="texto" style="padding:8px 4px;font-size:11px;border-top:1px solid #ccc;">
+					<strong>Operaci&oacute;n exenta de IVA &mdash; inversi&oacute;n del sujeto pasivo</strong>
+					(art.&nbsp;25 Ley&nbsp;37/1992; art.&nbsp;138 Directiva&nbsp;2006/112/CE). Entrega intracomunitaria a
+					empresario/profesional identificado a efectos de IVA<?php echo ($fb_rc_nif !== '') ? ' (NIF-IVA: ' . htmlspecialchars($fb_rc_nif) . ')' : ''; ?>.
+					<br><em>Reverse charge &mdash; VAT to be accounted for by the recipient.</em>
+				</td></tr>
+			</table>
+			<?php } ?>
 			<div style="PAGE-BREAK-AFTER: always;"></div>
 		<?php endwhile; ?>
 	</body>

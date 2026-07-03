@@ -510,7 +510,11 @@ class discount_coupon {
 	}
 
 	//this function is for tracking the product totals and count so that we can correctly calculate the discount
-	function total_valid_products($products = array())
+	// #FB-IVA-CUPON (2026-07-02): $tax_address (direccion fiscal real: shipping/billing/recogida)
+	// se recibe desde order.php::cart() para que el denominador use el MISMO IVA por producto que
+	// el numerador (calculate_discount usa $product['tax'] = tep_get_tax_rate con ese $tax_address).
+	// Antes $tax_address era una variable indefinida en este scope -> country=0 -> 21% "por casualidad".
+	function total_valid_products($products = array(), $tax_address = array())
 	{
 		global $cart;
 		for ($i = 0; $i < count($products); $i++) {
