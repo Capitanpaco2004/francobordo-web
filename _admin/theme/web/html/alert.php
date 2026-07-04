@@ -2,10 +2,10 @@
 	// Tools
 	use util\tools as tools;
 
-	// Nos posicionamos en la raiz para incluir las funciones del admin, ademas nos saltamos el forbidden
+	// Nos posicionamos en la raiz para incluir las funciones del admin. Saltamos SOLO el forbidden (ACL)
+	// con PHP_SELF='index.php'; NO tocamos SCRIPT_FILENAME (real=alert.php) para que el login SIGA exigiendose.
 	chdir( '../../../' );
-	$_SERVER['PHP_SELF'] = 'login.php';
-	$_SERVER['SCRIPT_FILENAME'] = 'login.php';
+	$_SERVER['PHP_SELF'] = 'index.php';
 	include( 'includes/application_top.php' );
 
 	// Variables

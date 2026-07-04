@@ -3,8 +3,16 @@
 	use util\tools as tools;
 	use util\date as date;
 
-	// Si nos mandan a instalar cambiamos el modulo por login para que forbidden no salte y podamos instalarlo
-	if( array_key_exists( 'action', $_GET ) && in_array( $_GET['action'], array( 'install', 'cron_delete_customer', 'cron_delete_customer_notify', 'cron_delete_orders' ) ) )
+	// En 'install': evitamos SOLO el forbidden (ACL) fingiendo el dashboard; NO tocamos SCRIPT_FILENAME
+	// para que application_top SIGA exigiendo login (antes se saltaba entero = bypass sin auth).
+	if( array_key_exists( 'action', $_GET ) && $_GET['action'] == 'install' )
+	{
+		$_SERVER['PHP_SELF'] = 'index.php';
+	}
+	// Crons RGPD (los invoca el crontab por curl SIN sesion): siguen saltandose el login.
+	// AVISO SEGURIDAD PENDIENTE: hoy NO validan token -> invocables por cualquier IP permitida por el
+	// .htaccess de _admin. Anadir token (hash_equals) antes del borrado/purga/envio y pasar ?token= en el crontab.
+	elseif( array_key_exists( 'action', $_GET ) && in_array( $_GET['action'], array( 'cron_delete_customer', 'cron_delete_customer_notify', 'cron_delete_orders' ) ) )
 	{
 		$_SERVER['PHP_SELF'] = 'login.php';
 		$_SERVER['SCRIPT_FILENAME'] = 'login.php';
@@ -25,6 +33,20 @@
 	$sSubtitle = '';
 	$aButtons = array();
 	$sPostAction = array_key_exists( 'action', $_POST ) ? tep_db_input( $_POST['action'] ) : (array_key_exists( 'action', $_GET ) ? tep_db_input( $_GET['action'] ) : false);
+
+	// Token de los crons RGPD: el crontab los invoca por curl SIN sesion (el shim del principio de este
+	// fichero salta el login para que puedan correr). Sin este secreto, cualquiera con acceso al _admin
+	// (allowlist del .htaccess) podria disparar por GET el borrado masivo de clientes (cron_delete_customer),
+	// la purga IRREVERSIBLE de PII de pedidos (cron_delete_orders) o el envio masivo de emails
+	// (cron_delete_customer_notify). Exigimos el token ANTES de cualquier trabajo sensible.
+	if( ! defined( 'RGPD_CRON_TOKEN' ) )
+		define( 'RGPD_CRON_TOKEN', '106493bc3e87285b80baeebb68744606a247f37ff8a577f2' );
+	if( in_array( $sPostAction, array( 'cron_delete_customer', 'cron_delete_customer_notify', 'cron_delete_orders' ), true ) ) {
+		if( ! hash_equals( RGPD_CRON_TOKEN, isset( $_GET['token'] ) ? (string)$_GET['token'] : '' ) ) {
+			http_response_code( 403 );
+			die( 'forbidden' );
+		}
+	}
 	$sGetPage = tep_db_prepare_input( $_GET['page'] ?? 1 );
 	$sGetOrderby = tep_db_prepare_input( $_GET['orderby'] ?? '' );
 	$sGetSort = tep_db_prepare_input( $_GET['sort'] ?? '' );

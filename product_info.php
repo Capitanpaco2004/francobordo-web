@@ -71,7 +71,7 @@ if (isAjax()) {
 			$sClass = trim(claseBotonComprar($nStock, $aCheck['check_stock']));
 
 			// Texto de estimación usando ShippingEstimator
-			$sEstimate = ShippingEstimator::buildText($sClass);
+			$sEstimate = ShippingEstimator::buildTextForProduct($sClass, $sGetProductsId, 1, $oid . '-' . $value, (int)$aCheck['check_stock']);
 
 			// Botón
 			$button         = TEXT_SIN_STOCK;

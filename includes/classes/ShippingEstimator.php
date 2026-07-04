@@ -95,6 +95,42 @@ class ShippingEstimator
 	/**
 	 * Construye el texto de predicción en base a la clase CSS del producto
 	 */
+	/**
+	 * Fase 1 refactor plazos: variante de buildText que, SOLO con el flag
+	 * DELIVERY_ESTIMATE_UNIFIED='True', recalcula la clase CSS a partir del
+	 * stock real via \delivery_estimate::classFromStock (respetando check_stock).
+	 * Con el flag OFF NO recalcula nada y delega en buildText($class) con el
+	 * mismo $class de hoy => salida byte-identica.
+	 * OJO namespace 'util': referenciar la clase global con backslash inicial.
+	 */
+	public static function buildTextForProduct(string $class, int $pid = 0, int $qty = 1, $attrKey = null, int $checkStock = 0): string
+	{
+		if( defined('DELIVERY_ESTIMATE_UNIFIED') && constant('DELIVERY_ESTIMATE_UNIFIED') == 'True'
+			&& $pid > 0 && \class_exists('delivery_estimate') ) {
+
+			$rawStock = null;
+			if( $attrKey !== null && $attrKey !== '' ) {
+				$s2 = tep_db_query( "select products_stock_quantity from " . TABLE_PRODUCTS_STOCK . " where products_id = '" . (int)$pid . "' and products_stock_attributes = '" . tep_db_input( (string)$attrKey ) . "'" );
+				if( tep_db_num_rows( $s2 ) > 0 ) {
+					$s2 = tep_db_fetch_array( $s2 );
+					$rawStock = (int)$s2['products_stock_quantity'];
+				}
+			}
+			if( $rawStock === null ) {
+				$aux = tep_db_query( "select products_quantity from " . TABLE_PRODUCTS . " where products_id = '" . (int)$pid . "'" );
+				if( tep_db_num_rows( $aux ) > 0 ) {
+					$aux = tep_db_fetch_array( $aux );
+					$rawStock = (int)$aux['products_quantity'];
+				}
+			}
+			if( $rawStock !== null ) {
+				$class = \delivery_estimate::classFromStock( $rawStock, $qty, $checkStock );
+			}
+		}
+
+		return self::buildText($class);
+	}
+
 	public static function buildText(string $class): string
 	{
 		// Bajo pedido
@@ -164,7 +200,7 @@ class ShippingEstimator
 	/**
 	 * Ajusta sábados, domingos y festivos
 	 */
-	private static function adjustWeekendAndHolidays(array $date, $module = false): array
+	private static function adjustWeekendAndHolidays(array $date, $module = false, $province = null): array
 	{
 		while (true) {
 			$isHoliday = tep_db_query(

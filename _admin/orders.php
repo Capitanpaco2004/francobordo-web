@@ -1445,7 +1445,7 @@ if( tep_not_null($action) )
 
 						<!-- Fecha estimada de entrega -->
 						<div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Fecha estimada de entrega</div>
-						<?php if( is_array( $aDeliveryCurrent ) && ! empty( $aDeliveryCurrent['estimated_date'] ) ): ?>
+						<?php if( is_array( $aDeliveryCurrent ) && ! empty( $aDeliveryCurrent['estimated_date'] ) && $aDeliveryCurrent['estimated_date'] !== '0000-00-00' ): ?>
 							<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
 								<div>
 									<i class="fa fa-calendar" style="color:#27a5d2;margin-right:6px;"></i>
@@ -1479,7 +1479,7 @@ if( tep_not_null($action) )
 						<h3 style="margin:0;font-size:16px;"><i class="fa fa-calendar"></i> Cambiar fecha estimada de entrega</h3>
 					</div>
 					<form action="<?php echo tep_href_link( FILENAME_ORDERS, tep_get_all_get_params( array( 'action' ) ) . 'action=update_delivery_estimate', 'NONSSL' ); ?>" method="post" style="padding:20px;">
-						<?php if( is_array( $aDeliveryCurrent ) && ! empty( $aDeliveryCurrent['estimated_date'] ) ): ?>
+						<?php if( is_array( $aDeliveryCurrent ) && ! empty( $aDeliveryCurrent['estimated_date'] ) && $aDeliveryCurrent['estimated_date'] !== '0000-00-00' ): ?>
 							<div style="background:#f6f6f6;padding:10px 14px;border-radius:4px;margin-bottom:16px;font-size:13px;color:#555;">
 								<i class="fa fa-info-circle" style="margin-right:6px;color:#888;"></i>
 								Fecha actual: <strong><?php echo tep_date_short( $aDeliveryCurrent['estimated_date'] ); ?></strong>
@@ -1487,7 +1487,7 @@ if( tep_not_null($action) )
 						<?php endif; ?>
 						<div style="margin-bottom:14px;">
 							<label style="display:block;margin-bottom:4px;font-weight:bold;">Nueva fecha:</label>
-							<input type="date" name="delivery_estimated_date" value="<?php echo ( is_array( $aDeliveryCurrent ) ? htmlspecialchars( $aDeliveryCurrent['estimated_date'], ENT_QUOTES, 'UTF-8' ) : '' ); ?>" required style="width:100%;padding:8px;box-sizing:border-box;" />
+							<input type="date" name="delivery_estimated_date" value="<?php echo ( is_array( $aDeliveryCurrent ) && ! empty( $aDeliveryCurrent['estimated_date'] ) && $aDeliveryCurrent['estimated_date'] !== '0000-00-00' ? htmlspecialchars( $aDeliveryCurrent['estimated_date'], ENT_QUOTES, 'UTF-8' ) : '' ); ?>" required style="width:100%;padding:8px;box-sizing:border-box;" />
 						</div>
 						<div style="margin-bottom:14px;">
 							<label style="display:block;margin-bottom:4px;font-weight:bold;">Comentario (opcional):</label>
@@ -2032,7 +2032,7 @@ $orders_query = tep_db_query($orders_query_raw);
 					</li>
 					<li>
 						<?php echo tep_draw_form('status', FILENAME_ORDERS, '', 'get', 'style="position:relative; top: 2px;"'); ?>
-						<?php echo HEADING_TITLE_STATUS . ' ' . tep_draw_pull_down_menu('status', array_merge(array(array('id' => '', 'text' => TEXT_ALL_ORDERS)), $orders_statuses), (isset($_GET['status']) ? $_GET['status'] : ''), 'onChange="this.form.submit();"'); ?>&nbsp;&nbsp;<?php $aShipFilter = array(array('id'=>'','text'=>'Forma de envío: todas'), array('id'=>'seururgente','text'=>'SEUR urgentes (10h + 13:30)'), array('id'=>'seurdiez_seurdiez','text'=>'SEUR antes de las 10h'), array('id'=>'seurnacional_seurnacional','text'=>'SEUR antes 13:30h'), array('id'=>'seurpunto_seurpunto','text'=>'SEUR Punto de Recogida'), array('id'=>'seureuropack_seureuropack','text'=>'SEUR EuroPACK'), array('id'=>'tipsa_tipsa','text'=>'Mensajería (Tipsa)'), array('id'=>'correos_Normal','text'=>'Correos Domicilio'), array('id'=>'correosoficina_correosoficina','text'=>'Correos - Recoger en oficina'), array('id'=>'correoscert_Normal','text'=>'Correos Certificado'), array('id'=>'retira_retira','text'=>'Recogida en tienda'), array('id'=>'freeamount_freeamount','text'=>'Envío Gratis')); echo 'Forma de envío ' . tep_draw_pull_down_menu('ship', $aShipFilter, (isset($_GET['ship']) ? $_GET['ship'] : ''), 'onChange="this.form.submit();"'); ?></td>
+						<?php echo HEADING_TITLE_STATUS . ' ' . tep_draw_pull_down_menu('status', array_merge(array(array('id' => '', 'text' => TEXT_ALL_ORDERS)), $orders_statuses), (isset($_GET['status']) ? $_GET['status'] : ''), 'onChange="this.form.submit();"'); ?>&nbsp;&nbsp;<?php $aShipFilter = array(array('id'=>'','text'=>'Forma de envío: todas'), array('id'=>'seururgente','text'=>'SEUR urgentes (10h + 13:30)'), array('id'=>'seurdiez_seurdiez','text'=>'SEUR antes de las 10h'), array('id'=>'seurnacional_seurnacional','text'=>'SEUR antes 13:30h'), array('id'=>'seurpunto_seurpunto','text'=>'SEUR Punto de Recogida'), array('id'=>'seureuropack_seureuropack','text'=>'SEUR EuroPACK'), array('id'=>'tipsa_tipsa','text'=>'Correos Express (domicilio)'), array('id'=>'tipsawednesday_tipsawednesday','text'=>'Correos Express - Entrega en Sábado'), array('id'=>'cexpunto_cexpunto','text'=>'Correos Express Punto'), array('id'=>'correos_Normal','text'=>'Correos Domicilio'), array('id'=>'correosoficina_correosoficina','text'=>'Correos - Recoger en oficina'), array('id'=>'correoscert_Normal','text'=>'Correos Certificado'), array('id'=>'retira_retira','text'=>'Recogida en tienda'), array('id'=>'freeamount_freeamount','text'=>'Envío Gratis')); echo 'Forma de envío ' . tep_draw_pull_down_menu('ship', $aShipFilter, (isset($_GET['ship']) ? $_GET['ship'] : ''), 'onChange="this.form.submit();"'); ?></td>
 						<?php echo tep_hide_session_id(); ?>
 						<input style="visibility:hidden;height: 0px;width: 0px;float: right;" type="submit"/>
 						</form>

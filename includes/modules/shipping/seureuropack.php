@@ -53,7 +53,12 @@ class seureuropack
 {
   var $code, $title, $description, $enabled, $num_zones, $sort_order, $icon, $tax_class, $_check, $quotes;
 
+  const MARGEN = 1.10;  // margen sobre el coste SEUR (+10%, decisión usuario 2026-07-03)
   const FUEL = 1.1654;  // sobrecoste fuel SEUR 16,54% repercutido al cliente (2026-07-02)
+  // Tarifas por zona en BD (MODULE_EUROPACK_SEUR_COST_n) = COSTE SEUR Classic HOME julio-2026
+  // (sin margen ni fuel; se aplican aquí). Umbrales N.001 porque el algoritmo usa "peso < umbral"
+  // y SEUR tarifica "hasta N kg" (<=N): así un carrito de N kg exactos cae en su tramo.
+  // HANDLING_n = 0,40 € Tasa de Seguridad internacional. KG_MAX/KG_ADICIONAL = €/kg desde 32 kg.
 
   // class constructor
   function __construct()
@@ -69,7 +74,9 @@ class seureuropack
     $this->enabled = ((MODULE_EUROPACK_SEUR_STATUS == 'True') ? true : false);
 
     // CONFIGURE ESTE PARÁMETRO PARA ESTABLECER EL número DE ZONAS NECESARIAS
-    $this->num_zones = 9;
+    // 2026-07-03: 9 -> 11 (zonas 10=Classic Z5 BG/FI/GR/RO/CH geo 66, 11=Classic Z6 BA/NO/RS geo 67;
+    // las filas MODULE_EUROPACK_*_10/_11 se insertaron a mano en configuration, sin reinstalar).
+    $this->num_zones = 11;
     //INICIO
     $dest_zone = 0;
     $aux = '0';
@@ -173,8 +180,8 @@ class seureuropack
                 $shipping_cost = $shipping_cost + ($additional * floatval(constant('MODULE_EUROPACK_KG_ADICIONAL_' . $dest_zone)));
               }
 
-              // Repercutir el suplemento de combustible SEUR (16,54%) sobre el coste calculado (porte + handling + kg adicional).
-              $shipping_cost = $shipping_cost * self::FUEL;
+              // Margen +10% y suplemento de combustible SEUR (16,54%) sobre el coste calculado (porte + handling + kg adicional).
+              $shipping_cost = $shipping_cost * self::MARGEN * self::FUEL;
 
               break;
             }

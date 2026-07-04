@@ -4,8 +4,9 @@
 	// Si nos mandan a instalar cambiamos el modulo por login para que forbidden no salte y podamos instalarlo
 	if( array_key_exists( 'action', $_GET ) && $_GET['action'] == 'install' )
 	{
-		$_SERVER['PHP_SELF'] = 'login.php';
-		$_SERVER['SCRIPT_FILENAME'] = 'login.php';
+		// FIX bypass sin auth: PHP_SELF='index.php' (FILENAME_DEFAULT) hace que tep_admin_check_login
+		// salte SOLO el ACL de pagina. NO tocar SCRIPT_FILENAME: asi el login SIGUE exigiendose.
+		$_SERVER['PHP_SELF'] = 'index.php';
 	}
 
 	// Incluimos el application_top

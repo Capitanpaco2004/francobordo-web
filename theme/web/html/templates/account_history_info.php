@@ -147,7 +147,7 @@
 	<?php
 	// Bloque "Fecha estimada de entrega" (justo debajo de los círculos de estado).
 	// Sólo se pinta si hay fecha calculada y el pedido aún no está enviado/completado/cancelado/rechazado.
-	$bMostrarEntrega = is_array( $aEntrega ) && ! empty( $aEntrega['estimated_date'] ) && $max_status < 4 && ! $bRechazado;
+	$bMostrarEntrega = is_array( $aEntrega ) && ! empty( $aEntrega['estimated_date'] ) && $aEntrega['estimated_date'] !== '0000-00-00' && $max_status < 4 && ! $bRechazado;
 	if( $bMostrarEntrega ):
 		$tsEntrega = strtotime( (string)$aEntrega['estimated_date'] );
 		$tsHoy     = strtotime( date('Y-m-d') );
@@ -160,6 +160,10 @@
 			case 'stock_ok':  $sRuleText = defined('DELIVERY_ESTIMATE_RULE_STOCK_OK')  ? DELIVERY_ESTIMATE_RULE_STOCK_OK  : ''; break;
 			case 'no_stock':  $sRuleText = defined('DELIVERY_ESTIMATE_RULE_NO_STOCK')  ? DELIVERY_ESTIMATE_RULE_NO_STOCK  : ''; break;
 			case 'backorder': $sRuleText = defined('DELIVERY_ESTIMATE_RULE_BACKORDER') ? DELIVERY_ESTIMATE_RULE_BACKORDER : ''; break;
+			case 'on_demand': $sRuleText = defined('DELIVERY_ESTIMATE_RULE_BACKORDER') ? DELIVERY_ESTIMATE_RULE_BACKORDER : ''; break;
+			case 'supplier':  $sRuleText = defined('DELIVERY_ESTIMATE_RULE_SUPPLIER')  ? DELIVERY_ESTIMATE_RULE_SUPPLIER  : ''; break;
+			case 'unavailable': $sRuleText = defined('DELIVERY_ESTIMATE_RULE_UNAVAILABLE') ? DELIVERY_ESTIMATE_RULE_UNAVAILABLE : ''; break;
+			case 'discontinued': $sRuleText = defined('DELIVERY_ESTIMATE_RULE_DISCONTINUED') ? DELIVERY_ESTIMATE_RULE_DISCONTINUED : ''; break;
 			case 'manual':    $sRuleText = defined('DELIVERY_ESTIMATE_RULE_MANUAL')    ? DELIVERY_ESTIMATE_RULE_MANUAL    : ''; break;
 			case 'seur1330_24h': $sRuleText = defined('DELIVERY_ESTIMATE_RULE_SEUR1330') ? DELIVERY_ESTIMATE_RULE_SEUR1330 : 'Envío urgente SEUR antes de las 13:30h (entrega en 24h)'; break;
 			case 'seur10_24h':   $sRuleText = defined('DELIVERY_ESTIMATE_RULE_SEUR10')   ? DELIVERY_ESTIMATE_RULE_SEUR10   : 'Envío urgente SEUR antes de las 10h (entrega en 24h)'; break;

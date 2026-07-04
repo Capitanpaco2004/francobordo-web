@@ -3,11 +3,11 @@
 	use util\tools as tools;
 	use util\date as date;
 
-	// Si nos mandan a instalar cambiamos el modulo por login para que forbidden no salte y podamos instalarlo
-	if( array_key_exists( 'action', $_GET ) && in_array( $_GET['action'], [ 'install', 'sleep_mode' ] ) )
+	// En 'install' evitamos SOLO el forbidden (ACL) fingiendo el dashboard; NO tocamos SCRIPT_FILENAME
+	// para que application_top SIGA exigiendo login. 'sleep_mode' retirada: pantalla estatica sin efectos.
+	if( array_key_exists( 'action', $_GET ) && $_GET['action'] == 'install' )
 	{
-		$_SERVER['PHP_SELF'] = 'login.php';
-		$_SERVER['SCRIPT_FILENAME'] = 'login.php';
+		$_SERVER['PHP_SELF'] = 'index.php';
 	}
 
 	// Incluimos el application_top

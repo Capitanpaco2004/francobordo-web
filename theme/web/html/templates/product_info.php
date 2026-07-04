@@ -209,7 +209,7 @@ echo tep_draw_form('cart_quantity', tep_href_link('product_info.php', tep_get_al
 								echo '<span>Seleccionar opción para ver disponibilidad</span>';
 							} else {
 								echo ($bLastStock ? '<b>' . TEXT_ULT_UNID . '</b><br>' : '');
-								echo ShippingEstimator::buildText(trim($aProductoInfo['CLASS']));
+								echo ShippingEstimator::buildTextForProduct(trim($aProductoInfo['CLASS']), (int)$aProductoInfo['products_id'], 1, null, (int)$aProductoInfo['check_stock']);
 							}
 						echo '</div>';
 					echo '</div>';
