@@ -88,6 +88,7 @@ class delivery_estimate {
 
 			$maxDispatch = 0;
 			$anyUnavailable = false;
+			$anyBackorder = false;
 			$uRule = 'stock_ok';
 
 			while( $prod = tep_db_fetch_array( $sqlP ) ) {
@@ -117,6 +118,9 @@ class delivery_estimate {
 					$maxDispatch = (int)$lt['dispatch_days'];
 				if( ! $lt['available'] )
 					$anyUnavailable = true;
+				// -800 bajo pedido: el pedido queda SIN plazo definido de entrega (no damos fecha).
+				if( isset( $lt['category'] ) && $lt['category'] == 'backorder' )
+					$anyBackorder = true;
 				if( isset( $lt['rule'] ) && $lt['rule'] != 'stock_ok' && $uRule == 'stock_ok' )
 					$uRule = $lt['rule'];
 			}
@@ -125,6 +129,15 @@ class delivery_estimate {
 				$estimated = '0000-00-00';
 				$uRule = 'unavailable';
 				tep_db_query( "insert into orders_delivery_estimate (orders_id, estimated_date, rule_applied, comment, is_manual, admin_user, email_sent, created_at) values ('" . $orders_id . "', '" . tep_db_input( $estimated ) . "', '" . tep_db_input( $uRule ) . "', 'Producto no disponible / bajo consulta', 0, NULL, 0, now())" );
+				return $estimated;
+			}
+
+			// Bajo pedido (-800): el pedido NO recibe una fecha estimada concreta. Guardamos
+			// estimated '0000-00-00' (los consumidores lo tratan como "sin fecha") con regla 'backorder'.
+			if( $anyBackorder ) {
+				$estimated = '0000-00-00';
+				$uRule = 'backorder';
+				tep_db_query( "insert into orders_delivery_estimate (orders_id, estimated_date, rule_applied, comment, is_manual, admin_user, email_sent, created_at) values ('" . $orders_id . "', '" . tep_db_input( $estimated ) . "', '" . tep_db_input( $uRule ) . "', 'Producto bajo pedido — sin plazo definido de entrega', 0, NULL, 0, now())" );
 				return $estimated;
 			}
 
