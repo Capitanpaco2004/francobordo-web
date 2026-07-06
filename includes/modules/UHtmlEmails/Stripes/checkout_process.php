@@ -67,6 +67,14 @@ if( isset( $insert_id ) && (int)$insert_id > 0 && file_exists( DIR_FS_CATALOG . 
 		$estimated_pretty = date( 'd/m/Y', strtotime( $de_row['estimated_date'] ) );
 	}
 }
+// Mensaje SIN fecha (estimated_date=='0000-00-00') segun regla. Inerte con flag off (legacy nunca produce '0000-00-00').
+$nodate_msg = '';
+if( isset( $de_row ) && $de_row && ( $de_row['estimated_date'] ?? '' ) === '0000-00-00' ) {
+	switch( $de_row['rule_applied'] ?? '' ) {
+		case 'backorder':   $nodate_msg = defined('DELIVERY_ESTIMATE_NODATE_BACKORDER')   ? DELIVERY_ESTIMATE_NODATE_BACKORDER   : 'Producto bajo pedido: consulta el plazo de entrega'; break;
+		case 'unavailable': $nodate_msg = defined('DELIVERY_ESTIMATE_NODATE_UNAVAILABLE') ? DELIVERY_ESTIMATE_NODATE_UNAVAILABLE : 'Producto no disponible: consúltanos'; break;
+	}
+}
 
 $confirmation_block_html = '
 	<table width="100%" style="margin: 0; padding: 0 30px 25px; line-height: 22px; font-size: 14px; font-family: Arial; letter-spacing: 0.2px; color: #5f5f5f;" border="0" cellspacing="0" cellpadding="0">';
@@ -76,6 +84,15 @@ if( $estimated_pretty != '' ) {
 			<td style="padding: 18px 22px; background-color: #f4fbfe; border-left: 4px solid #2bb0e2;">
 				<div style="font-size: 16px; font-weight: bold; color: #2bb0e2; margin-bottom: 6px;">' . UHE_TEXT_ESTIMATED_DELIVERY_TITLE . '</div>
 				<div>' . UHE_TEXT_ESTIMATED_DELIVERY_INTRO . ' <b style="color: #2f2f2f; font-size: 17px;">' . $estimated_pretty . '</b></div>
+			</td>
+		</tr>
+		<tr><td style="height: 18px;">&nbsp;</td></tr>';
+} else if( $nodate_msg != '' ) {
+	$confirmation_block_html .= '
+		<tr>
+			<td style="padding: 18px 22px; background-color: #f4fbfe; border-left: 4px solid #2bb0e2;">
+				<div style="font-size: 16px; font-weight: bold; color: #2bb0e2; margin-bottom: 6px;">' . UHE_TEXT_ESTIMATED_DELIVERY_TITLE . '</div>
+				<div>' . htmlspecialchars( $nodate_msg, ENT_QUOTES, 'UTF-8' ) . '</div>
 			</td>
 		</tr>
 		<tr><td style="height: 18px;">&nbsp;</td></tr>';

@@ -81,7 +81,15 @@ if($discount !== null)
 		$discount_percent = true;
 	}
 
-	$discount = floatval(str_replace($currencies->currencies[DEFAULT_CURRENCY]["decimal_point"], ".", $discount));
+	// Parseo robusto de importe:
+	//  - con coma ("1.478,51" o "49,99"): formato espanol -> quitar puntos de miles y coma -> punto
+	//  - sin coma ("49.99" o "1478"): el punto es decimal -> floatval directo
+	// (antes, "1.478,51" -> floatval("1.478.51") = 1.478 y corrompia precios >= 1.000)
+	if (strpos($discount, $currencies->currencies[DEFAULT_CURRENCY]["decimal_point"]) !== false) {
+		$discount = str_replace($currencies->currencies[DEFAULT_CURRENCY]["thousands_point"], "", $discount);
+		$discount = str_replace($currencies->currencies[DEFAULT_CURRENCY]["decimal_point"], ".", $discount);
+	}
+	$discount = floatval($discount);
 }
 
 $date = (isset($_GET['date']) && !empty($_GET['date']) ? trim($_GET['date']):null);
@@ -179,15 +187,15 @@ function specials_enhanced_get_all_products(&$products_split, &$products_query_n
 	$tables = array();
 	$clauses = array();
 
-	$fields = 'p.products_id, p.products_price, p.products_tax_class_id, p.products_model, pd.products_name, s.specials_id, s.specials_new_products_price, s.expires_date, s.status, s.start_date, s.customers_group_id, s.expires_repeat, s.is_temp';
-	
+	$fields = 'p.products_id, p.products_price, p.products_tax_class_id, p.products_model, pd.products_name, s.specials_id, s.specials_new_products_price, s.expires_date, s.status, s.start_date, s.customers_group_id, s.expires_repeat, s.is_temp, pg.customers_group_price';
+
 	if($specials_flag)
 	{
-		$tables[] = TABLE_PRODUCTS . ' p INNER JOIN ' . TABLE_SPECIALS . ' s ON p.products_id = s.products_id INNER JOIN ' . TABLE_PRODUCTS_DESCRIPTION . ' pd ON p.products_id = pd.products_id';
+		$tables[] = TABLE_PRODUCTS . ' p INNER JOIN ' . TABLE_SPECIALS . ' s ON p.products_id = s.products_id INNER JOIN ' . TABLE_PRODUCTS_DESCRIPTION . ' pd ON p.products_id = pd.products_id LEFT JOIN ' . TABLE_PRODUCTS_GROUPS . ' pg ON pg.products_id = p.products_id AND pg.customers_group_id = s.customers_group_id';
 	}
 	else
 	{
-		$tables[] = TABLE_PRODUCTS . ' p LEFT JOIN ' . TABLE_SPECIALS . ' s ON p.products_id = s.products_id INNER JOIN ' . TABLE_PRODUCTS_DESCRIPTION . ' pd ON p.products_id = pd.products_id';
+		$tables[] = TABLE_PRODUCTS . ' p LEFT JOIN ' . TABLE_SPECIALS . ' s ON p.products_id = s.products_id INNER JOIN ' . TABLE_PRODUCTS_DESCRIPTION . ' pd ON p.products_id = pd.products_id LEFT JOIN ' . TABLE_PRODUCTS_GROUPS . ' pg ON pg.products_id = p.products_id AND pg.customers_group_id = s.customers_group_id';
 	}
 	
 	$clauses[] = 'pd.language_id = '. (int)$languages_id;
@@ -297,8 +305,10 @@ function specials_enhanced_update_product($product_id, $discount = null, $discou
 	}
 
 	$aOfertas = array();
-	// Obtenemos ofertas del producto
-	$aAuxs = tep_db_query( 'SELECT * FROM specials WHERE products_id = "' . (int)$product_id . '"' );
+	// Obtenemos ofertas del producto — SOLO Retail (cgid=0). Las ofertas de otros
+	// grupos (Profesionales, Amazon...) se gestionan por fila con su sid; sin este
+	// filtro, "Aplicar a todos" pisaba la oferta G1 con precios calculados sobre Retail.
+	$aAuxs = tep_db_query( 'SELECT * FROM specials WHERE customers_group_id = 0 AND products_id = "' . (int)$product_id . '"' );
 	
 	// Guardamos ofertas del producto en un array
 	while( $aAux = tep_db_fetch_array( $aAuxs ) )
@@ -372,9 +382,18 @@ function specials_enhanced_update_product($product_id, $discount = null, $discou
 function specials_enhanced_update_special($sid, $discount = null, $discount_percent = false, $date = null, $start_date = null, $expires_repeat = null, $activate = true)
 {
 	$sid = (int)$sid;
-	$row_query = tep_db_query("SELECT s.products_id, p.products_price AS price, p.products_tax_class_id AS tax FROM " . TABLE_SPECIALS . " s INNER JOIN " . TABLE_PRODUCTS . " p ON p.products_id = s.products_id WHERE s.specials_id = $sid");
+	$row_query = tep_db_query("SELECT s.products_id, s.customers_group_id, p.products_price AS price, p.products_tax_class_id AS tax FROM " . TABLE_SPECIALS . " s INNER JOIN " . TABLE_PRODUCTS . " p ON p.products_id = s.products_id WHERE s.specials_id = $sid");
 	if(!($row = tep_db_fetch_array($row_query)))
 		return false;
+
+	// Si la oferta es de un grupo (Profesionales, etc.), el % se aplica sobre el
+	// precio base de ESE grupo, no sobre el Retail.
+	if((int)$row['customers_group_id'] > 0)
+	{
+		$gp_query = tep_db_query("SELECT customers_group_price FROM " . TABLE_PRODUCTS_GROUPS . " WHERE products_id = '" . (int)$row['products_id'] . "' AND customers_group_id = '" . (int)$row['customers_group_id'] . "'");
+		if($gp = tep_db_fetch_array($gp_query))
+			$row['price'] = $gp['customers_group_price'];
+	}
 
 	$fields = array();
 
@@ -680,6 +699,9 @@ if (tep_not_null($action))
 												{
 													$row_idx++;
 													$tax_rate = tep_get_tax_rate_value($specials['products_tax_class_id']);
+													// Precio base de la fila: el del grupo de la oferta si lo hay (G1, etc.), si no el Retail
+													if((int)($specials['customers_group_id'] ?? 0) > 0 && !empty($specials['customers_group_price']))
+														$specials['products_price'] = $specials['customers_group_price'];
 												?>
 												<tr class="dataTableRow" onmouseover="rowOverEffect(this)" onmouseout="rowOutEffect(this)">
 													<td colspan="11">
@@ -701,7 +723,7 @@ if (tep_not_null($action))
 																	<td width="20%" class="dataTableContent"><?php if(!empty($specials['is_temp'])) echo '<i class="fa fa-hourglass-half" style="color:#2980b9;margin-right:5px;" title="Oferta temporal"></i>'; echo $specials['products_name']; ?></td>
 																		<td width="9%" class="dataTableContent" align="center"><?php echo ($specials['specials_id'] != null ? (isset($group_names[$specials['customers_group_id']]) ? $group_names[$specials['customers_group_id']] : ('Grupo ' . (int)$specials['customers_group_id'])) : '----'); ?></td>
 																	<td width="8%" class="dataTableContent" align="center"><?php echo $currencies->display_price($specials['products_price'], $tax_rate); ?></td>
-																	<td width="15%" class="dataTableContent" align="center"><?php echo $currencies->currencies[DEFAULT_CURRENCY]['symbol_left']; ?><input name="discount" style="border:1px solid #ccc;text-align:right" type="text" size="8" value="<?php echo number_format(tep_add_tax($specials['specials_new_products_price'], $tax_rate),intval($currencies->currencies[DEFAULT_CURRENCY]["decimal_places"]), $currencies->currencies[DEFAULT_CURRENCY]["decimal_point"], $currencies->currencies[DEFAULT_CURRENCY]["thousands_point"]);?>"/> <?php echo $percent_select; ?></td>
+																	<td width="15%" class="dataTableContent" align="center"><?php echo $currencies->currencies[DEFAULT_CURRENCY]['symbol_left']; ?><input name="discount" style="border:1px solid #ccc;text-align:right" type="text" size="8" value="<?php echo number_format(tep_add_tax((float)($specials['specials_new_products_price'] ?? 0), $tax_rate),intval($currencies->currencies[DEFAULT_CURRENCY]["decimal_places"]), $currencies->currencies[DEFAULT_CURRENCY]["decimal_point"], $currencies->currencies[DEFAULT_CURRENCY]["thousands_point"]);?>"/> <?php echo $percent_select; ?></td>
 																	<td width="8%" class="dataTableContent" align="center"><?php if($specials['specials_new_products_price']){echo number_format(-1*($specials['products_price'] - $specials['specials_new_products_price'])*100/$specials['products_price'], intval($currencies->currencies[DEFAULT_CURRENCY]["decimal_places"]), $currencies->currencies[DEFAULT_CURRENCY]["decimal_point"], $currencies->currencies[DEFAULT_CURRENCY]["thousands_point"]).'%';}else{ echo '---';} ?></td>
 																	<td width="10%" class="dataTableContent" align="center"><input name="start_date" class="dxdatepicker" style="border:1px solid #ccc;" type="text" value="<?php echo (!empty($specials['start_date']) && $specials['start_date'] != '0000-00-00 00:00:00' ? preg_replace('/([0-9]{4,4})-([0-9]{2,2})-([0-9]{2,2}) ([0-9]{2,2}):([0-9]{2,2}):([0-9]{2,2})/','$3/$2/$1', $specials['start_date']):''); ?>" size="10" maxlength="10" onfocus="this.select();"/></td>
 																	<td width="10%" class="dataTableContent" align="center"><input name="date" class="dxdatepicker" style="border:1px solid #ccc;" type="text" value="<?php echo (!empty($specials['expires_date']) && $specials['expires_date'] != '0000-00-00 00:00:00' ? preg_replace('/([0-9]{4,4})-([0-9]{2,2})-([0-9]{2,2}) ([0-9]{2,2}):([0-9]{2,2}):([0-9]{2,2})/','$3/$2/$1', $specials['expires_date']):''); ?>" size="10" maxlength="10" onfocus="this.select();"/></td>
@@ -785,21 +807,21 @@ if (tep_not_null($action))
 	var filteredCount = <?php echo (int)($products_query_numrows ?? 0); ?>;
 
 	function confirmApplyAll(form){
-		if(!confirm('Vas a aplicar el descuento/fechas a ' + filteredCount + ' productos filtrados.\nLas ofertas afectadas quedaran ACTIVADAS.\n\nContinuar?')) return false;
+		if(!confirm('Vas a aplicar el descuento/fechas a ' + filteredCount + ' productos filtrados.\nSolo se toca la oferta RETAIL de cada producto (las de Profesionales/Amazon/EBAY no se modifican).\nLas ofertas afectadas quedaran ACTIVADAS.\n\nContinuar?')) return false;
 		form.action.value = 'update_all';
 		return true;
 	}
 
 	function confirmFlagAll(form, flag){
 		var txt = (flag == '1') ? 'ACTIVAR' : 'DESACTIVAR';
-		if(!confirm('Vas a ' + txt + ' las ofertas de ' + filteredCount + ' productos filtrados.\n\nContinuar?')) return false;
+		if(!confirm('Vas a ' + txt + ' las ofertas de ' + filteredCount + ' productos filtrados.\nOJO: afecta a TODAS las ofertas (Retail y grupos: Profesionales, Amazon, EBAY).\n\nContinuar?')) return false;
 		form.action.value = 'setflag_all';
 		form.flag.value = flag;
 		return true;
 	}
 
 	function confirmRemoveAll(form){
-		if(!confirm('Vas a BORRAR las ofertas de ' + filteredCount + ' productos filtrados.\nEsta accion NO se puede deshacer.\n\nContinuar?')) return false;
+		if(!confirm('Vas a BORRAR las ofertas de ' + filteredCount + ' productos filtrados.\nOJO: borra TODAS las ofertas (Retail y grupos: Profesionales, Amazon, EBAY).\nEsta accion NO se puede deshacer.\n\nContinuar?')) return false;
 		form.action.value = 'remove_all';
 		return true;
 	}

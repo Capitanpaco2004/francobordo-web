@@ -52,7 +52,7 @@ SELECT a.id, a.products_id, a.options_values_id, a.customers_group_id,
        a.fecha_inicio, a.fecha_fin,
        a.ovp_orig, a.prefix_orig,
        a.prev_specials_price, a.prev_specials_existed,
-       a.rule_id,
+       a.rule_id, a.auto_renew,
        p.products_status,
        COALESCE(v.stock_variant, 0) AS cur_stock,
        (SELECT pa.products_attributes_id FROM products_attributes pa
@@ -101,7 +101,9 @@ foreach ($active as $r) {
     } elseif ($ovid > 0 && $finTs < $now_ts) {
         $pending_changes[] = ['type' => 'close_expiry', 'row' => $r];
         $cnt_close_expiry++;
-    } elseif ($ovid > 0 && $finTs < $soon_ts) {
+    } elseif ($ovid > 0 && $finTs < $soon_ts && (int)($r['auto_renew'] ?? 1) === 1) {
+        // Solo renuevan las ofertas de regla (auto_renew=1). Las manuales
+        // (auto_renew=0) respetan su fecha_fin y caen en closed_by_expiry.
         $pending_changes[] = ['type' => 'renew', 'row' => $r];
         $cnt_renew++;
     } else {

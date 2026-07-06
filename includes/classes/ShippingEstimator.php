@@ -37,8 +37,25 @@ class ShippingEstimator
 		$days       = 1;
 		$prediction = true;
 
-		// Ciudades especiales
-		if ($city == 'Baleares') {
+		// Transito INSULAR (Baleares/Canarias/Ceuta/Melilla) alineado con el pedido cuando el flag esta
+		// activo: mismo transito por CP que calculateForOrder (Baleares 1, Canarias/Ceuta/Melilla 6), por
+		// PREFIJO de CP (mas fiable que el nombre de provincia, que ni pillaba Tenerife). La peninsula
+		// sigue con la tabla de abajo.
+		$__pfx = ( strlen( (string)$cp ) >= 2 ) ? substr( (string)$cp, 0, 2 ) : '';
+		if ( defined('DELIVERY_ESTIMATE_UNIFIED') && constant('DELIVERY_ESTIMATE_UNIFIED') == 'True'
+			&& in_array( $__pfx, ['07','35','38','51','52'], true ) ) {
+			if ( ! \class_exists('delivery_estimate', false)
+				&& defined('DIR_FS_CATALOG') && defined('DIR_WS_MODULES')
+				&& file_exists( DIR_FS_CATALOG . DIR_WS_MODULES . 'delivery_estimate/delivery_estimate.php' ) ) {
+				require_once( DIR_FS_CATALOG . DIR_WS_MODULES . 'delivery_estimate/delivery_estimate.php' );
+			}
+			if ( \class_exists('delivery_estimate') ) {
+				$days = (int) \delivery_estimate::transitDaysForCp( $cp );
+				$prediction = true;
+			}
+		}
+		// Ciudades especiales (legacy)
+		elseif ($city == 'Baleares') {
 			$days = 3;
 		} elseif (in_array($city, ['Las Palmas', 'Ceuta', 'Melilla'])) {
 			$prediction = false;
@@ -58,8 +75,22 @@ class ShippingEstimator
 			}
 		}
 
+		// Corte horario para el "mismo dia": con el flag unificado activo usamos el corte ESTACIONAL
+		// del pedido (15h verano / 16h resto, configurable); si no, el legacy MODULE_ESTIMATED_SHIP_TIMES.
+		if (defined('DELIVERY_ESTIMATE_UNIFIED') && constant('DELIVERY_ESTIMATE_UNIFIED') == 'True') {
+			$mmdd   = date('m-d');
+			$sStart = defined('DELIVERY_ESTIMATE_SUMMER_START') ? DELIVERY_ESTIMATE_SUMMER_START : '06-15';
+			$sEnd   = defined('DELIVERY_ESTIMATE_SUMMER_END')   ? DELIVERY_ESTIMATE_SUMMER_END   : '09-15';
+			$inSummer = ($sStart <= $sEnd) ? ($mmdd >= $sStart && $mmdd <= $sEnd) : ($mmdd >= $sStart || $mmdd <= $sEnd);
+			$cutoff = $inSummer
+				? (int)(defined('DELIVERY_ESTIMATE_CUTOFF_HOUR_SUMMER') ? DELIVERY_ESTIMATE_CUTOFF_HOUR_SUMMER : 15)
+				: (int)(defined('DELIVERY_ESTIMATE_CUTOFF_HOUR')        ? DELIVERY_ESTIMATE_CUTOFF_HOUR        : 16);
+		} else {
+			$cutoff = (int)MODULE_ESTIMATED_SHIP_TIMES;
+		}
+
 		// Fecha de envío base
-		$delivery = self::addHours(date('Y-m-d'), (date('H') >= MODULE_ESTIMATED_SHIP_TIMES ? 24 : 0));
+		$delivery = self::addHours(date('Y-m-d'), (date('H') >= $cutoff ? 24 : 0));
 		$delivery = self::adjustWeekendAndHolidays($delivery, $module);
 
 		// Fecha de recepción
@@ -75,8 +106,8 @@ class ShippingEstimator
 
 		if ($asText) {
 			if ($prediction) {
-				return '<p>Compra antes de las <span>' . MODULE_ESTIMATED_SHIP_TIMES . ':00h</span> de ' .
-					(date('H') >= MODULE_ESTIMATED_SHIP_TIMES ? 'mañana' : 'hoy') .
+				return '<p>Compra antes de las <span>' . $cutoff . ':00h</span> de ' .
+					(date('H') >= $cutoff ? 'mañana' : 'hoy') .
 					' y recibirás tu pedido el <span>' .
 					self::dateToSpanish(
 						date('l j \d\e F',
@@ -105,6 +136,15 @@ class ShippingEstimator
 	 */
 	public static function buildTextForProduct(string $class, int $pid = 0, int $qty = 1, $attrKey = null, int $checkStock = 0): string
 	{
+		// La clase del modulo NO la trae el autoloader en la ficha de producto: la cargamos aqui
+		// (solo con el flag ON) para que la recalculacion de clase pueda dispararse.
+		if( defined('DELIVERY_ESTIMATE_UNIFIED') && constant('DELIVERY_ESTIMATE_UNIFIED') == 'True' && $pid > 0
+			&& ! \class_exists('delivery_estimate', false)
+			&& defined('DIR_FS_CATALOG') && defined('DIR_WS_MODULES')
+			&& file_exists( DIR_FS_CATALOG . DIR_WS_MODULES . 'delivery_estimate/delivery_estimate.php' ) ) {
+			require_once( DIR_FS_CATALOG . DIR_WS_MODULES . 'delivery_estimate/delivery_estimate.php' );
+		}
+
 		if( defined('DELIVERY_ESTIMATE_UNIFIED') && constant('DELIVERY_ESTIMATE_UNIFIED') == 'True'
 			&& $pid > 0 && \class_exists('delivery_estimate') ) {
 
@@ -133,6 +173,14 @@ class ShippingEstimator
 
 	public static function buildText(string $class): string
 	{
+		// Consultar plazo (backorder con flag DELIVERY_ESTIMATE_UNIFIED ON). Rama INERTE con flag off:
+		// claseBotonComprar (legacy) nunca emite 'prdt-consultar' (solo classFromStock via buildTextForProduct).
+		if (preg_match('/\bprdt-consultar\b/i', $class)) {
+			return '<span class="cl2">' .
+				( defined('SHIPPING_PREDICTION_CONSULT') ? SHIPPING_PREDICTION_CONSULT : 'consulta el plazo de entrega' ) .
+				'</span>';
+		}
+
 		// Bajo pedido
 		if (preg_match('/\bprdt-bjpdd\b/i', $class)) {
 			return '<span class="cl2">' .

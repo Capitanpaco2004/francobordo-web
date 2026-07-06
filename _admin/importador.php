@@ -1,5 +1,6 @@
 <?php
 require('includes/application_top.php');
+require __DIR__ . '/auto_specials_helpers.php';
 function opp($paID) {
 	$sql_pre = "select products_id from products_attributes where products_attributes_id = " . (int)$paID;
 	$act_pre = tep_db_query($sql_pre) or die($sql_pre);
@@ -155,7 +156,7 @@ define('HEADING_TITLE', 'Importador productos en CSV');
 				if ($campo[13] !=0 && $campo[13] !='' ) {
 				$sql_23 = "delete from specials where products_id = ". $campo[2] . " and customers_group_id=3";
 				$act_23 = tep_db_query($sql_23) or die($sql_23);
-				$sql_24 ="insert into specials (products_id, specials_new_products_price, customers_group_id) values ('".$campo[2]. "'," .$campo[13]/$iva.",2)";
+				$sql_24 ="insert into specials (products_id, specials_new_products_price, customers_group_id) values ('".$campo[2]. "'," .$campo[13]/$iva.",3)";
 				$act_24 = tep_db_query($sql_24) or die($sql_24);			 
 				} else {
 				$sql_25 = "delete from specials where products_id = ". $campo[2] . " and customers_group_id=3";
@@ -184,10 +185,21 @@ define('HEADING_TITLE', 'Importador productos en CSV');
 			if ($campo[0] == 'A') {
 				// El atributo puede haber sido borrado de la web pero seguir en el CSV de QFac.
 				// Si ya no existe, lo saltamos para no romper opp()/opp_2/3/4 con un products_id vacio.
-				$aChk = tep_db_query("select products_attributes_id from products_attributes where products_attributes_id = ".(int)$campo[2]);
+				$aChk = tep_db_query("select products_attributes_id, products_id, options_values_id from products_attributes where products_attributes_id = ".(int)$campo[2]);
 				if (tep_db_num_rows($aChk) == 0) {
 					echo 'Atributo '. (int)$campo[2] .' - '. $campo[3] .' - ya no existe en la web - saltado<br>';
 					continue;
+				}
+				$aAttrInfo = tep_db_fetch_array($aChk);
+				$nAttrPid  = (int)$aAttrInfo['products_id'];
+				$nAttrOvid = (int)$aAttrInfo['options_values_id'];
+
+				// Si la variante tiene ofertas activas del motor auto_specials, REVERTIR antes
+				// de recalcular deltas: el CSV exportado lleva en campos 6/8 el precio ORIGINAL
+				// (pre-oferta), asi el delta base se restaura y la oferta (7/9) se re-aplica luego.
+				$aOfChk = tep_db_query("select id from auto_specials_active where products_id={$nAttrPid} and options_values_id={$nAttrOvid} and estado='active' limit 1");
+				if (tep_db_num_rows($aOfChk) > 0) {
+					as_revert_variant_offer($nAttrPid, $nAttrOvid, 'importador');
 				}
 				// Comprobamos si el atributo se ha modificado
 				//$aAux = tep_db_query( 'select products_attributes_id from products_attributes where products_attributes_id = "' . $campo[2] . '" and (attributes_last_modified is null or attributes_last_modified > "' . $aDate . '")' );
@@ -207,9 +219,11 @@ define('HEADING_TITLE', 'Importador productos en CSV');
 				$precioatributo_3 = $campo[10] - opp_3($campo[2])*$iva;
 				$sql_4 = "update products_attributes_groups set options_values_price = '". abs( $precioatributo_3/$iva ) ."', price_prefix = '" . ($precioatributo_3/$iva < 0 ? "-" : "+") . "' where customers_group_id=2 and products_attributes_id = ".$campo[2];
 				$act_4 = tep_db_query($sql_4) or die($sql_4);
+				// $precioatributo_4 debe calcularse ANTES de usarse (antes se usaba sin definir:
+				// el precio ebay del atributo se escribia con el valor de la fila anterior)
+				$precioatributo_4 = $campo[12] - opp_4($campo[2])*$iva;
 				$sql_6 = "update products_attributes_groups set options_values_price = '". abs( $precioatributo_4/$iva ) ."', price_prefix = '" . ($precioatributo_4/$iva < 0 ? "-" : "+") . "' where customers_group_id=3 and products_attributes_id = ".$campo[2];
 				$act_6 = tep_db_query($sql_6) or die($sql_6);
-				$precioatributo_4 = $campo[12] - opp_4($campo[2])*$iva;
 				$sql_3 = "update products_attributes set reference = ". "'". $campo[3] . "'" ." where products_attributes_id = ".$campo[2];
 				$act_3 = tep_db_query($sql_3) or die($sql_3);
 					// Modificacion para actualizar EAN Atributos
@@ -226,6 +240,34 @@ define('HEADING_TITLE', 'Importador productos en CSV');
 				tep_db_query($sql_update) or die($sql_update);
 				$sql_update = 'update products set products_last_modified = NOW() where products_id IN (SELECT products_id FROM products_attributes where products_attributes_id = "' . $campo[2] . '")';
 				tep_db_query($sql_update) or die($sql_update);
+
+				// OFERTAS DE VARIANTE: campo 7 = oferta Retail c/IVA, campo 9 = oferta G1 c/IVA.
+				// Con valor -> aplica oferta (motor auto_specials: delta + snapshot; el cron la
+				// cierra en fecha fin o al agotar stock). Vacio/0 -> queda sin oferta (ya se
+				// revirtio al principio de la fila). Campo 27 opcional = dias de vigencia (def. 14).
+				$fParseOf = function ($raw) {
+					$raw = trim((string)$raw);
+					if ($raw === '' ) return null;
+					if (strpos($raw, ',') !== false) { $raw = str_replace('.', '', $raw); $raw = str_replace(',', '.', $raw); }
+					$v = (float)$raw;
+					return $v > 0 ? $v : null;
+				};
+				$nOfRetail = $fParseOf($campo[7] ?? '');
+				$nOfG1     = $fParseOf($campo[9] ?? '');
+				if ($nOfRetail !== null || $nOfG1 !== null) {
+					$nDiasOf = (isset($campo[27]) && (int)$campo[27] > 0) ? (int)$campo[27] : 14;
+					// Campo 28 "Repetir Of.": 1 = el cron renueva la oferta cada 14 dias mientras
+					// haya stock (como "Repetir oferta" en specials.php). Vacio/0 = termina en fecha fin.
+					$nRepetirOf = (isset($campo[28]) && (int)$campo[28] === 1) ? 1 : 0;
+					$nTargetNet   = $nOfRetail !== null ? round($nOfRetail / $iva, 4) : null;
+					$nTargetG1Net = $nOfG1 !== null ? round($nOfG1 / $iva, 4) : null;
+					list($bOfOk, $sOfDetalle) = as_apply_variant_offer(
+						$nAttrPid, $nAttrOvid, $nTargetNet, null, false,
+						$nDiasOf, null, 'Import CSV', 'importador',
+						$nRepetirOf, false /* sin piping: manda el CSV */,
+						$nTargetG1Net);
+					echo '&nbsp;&nbsp;Oferta variante: ' . ($bOfOk ? '' : '<span style="color:#c00">') . $sOfDetalle . ($bOfOk ? ($nRepetirOf ? ' (se repite cada 14d)' : '') : '</span>') . '<br>';
+				}
 			}
 		}
 

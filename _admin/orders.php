@@ -1457,6 +1457,15 @@ if( tep_not_null($action) )
 									<small style="color:#888;white-space:nowrap;"><i class="fa fa-cog"></i> Automática</small>
 								<?php endif; ?>
 							</div>
+						<?php elseif( is_array( $aDeliveryCurrent ) && ( $aDeliveryCurrent['estimated_date'] ?? '' ) === '0000-00-00' ):
+							$sAdminNoDate = '';
+							switch( $aDeliveryCurrent['rule_applied'] ?? '' ) {
+								case 'backorder':   $sAdminNoDate = defined('DELIVERY_ESTIMATE_NODATE_BACKORDER')   ? DELIVERY_ESTIMATE_NODATE_BACKORDER   : 'Producto bajo pedido: consulta el plazo de entrega'; break;
+								case 'unavailable': $sAdminNoDate = defined('DELIVERY_ESTIMATE_NODATE_UNAVAILABLE') ? DELIVERY_ESTIMATE_NODATE_UNAVAILABLE : 'Producto no disponible: consúltanos'; break;
+							}
+							if( $sAdminNoDate === '' ) $sAdminNoDate = 'Sin fecha estimada registrada.';
+						?>
+							<div style="margin-bottom:8px;color:#c07000;"><i class="fa fa-exclamation-circle" style="margin-right:6px;"></i><?php echo htmlspecialchars( $sAdminNoDate, ENT_QUOTES, 'UTF-8' ); ?></div>
 						<?php else: ?>
 							<div style="margin-bottom:8px;color:#888;"><i class="fa fa-info-circle" style="margin-right:6px;"></i>Sin fecha estimada registrada.</div>
 						<?php endif; ?>

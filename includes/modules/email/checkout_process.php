@@ -14,6 +14,14 @@ if( isset( $insert_id ) && (int)$insert_id > 0 && file_exists( DIR_FS_CATALOG . 
 		$estimated_pretty = date( 'd/m/Y', strtotime( $de_row['estimated_date'] ) );
 	}
 }
+// Mensaje SIN fecha (estimated_date=='0000-00-00') segun regla. Inerte con flag off (legacy nunca produce '0000-00-00').
+$nodate_msg = '';
+if( isset( $de_row ) && $de_row && ( $de_row['estimated_date'] ?? '' ) === '0000-00-00' ) {
+	switch( $de_row['rule_applied'] ?? '' ) {
+		case 'backorder':   $nodate_msg = defined('DELIVERY_ESTIMATE_NODATE_BACKORDER')   ? DELIVERY_ESTIMATE_NODATE_BACKORDER   : 'Producto bajo pedido: consulta el plazo de entrega'; break;
+		case 'unavailable': $nodate_msg = defined('DELIVERY_ESTIMATE_NODATE_UNAVAILABLE') ? DELIVERY_ESTIMATE_NODATE_UNAVAILABLE : 'Producto no disponible: consúltanos'; break;
+	}
+}
 ?>
 
 {% extends base.php %}
@@ -55,6 +63,11 @@ if( isset( $insert_id ) && (int)$insert_id > 0 && file_exists( DIR_FS_CATALOG . 
 										<tr>
 											<td valign="middle" bgcolor="#e6f4fb" style="background: #e6f4fb; padding: 6px 6px 6px 6px;"><font face="Arial,sans-serif" style="font-size: 14px;line-height: 22px; color: #1c6f96;"><strong><?php echo UHE_TEXT_ESTIMATED_DELIVERY_TITLE; ?>:</strong></font></td>
 											<td valign="middle" bgcolor="#e6f4fb" style="background: #e6f4fb; padding: 6px;"><font face="Arial,sans-serif" style="font-size: 15px;line-height: 22px; color: #1c6f96;"><strong><?php echo $estimated_pretty; ?></strong></font></td>
+										</tr>
+										<?php elseif( $nodate_msg != '' ): ?>
+										<tr>
+											<td valign="middle" bgcolor="#e6f4fb" style="background: #e6f4fb; padding: 6px 6px 6px 6px;"><font face="Arial,sans-serif" style="font-size: 14px;line-height: 22px; color: #1c6f96;"><strong><?php echo UHE_TEXT_ESTIMATED_DELIVERY_TITLE; ?>:</strong></font></td>
+											<td valign="middle" bgcolor="#e6f4fb" style="background: #e6f4fb; padding: 6px;"><font face="Arial,sans-serif" style="font-size: 15px;line-height: 22px; color: #1c6f96;"><strong><?php echo htmlspecialchars( $nodate_msg, ENT_QUOTES, 'UTF-8' ); ?></strong></font></td>
 										</tr>
 										<?php endif; ?>
 									</table>

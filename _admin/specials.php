@@ -20,6 +20,7 @@
 		$aKeywords = array();
 		$aReturn = array();
 		$exclude = array();
+		$sWhere = '';
 
 		$aDatos = tep_db_query( 'select products_id from products where products_id = "' . (int)$sGetTern . '"' );
 
@@ -117,11 +118,27 @@
 
   $action = (isset($_GET['action']) ? $_GET['action'] : '');
 
+	// Normaliza un importe tecleado por humanos preservando el sufijo '%':
+	//  - con coma ("1.234,56" / "619,50"): formato espanol -> fuera puntos de miles, coma -> punto
+	//  - sin coma ("619.0083" / "749"): el punto ya es decimal
+	// Sin esto, "619,50" acababa en MySQL como 619 y "1.234,56" como 1.23 (cast implicito).
+	function specials_normalize_price($sValor)
+	{
+		$sValor = trim((string)$sValor);
+		$bPercent = (substr($sValor, -1) == '%');
+		if ($bPercent) $sValor = substr($sValor, 0, -1);
+		if (strpos($sValor, ',') !== false) {
+			$sValor = str_replace('.', '', $sValor);
+			$sValor = str_replace(',', '.', $sValor);
+		}
+		return $sValor . ($bPercent ? '%' : '');
+	}
+
   if (tep_not_null($action)) {
     switch ($action) {
 		case 'search':
-			$sGetTern = tep_db_prepare_input( $_GET['term'] );
-			$sGetDescp = tep_db_prepare_input( $_GET['descp'] );
+			$sGetTern = tep_db_prepare_input( $_GET['term'] ?? '' );
+			$sGetDescp = tep_db_prepare_input( $_GET['descp'] ?? '' );
 		
 			$aReturn = specials_search( $sGetTern, $sGetDescp );
 			
@@ -136,7 +153,7 @@
       case 'insert':
         $products_id = tep_db_prepare_input($_POST['products_id']);
         $products_price = tep_db_prepare_input($_POST['products_price']);
-        $specials_price = tep_db_prepare_input($_POST['specials_price']);
+        $specials_price = specials_normalize_price(tep_db_prepare_input($_POST['specials_price']));
 		$expires_date = tep_db_prepare_input($_POST['expires_date']);
 		$customers_group = tep_db_prepare_input($_POST['customers_group']);
 		
@@ -196,6 +213,13 @@
 	
 	// venta flash
 	tep_db_query("update " . TABLE_SPECIALS . " set specials_last_modified = now(), expires_date = '" . tep_db_input($expires_date) . "',  start_date = '" . tep_db_input($start_date) . "', venta_flash = '" . tep_db_input($venta_flash) . "', portada_flash = '" . tep_db_input($portada_flash) . "', expires_repeat = '" . (int)$expires_repeat . "' where specials_id = '" . (int)$sId . "'");
+
+	// Sincroniza start_date de TODAS las ofertas activas del producto (salvo flash
+	// programadas a futuro). El frontend (PriceFormatterStore) solo muestra el special
+	// cuyo start_date es el MAX del producto: sin este sync, una oferta nueva con
+	// start_date '0000-00-00' queda INVISIBLE si otra del producto tiene fecha real.
+	if ((int)$venta_flash != 1)
+		tep_db_query("update " . TABLE_SPECIALS . " set start_date = now() where products_id = '" . (int)$products_id . "' and status = 1 and not (venta_flash = 1 and start_date > now())");
 // EOF Separate Pricing Per Customer
 
         if( $_GET['pID'] )
@@ -206,7 +230,7 @@
       case 'update':
         $specials_id = tep_db_prepare_input($_POST['specials_id']);
         $products_price = tep_db_prepare_input($_POST['products_price']);
-        $specials_price = tep_db_prepare_input($_POST['specials_price']);
+        $specials_price = specials_normalize_price(tep_db_prepare_input($_POST['specials_price']));
 		$expires_date = tep_db_prepare_input($_POST['expires_date']);
 
 		// Venta flash
@@ -225,6 +249,14 @@
 
 		// venta flash
         tep_db_query("update " . TABLE_SPECIALS . " set specials_new_products_price = '" . tep_db_input($specials_price) . "', specials_last_modified = now(), status = '1', expires_date = '" . tep_db_input($expires_date) . "',  start_date = '" . tep_db_input($start_date) . "', venta_flash = '" . tep_db_input($venta_flash) . "', portada_flash = '" . tep_db_input($portada_flash) . "', expires_repeat = '" . (int)$expires_repeat . "' where specials_id = '" . (int)$specials_id . "'");
+
+		// Sincroniza start_date de las ofertas activas del producto (ver nota en insert):
+		// evita que esta u otra oferta del producto quede invisible por el filtro MAX(start_date).
+		if ((int)$venta_flash != 1) {
+			$aRowSync = tep_db_fetch_array(tep_db_query("select products_id from " . TABLE_SPECIALS . " where specials_id = '" . (int)$specials_id . "'"));
+			if ($aRowSync)
+				tep_db_query("update " . TABLE_SPECIALS . " set start_date = now() where products_id = '" . (int)$aRowSync['products_id'] . "' and status = 1 and not (venta_flash = 1 and start_date > now())");
+		}
 		
         
         // if( $expires_date != '' )
@@ -256,7 +288,7 @@
 <?php
   if ( ($action == 'new') || ($action == 'edit') ) {
 ?>
-	<link rel="stylesheet" type="text/css" href="http://ajax.googleapis.com/ajax/libs/jqueryui/1.10.3/themes/smoothness/jquery-ui.min.css">
+	<link rel="stylesheet" type="text/css" href="https://ajax.googleapis.com/ajax/libs/jqueryui/1.10.3/themes/smoothness/jquery-ui.min.css">
 	<script language="javascript" src="includes/general.js"></script>
 <?php
   }
@@ -382,25 +414,28 @@
             <td class="main">Porcentaje:</td>
             <td class="main"><?php echo tep_draw_input_field('specials_markdown', (isset($sInfo->specials_new_products_price) ? $sInfo->specials_new_products_price : ''), 'OnKeyUp="updateNetFromMarkdown();updateGross();updateMargin();"'); ?></td>
           </tr>
-<?php if ($form_action == 'update') {
-    $as_tax = tep_get_tax_rate($sInfo->products_tax_class_id);
-    $as_cost = (float)$sInfo->products_cost;
-    $as_offer_net = (float)$sInfo->specials_new_products_price;
-    $as_margin = ($as_offer_net > 0) ? round((($as_offer_net - $as_cost) / $as_offer_net) * 100, 1) : 0;
+<?php
+    // Coste + margen: en edición sale de la query de la oferta; en alta (action=new&pID=...) lo buscamos aparte.
+    $as_cost = null;
+    if ($form_action == 'update') {
+        $as_cost = (float)$sInfo->products_cost;
+    } elseif (isset($sInfo->products_id) && (int)$sInfo->products_id > 0) {
+        $as_cost_q = tep_db_query("select products_cost from " . TABLE_PRODUCTS . " where products_id = '" . (int)$sInfo->products_id . "'");
+        if ($as_cost_r = tep_db_fetch_array($as_cost_q)) $as_cost = (float)$as_cost_r['products_cost'];
+    }
+    if ($as_cost !== null) {
+        if ($form_action == 'update') {
+            $as_tax = tep_get_tax_rate($sInfo->products_tax_class_id);
+            $as_offer_net = (float)$sInfo->specials_new_products_price;
+            $as_margin_txt = ($as_offer_net > 0) ? number_format(round((($as_offer_net - $as_cost) / $as_offer_net) * 100, 1), 1, ',', '.') . '%' : '—';
+            echo '<tr><td class="main">PVP sin oferta (c/IVA):</td><td class="main"><b>' . $currencies->display_price($sInfo->products_price, $as_tax) . '</b></td></tr>';
+        } else {
+            $as_margin_txt = '—';
+        }
+        echo '<tr><td class="main">Precio de compra (s/IVA):</td><td class="main">' . $currencies->format($as_cost) . '</td></tr>';
+        echo '<tr><td class="main">Margen con la oferta:</td><td class="main"><b><span id="as_margin">' . $as_margin_txt . '</span></b> <small style="color:#888">(sobre venta, s/IVA)</small></td></tr>';
+    }
 ?>
-          <tr>
-            <td class="main">PVP sin oferta (c/IVA):</td>
-            <td class="main"><b><?php echo $currencies->display_price($sInfo->products_price, $as_tax); ?></b></td>
-          </tr>
-          <tr>
-            <td class="main">Precio de compra (s/IVA):</td>
-            <td class="main"><?php echo $currencies->format($as_cost); ?></td>
-          </tr>
-          <tr>
-            <td class="main">Margen con la oferta:</td>
-            <td class="main"><b><span id="as_margin"><?php echo number_format($as_margin, 1, ',', '.'); ?>%</span></b> <small style="color:#888">(sobre venta, s/IVA)</small></td>
-          </tr>
-<?php } ?>
 
 		  <tr><td height="30" colspan="2" style="vertical-align: middle;" align="center"><b>---- Oferta Express ----</b></td></tr>
 	
@@ -711,7 +746,7 @@
 				$aReturn = specials_search( $_GET['pID'], false );
 				
 				echo '
-					var sID = ' . $_GET['pID'] . ';
+					var sID = ' . (int)$_GET['pID'] . ';
 					var aPrices = [' . $aReturn[0]['rel'] . '];
 
 					products_tax_class[sID] = ' . $aReturn[0]['tax'] . ';
@@ -830,8 +865,8 @@
 
 	}
 
-	// Coste (s/IVA) del producto en edición, para calcular margen en vivo
-	var as_product_cost = <?php echo ($form_action == 'update') ? (float)$sInfo->products_cost : 0; ?>;
+	// Coste (s/IVA) del producto en edición o alta, para calcular margen en vivo
+	var as_product_cost = <?php echo isset($as_cost) && $as_cost !== null ? (float)$as_cost : 0; ?>;
 
 	function updateMargin() {
 	  var el = document.getElementById('as_margin');

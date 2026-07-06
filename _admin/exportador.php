@@ -85,6 +85,17 @@ function specials_min_price($pmnID) {
 	return $val['specials_min_price'];
 }
 
+// Oferta de variante activa (motor auto_specials) para (pid, ovid, cgid). NULL si no hay.
+function attr_offer($pID, $ovID, $cgID) {
+	$sql = "select pvp_oferta, ovp_orig, prefix_orig, fecha_fin, auto_renew from auto_specials_active
+	        where products_id = " . (int)$pID . " and options_values_id = " . (int)$ovID . "
+	          and customers_group_id = " . (int)$cgID . " and estado = 'active'
+	        order by id desc limit 1";
+	$act = tep_db_query($sql);
+	$val = tep_db_fetch_array($act);
+	return $val ?: null;
+}
+
 ?>
 <?php require(THEME . 'html/header.php'); ?>
 
@@ -131,20 +142,54 @@ while ($row = tep_db_fetch_array($act)) {
 		$f = "\n";
 		$fichero="csv/productos.csv";
 		$ficheroabierto = fopen($fichero,"w") or die ("El fichero no se ha podido abrir");
-		fwrite($ficheroabierto, 'Tipo'.$s.'IVA'.$s.'ID de Producto'.$s.'Modelo'.$s.'R.Proveedor'.$s.'Nombre'.$s.'PVP+IVA'.$s.'PVP Of.+IVA'.$s.'PVD+IVA'.$s.'PVD Of.+IVA'.$s.'Amazon+IVA'.$s.'Amazon Of+IVA'.$s.'ebay+IVA'.$s.'ebay Of+IVA'.$s.'Stock'.$s.'estado'.$s.'EAN'.$s.'Pcompra+Iva*'.$s.'Peso.'.$s.'Env.Gratis'.$s.'Fabricante'.$s.'Amazon Status'.$s.'C-Stock'.$s.'Excl.G.Shop.'.$s.'ebay'.$s.'Liquid.'.$s.'P.min'.$f);
+		fwrite($ficheroabierto, 'Tipo'.$s.'IVA'.$s.'ID de Producto'.$s.'Modelo'.$s.'R.Proveedor'.$s.'Nombre'.$s.'PVP+IVA'.$s.'PVP Of.+IVA'.$s.'PVD+IVA'.$s.'PVD Of.+IVA'.$s.'Amazon+IVA'.$s.'Amazon Of+IVA'.$s.'ebay+IVA'.$s.'ebay Of+IVA'.$s.'Stock'.$s.'estado'.$s.'EAN'.$s.'Pcompra+Iva*'.$s.'Peso.'.$s.'Env.Gratis'.$s.'Fabricante'.$s.'Amazon Status'.$s.'C-Stock'.$s.'Excl.G.Shop.'.$s.'ebay'.$s.'Liquid.'.$s.'P.min'.$s.'Dias Of.'.$s.'Repetir Of.'.$f);
 		while ($row = tep_db_fetch_array($act)) {
-			fwrite ($ficheroabierto,'P'.$s.$row['tax_rate'].$s.$row['products_id'].$s.$row['products_model'].$s.$row['reference_prov'].$s.mb_convert_encoding($row['products_name'] ?? '', 'ISO-8859-1', 'UTF-8').$s.round($row['products_price']*(1+($row['tax_rate']/100)),2).$s.round(sprice($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(precio_grupo($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(sprice_distibucion($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(precio_amazon($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(sprice_amazon($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(precio_ebay($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(sprice_ebay($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.$row['products_quantity'].$s.$row['products_status'].$s.$row['product_ean'].$s.round(($row['products_cost'])*(1+($row['tax_rate']/100)),2).$s.$row['products_weight'].$s.$row['products_ship_free'].$s.$row['manufacturers_id'].$s.$row['amazon_status'].$s.$row['check_stock'].$s.$row['exclude_feedmachine'].$s.$row['sincronizar_ebay'].$s.$row['products_liquidacion'].$s.round(specials_min_price($row['products_id'])*(1+($row['tax_rate']/100)),2).$f);
+			fwrite ($ficheroabierto,'P'.$s.$row['tax_rate'].$s.$row['products_id'].$s.$row['products_model'].$s.$row['reference_prov'].$s.mb_convert_encoding($row['products_name'] ?? '', 'ISO-8859-1', 'UTF-8').$s.round($row['products_price']*(1+($row['tax_rate']/100)),2).$s.round(sprice($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(precio_grupo($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(sprice_distibucion($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(precio_amazon($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(sprice_amazon($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(precio_ebay($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.round(sprice_ebay($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.$row['products_quantity'].$s.$row['products_status'].$s.$row['product_ean'].$s.round(($row['products_cost'])*(1+($row['tax_rate']/100)),2).$s.$row['products_weight'].$s.$row['products_ship_free'].$s.$row['manufacturers_id'].$s.$row['amazon_status'].$s.$row['check_stock'].$s.$row['exclude_feedmachine'].$s.$row['sincronizar_ebay'].$s.$row['products_liquidacion'].$s.round(specials_min_price($row['products_id'])*(1+($row['tax_rate']/100)),2).$s.''.$s.''.$f);
 			// atributos
 			$sql_2 = "select * from products_options popt, products_attributes patrib where patrib.products_id='" . $row['products_id'] . "' and patrib.options_id = popt.products_options_id and language_id=3 order by options_values_price asc";
 			$act_2 = tep_db_query($sql_2) or die($sql_2);
 
 			if (tep_db_num_rows($act_2) > 0) {
 				while ($row_2 = tep_db_fetch_array($act_2)) {
-					$patrib = round(($row['products_price'] + $row_2['options_values_price'])*(1+($row['tax_rate']/100)),2);
-				        $patrib_2 = round((precio_grupo($row['products_id']) + precio_atributo_distribucion($row_2['products_attributes_id']))*(1+($row['tax_rate']/100)),2);
-					$patrib_3 = round((precio_amazon($row['products_id']) + precio_atributo_amazon($row_2['products_attributes_id']))*(1+($row['tax_rate']/100)),2);
-					$patrib_4 = round((precio_ebay($row['products_id']) + precio_atributo_ebay($row_2['products_attributes_id']))*(1+($row['tax_rate']/100)),2);
-					fwrite ($ficheroabierto,'A'.$s.$row['tax_rate'].$s.$row_2['products_attributes_id'].$s.$row_2['reference'].$s.$row_2['reference_prov'].$s.mb_convert_encoding($row['products_name'] ?? '', 'ISO-8859-1', 'UTF-8').povname($row_2['options_values_id']).$s.$patrib.$s.''.$s.$patrib_2.$s.''.$s.$patrib_3.$s.''.$s.$patrib_4.$s.''.$s.stock_en_atributos($row_2['products_options_id'],$row_2['options_values_id'],$row['products_id']).$s.''.$s.$row_2['products_attributes_ean'].$s.round(coste_en_atributos($row_2['products_options_id'],$row_2['options_values_id'],$row['products_id'])*(1+($row['tax_rate']/100)),2).$f);
+					$mult_iva = 1 + ($row['tax_rate'] / 100);
+					$sign0 = ($row_2['price_prefix'] === '-') ? -1 : 1;
+
+					// Oferta de variante activa (Retail): campo 6 = precio ORIGINAL (snapshot), campo 7 = oferta
+					$ofr0 = attr_offer($row['products_id'], $row_2['options_values_id'], 0);
+					if ($ofr0 !== null && $ofr0['ovp_orig'] !== null) {
+						$sg = ($ofr0['prefix_orig'] === '-') ? -1 : 1;
+						$patrib = round(($row['products_price'] + $sg * $ofr0['ovp_orig']) * $mult_iva, 2);
+						$of_retail = round($ofr0['pvp_oferta'] * $mult_iva, 2);
+						$dias_of = max(1, (int)ceil((strtotime($ofr0['fecha_fin']) - time()) / 86400));
+						$repetir_of = (int)$ofr0['auto_renew'];
+					} else {
+						$patrib = round(($row['products_price'] + $sign0 * $row_2['options_values_price']) * $mult_iva, 2);
+						$of_retail = '';
+						$dias_of = '';
+						$repetir_of = '';
+					}
+
+					// G1: base grupo + delta G1 (con signo); si hay oferta G1 activa, original + oferta
+					$g1_base = precio_grupo($row['products_id']);
+					$g1q = tep_db_query("select options_values_price, price_prefix from products_attributes_groups where customers_group_id=1 and products_attributes_id = " . (int)$row_2['products_attributes_id']);
+					$g1r = tep_db_fetch_array($g1q);
+					$ofr1 = attr_offer($row['products_id'], $row_2['options_values_id'], 1);
+					if ($ofr1 !== null && $ofr1['ovp_orig'] !== null) {
+						$sg1 = ($ofr1['prefix_orig'] === '-') ? -1 : 1;
+						$patrib_2 = round(($g1_base + $sg1 * $ofr1['ovp_orig']) * $mult_iva, 2);
+						$of_g1 = round($ofr1['pvp_oferta'] * $mult_iva, 2);
+						if ($dias_of === '') $dias_of = max(1, (int)ceil((strtotime($ofr1['fecha_fin']) - time()) / 86400));
+						if ($repetir_of === '') $repetir_of = (int)$ofr1['auto_renew'];
+					} else {
+						$sg1 = ($g1r && $g1r['price_prefix'] === '-') ? -1 : 1;
+						$delta_g1 = $g1r ? $g1r['options_values_price'] : ($sign0 * $row_2['options_values_price']);
+						$patrib_2 = round(($g1_base + $sg1 * $delta_g1) * $mult_iva, 2);
+						$of_g1 = '';
+					}
+
+					$patrib_3 = round((precio_amazon($row['products_id']) + precio_atributo_amazon($row_2['products_attributes_id']))*$mult_iva,2);
+					$patrib_4 = round((precio_ebay($row['products_id']) + precio_atributo_ebay($row_2['products_attributes_id']))*$mult_iva,2);
+					fwrite ($ficheroabierto,'A'.$s.$row['tax_rate'].$s.$row_2['products_attributes_id'].$s.$row_2['reference'].$s.$row_2['reference_prov'].$s.mb_convert_encoding($row['products_name'] ?? '', 'ISO-8859-1', 'UTF-8').povname($row_2['options_values_id']).$s.$patrib.$s.$of_retail.$s.$patrib_2.$s.$of_g1.$s.$patrib_3.$s.''.$s.$patrib_4.$s.''.$s.stock_en_atributos($row_2['products_options_id'],$row_2['options_values_id'],$row['products_id']).$s.''.$s.$row_2['products_attributes_ean'].$s.round(coste_en_atributos($row_2['products_options_id'],$row_2['options_values_id'],$row['products_id'])*$mult_iva,2).$s.''.$s.''.$s.''.$s.''.$s.''.$s.''.$s.''.$s.''.$s.''.$s.$dias_of.$s.$repetir_of.$f);
 				}
 			}
 		}

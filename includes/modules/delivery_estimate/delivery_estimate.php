@@ -265,10 +265,12 @@ class delivery_estimate {
 		$dBackord  = (int)( defined('DELIVERY_ESTIMATE_DAYS_BACKORDER') ? DELIVERY_ESTIMATE_DAYS_BACKORDER : 30 );
 		$dNoStock  = (int)( defined('DELIVERY_ESTIMATE_DAYS_NO_STOCK')  ? DELIVERY_ESTIMATE_DAYS_NO_STOCK  : 14 );
 		$dInStock  = (int)( defined('DELIVERY_ESTIMATE_DAYS_IN_STOCK')  ? DELIVERY_ESTIMATE_DAYS_IN_STOCK  : 2 );
+		$dSupplier = (int)( defined('DELIVERY_ESTIMATE_DAYS_SUPPLIER')  ? DELIVERY_ESTIMATE_DAYS_SUPPLIER  : 4 );
 
-		// Centinela on_demand: disponible, se sirve bajo pedido corto.
+		// Centinela 2000 = fabricacion BAJO DEMANDA, pero se fabrica EN EL DIA -> se trata igual que
+		// stock real: despacho el mismo dia (categoria stock_ok, hereda la regla same-day + transito).
 		if( $rawStock == 2000 )
-			return array( 'dispatch_days' => $dOnDemand, 'rule' => 'on_demand', 'available' => true, 'category' => 'on_demand' );
+			return array( 'dispatch_days' => $dInStock, 'rule' => 'stock_ok', 'available' => true, 'category' => 'stock_ok' );
 
 		// Descatalogado: NO disponible.
 		if( $rawStock <= -900 && $rawStock >= -901 )
@@ -282,9 +284,9 @@ class delivery_estimate {
 		if( $rawStock <= -1500 && $rawStock >= -1699 )
 			return array( 'dispatch_days' => $dBackord, 'rule' => 'backorder', 'available' => true, 'category' => 'backorder' );
 
-		// Proveedor.
+		// Proveedor: lo tiene el proveedor -> plazo propio (por defecto 4 dias habiles) + ruta.
 		if( $rawStock <= -100 && $rawStock >= -150 )
-			return array( 'dispatch_days' => $dNoStock, 'rule' => 'supplier', 'available' => true, 'category' => 'supplier' );
+			return array( 'dispatch_days' => $dSupplier, 'rule' => 'supplier', 'available' => true, 'category' => 'supplier' );
 
 		// Resto de negativos -> no_stock.
 		if( $rawStock < 0 )
@@ -308,12 +310,16 @@ class delivery_estimate {
 		$cp = (string)$cp;
 		$prefix = ( strlen( $cp ) >= 2 ) ? substr( $cp, 0, 2 ) : '';
 
-		// Canarias / Ceuta / Melilla -> transito desconocido (bajo consulta).
-		if( in_array( $prefix, array( '35', '38', '51', '52' ), true ) )
-			return $unknown;
+		// Islas y plazas: transito FIJO por region (configurable), NO pasan por la tabla de CP.
+		if( $prefix === '35' || $prefix === '38' )   // Canarias
+			return (int)( defined('DELIVERY_ESTIMATE_TRANSIT_CANARIAS') ? DELIVERY_ESTIMATE_TRANSIT_CANARIAS : 6 );
+		if( $prefix === '51' || $prefix === '52' )   // Ceuta / Melilla
+			return (int)( defined('DELIVERY_ESTIMATE_TRANSIT_CEUTAMELILLA') ? DELIVERY_ESTIMATE_TRANSIT_CEUTAMELILLA : 6 );
+		if( $prefix === '07' )                        // Baleares
+			return (int)( defined('DELIVERY_ESTIMATE_TRANSIT_BALEARES') ? DELIVERY_ESTIMATE_TRANSIT_BALEARES : 1 );
 
-		// Baleares -> +1 dia.
-		$balearExtra = ( $prefix === '07' ) ? 1 : 0;
+		// Peninsula: transito segun la tabla de CP (abajo). $balearExtra ya no aplica.
+		$balearExtra = 0;
 
 		$check = tep_db_query( "show tables like 'shipping_prediction_cp'" );
 		if( tep_db_num_rows( $check ) == 0 )
@@ -401,6 +407,7 @@ class delivery_estimate {
 			case 'unavailable':
 				return ' prdt-agtd ';
 			case 'backorder':
+				return ' prdt-consultar ';
 			case 'on_demand':
 				return ' prdt-bjpdd ';
 			case 'supplier':
@@ -449,11 +456,20 @@ class delivery_estimate {
 	 * destino si se pasa). Devuelve 'Y-m-d'. Solo se invoca desde la rama unified (flag ON).
 	 */
 	private function nextShipSlot( $fromDatetime, $province = null ) {
-		$cutoff = (int)( defined('DELIVERY_ESTIMATE_CUTOFF_HOUR') ? DELIVERY_ESTIMATE_CUTOFF_HOUR : 16 );
-
 		$ts = strtotime( (string)$fromDatetime );
 		if( $ts === false )
 			$ts = time();
+
+		// Corte ESTACIONAL: en VERANO (por defecto 15-jun a 15-sep) el corte es 15h; el resto del
+		// anio, 16h. Fechas y horas configurables. Se compara 'MM-DD' (mismo formato zero-pad ->
+		// orden cronologico dentro del anio); si el rango cruzase fin de anio, la rama OR lo cubre.
+		$mmdd   = date( 'm-d', $ts );
+		$sStart = defined('DELIVERY_ESTIMATE_SUMMER_START') ? DELIVERY_ESTIMATE_SUMMER_START : '06-15';
+		$sEnd   = defined('DELIVERY_ESTIMATE_SUMMER_END')   ? DELIVERY_ESTIMATE_SUMMER_END   : '09-15';
+		$inSummer = ( $sStart <= $sEnd ) ? ( $mmdd >= $sStart && $mmdd <= $sEnd ) : ( $mmdd >= $sStart || $mmdd <= $sEnd );
+		$cutoff = $inSummer
+			? (int)( defined('DELIVERY_ESTIMATE_CUTOFF_HOUR_SUMMER') ? DELIVERY_ESTIMATE_CUTOFF_HOUR_SUMMER : 15 )
+			: (int)( defined('DELIVERY_ESTIMATE_CUTOFF_HOUR')        ? DELIVERY_ESTIMATE_CUTOFF_HOUR        : 16 );
 
 		$hour = (int)date( 'H', $ts );
 

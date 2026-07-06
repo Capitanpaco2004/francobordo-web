@@ -165,6 +165,175 @@ function as_get_active_special(int $pid, int $cgid): ?array {
 // ===========================================================================
 
 /**
+ * Aplica una oferta a UNA variante ajustando su delta (products_attributes) y/o
+ * el delta G1 (products_attributes_groups cgid=1).
+ * Registra snapshot en auto_specials_active para poder revertir.
+ *
+ * $pvp_oferta_net: precio final NETO (sin IVA) para cgid=0 (Retail), o NULL para no tocar Retail.
+ * $pvp_g1_net:     precio final NETO explicito para G1, o NULL. Si NULL y $also_g1=true,
+ *                  se iguala al de Retail cuando este quede por debajo del precio G1 (piping).
+ * $auto_renew: 1 = el cron renueva mientras haya stock; 0 = manual, respeta fecha_fin.
+ *
+ * Devuelve array(bool ok, string detalle).
+ */
+function as_apply_variant_offer(int $pid, int $ovid, $pvp_oferta_net, $floor, bool $capped,
+                                int $vigencia_dias, $rule_id, string $motivo, string $usuario,
+                                int $auto_renew = 1, bool $also_g1 = true, $pvp_g1_net = null): array {
+    $now = date('Y-m-d H:i:s');
+    $q = tep_db_query("
+        SELECT p.products_price, p.products_cost,
+               pa.products_attributes_id, pa.options_id,
+               pa.options_values_price AS ovp0, pa.price_prefix AS pref0
+        FROM products p
+        JOIN products_attributes pa ON pa.products_id = p.products_id AND pa.options_values_id = {$ovid}
+        WHERE p.products_id = {$pid} AND p.products_status = 1 LIMIT 1");
+    $row = tep_db_fetch_array($q);
+    if (!$row) return [false, "#{$pid}:{$ovid}: variante no encontrada o producto inactivo"];
+
+    $pa_id = (int)$row['products_attributes_id'];
+    $base  = (float)$row['products_price'];
+    $sign0 = ($row['pref0'] === '-') ? -1.0 : 1.0;
+    $pvp_var = round($base + $sign0 * (float)$row['ovp0'], 4);
+    if ($pvp_oferta_net === null && $pvp_g1_net === null)
+        return [false, "#{$pid}:{$ovid}: indica precio Retail, precio G1 o ambos"];
+    if ($pvp_oferta_net !== null) {
+        $pvp_oferta_net = (float)$pvp_oferta_net;
+        if ($pvp_oferta_net <= 0) return [false, "#{$pid}:{$ovid}: precio de oferta Retail invalido"];
+        if ($pvp_oferta_net >= $pvp_var) return [false, "#{$pid}:{$ovid}: la oferta Retail (" . number_format($pvp_oferta_net,4) . ") no mejora el precio actual (" . number_format($pvp_var,4) . ")"];
+    }
+
+    // Stock actual de la variante (informativo para el cierre por stock)
+    $stock_snap = 0;
+    $sq = tep_db_query("SELECT products_stock_quantity FROM products_stock
+                        WHERE products_id={$pid}
+                          AND products_stock_attributes = '" . (int)$row['options_id'] . "-{$ovid}' LIMIT 1");
+    if ($sr = tep_db_fetch_array($sq)) {
+        $stock_snap = (int)$sr['products_stock_quantity'];
+        if ($stock_snap < 0 || $stock_snap == 2000) $stock_snap = 0;
+    }
+
+    $expires = date('Y-m-d H:i:s', strtotime("+{$vigencia_dias} days"));
+    $detalle = "#{$pid}:{$ovid}:";
+
+    // cgid=0 → delta en products_attributes (solo si hay precio Retail)
+    if ($pvp_oferta_net !== null) {
+        [$new_ovp, $new_prefix] = as_variant_delta_for_target($pvp_oferta_net, $base);
+        $ovp_orig0 = (float)$row['ovp0'];
+        $prefix_orig0 = (string)$row['pref0'];
+        tep_db_query("UPDATE products_attributes SET
+            options_values_price=" . sprintf('%.4f', $new_ovp) . ",
+            price_prefix='{$new_prefix}',
+            attributes_last_modified='{$now}'
+            WHERE products_attributes_id={$pa_id}");
+        tep_db_query("UPDATE auto_specials_active SET estado='closed_replaced', updated_at='{$now}'
+                      WHERE products_id={$pid} AND options_values_id={$ovid} AND customers_group_id=0 AND estado='active'");
+        $pct = ($pvp_var > 0) ? round((1 - $pvp_oferta_net / $pvp_var) * 100, 2) : 0;
+        tep_db_query("INSERT INTO auto_specials_active
+            (products_id, options_values_id, customers_group_id, rule_id, specials_id,
+             pvp_original, pvp_oferta, pct_aplicado, min_floor, capped_to_floor,
+             stock_snapshot, fecha_inicio, fecha_fin, estado, auto_renew, motivo, usuario,
+             prev_specials_price, prev_specials_existed,
+             ovp_orig, prefix_orig, created_at, updated_at)
+            VALUES ({$pid}, {$ovid}, 0, " . ($rule_id !== null ? (int)$rule_id : 'NULL') . ", NULL,
+              " . sprintf('%.4f', $pvp_var) . ", " . sprintf('%.4f', $pvp_oferta_net) . ", {$pct}, " . ($floor !== null ? sprintf('%.4f', (float)$floor) : 'NULL') . ", " . ($capped ? 1 : 0) . ",
+              {$stock_snap}, '{$now}', '{$expires}', 'active', " . (int)$auto_renew . ", '" . tep_db_input($motivo) . "',
+              '" . tep_db_input($usuario) . "',
+              NULL, 0,
+              " . sprintf('%.4f', $ovp_orig0) . ", '" . tep_db_input($prefix_orig0) . "', '{$now}', '{$now}')");
+        $detalle .= " Retail a " . number_format($pvp_oferta_net, 4) . " (antes " . number_format($pvp_var, 4) . ")";
+    }
+
+    // cgid=1 (Profesionales): precio explicito, o piping (igualar al Retail si mejora)
+    $price_g1 = as_get_variant_g1_price($pa_id, $pid);
+    $target_g1 = null;
+    if ($pvp_g1_net !== null) {
+        $pvp_g1_net = (float)$pvp_g1_net;
+        if ($pvp_g1_net <= 0) return [false, $detalle . " · precio G1 invalido"];
+        if ($price_g1 !== null && $pvp_g1_net >= $price_g1)
+            return [($pvp_oferta_net !== null), $detalle . " · la oferta G1 (" . number_format($pvp_g1_net,4) . ") no mejora el precio G1 actual (" . number_format($price_g1,4) . ") — G1 sin cambios"];
+        $target_g1 = $pvp_g1_net;
+    } elseif ($also_g1 && $pvp_oferta_net !== null && $price_g1 !== null && $pvp_oferta_net < $price_g1) {
+        $target_g1 = $pvp_oferta_net;
+    }
+
+    if ($target_g1 !== null && $price_g1 !== null) {
+        {
+            $qg = tep_db_query("SELECT specials_new_products_price FROM specials
+                                WHERE products_id={$pid} AND customers_group_id=1 AND status=1 LIMIT 1");
+            if ($r1 = tep_db_fetch_array($qg)) {
+                $base_g1 = (float)$r1['specials_new_products_price'];
+            } else {
+                $qg = tep_db_query("SELECT customers_group_price FROM products_groups WHERE products_id={$pid} AND customers_group_id=1 LIMIT 1");
+                $base_g1 = ($r1 = tep_db_fetch_array($qg)) ? (float)$r1['customers_group_price'] : $base;
+            }
+            [$new_ovp_g1, $new_prefix_g1] = as_variant_delta_for_target($target_g1, $base_g1);
+            $qg = tep_db_query("SELECT options_values_price, price_prefix FROM products_attributes_groups
+                                WHERE products_attributes_id={$pa_id} AND customers_group_id=1 LIMIT 1");
+            $r1 = tep_db_fetch_array($qg);
+            $ovp_orig1 = $r1 ? (float)$r1['options_values_price'] : null;
+            $prefix_orig1 = $r1 ? (string)$r1['price_prefix'] : null;
+            if ($r1) {
+                tep_db_query("UPDATE products_attributes_groups SET
+                    options_values_price=" . sprintf('%.4f', $new_ovp_g1) . ", price_prefix='{$new_prefix_g1}'
+                    WHERE products_attributes_id={$pa_id} AND customers_group_id=1");
+            } else {
+                tep_db_query("INSERT INTO products_attributes_groups
+                    (products_attributes_id, customers_group_id, options_values_price, price_prefix, products_id, options_values_weight, weight_prefix)
+                    VALUES ({$pa_id}, 1, " . sprintf('%.4f', $new_ovp_g1) . ", '{$new_prefix_g1}', {$pid}, 0, '')");
+            }
+            tep_db_query("UPDATE auto_specials_active SET estado='closed_replaced', updated_at='{$now}'
+                          WHERE products_id={$pid} AND options_values_id={$ovid} AND customers_group_id=1 AND estado='active'");
+            tep_db_query("INSERT INTO auto_specials_active
+                (products_id, options_values_id, customers_group_id, rule_id, specials_id,
+                 pvp_original, pvp_oferta, pct_aplicado, min_floor, capped_to_floor,
+                 stock_snapshot, fecha_inicio, fecha_fin, estado, auto_renew, motivo, usuario,
+                 prev_specials_price, prev_specials_existed,
+                 ovp_orig, prefix_orig, created_at, updated_at)
+                VALUES ({$pid}, {$ovid}, 1, " . ($rule_id !== null ? (int)$rule_id : 'NULL') . ", NULL,
+                  " . sprintf('%.4f', $price_g1) . ", " . sprintf('%.4f', $target_g1) . ", " . (($price_g1 > 0) ? round((1 - $target_g1 / $price_g1) * 100, 2) : 0) . ", " . ($floor !== null ? sprintf('%.4f', (float)$floor) : 'NULL') . ", " . ($capped ? 1 : 0) . ",
+                  {$stock_snap}, '{$now}', '{$expires}', 'active', " . (int)$auto_renew . ", '" . tep_db_input($motivo . ($pvp_g1_net !== null ? ' · G1 explicito' : ' · G1 piping')) . "',
+                  '" . tep_db_input($usuario) . "',
+                  NULL, 0,
+                  " . ($ovp_orig1 !== null ? sprintf('%.4f', $ovp_orig1) : 'NULL') . ",
+                  " . ($prefix_orig1 !== null ? "'" . tep_db_input($prefix_orig1) . "'" : 'NULL') . ", '{$now}', '{$now}')");
+            $detalle .= " · G1 a " . number_format($target_g1, 4) . " (antes " . number_format($price_g1, 4) . ")";
+        }
+    }
+
+    return [true, $detalle];
+}
+
+/**
+ * Revierte manualmente las ofertas activas de una variante (cgid 0 y 1)
+ * restaurando el delta original desde el snapshot. Marca estado='closed_manual'.
+ */
+function as_revert_variant_offer(int $pid, int $ovid, string $usuario): array {
+    $now = date('Y-m-d H:i:s');
+    $q = tep_db_query("SELECT * FROM auto_specials_active
+                       WHERE products_id={$pid} AND options_values_id={$ovid} AND estado='active'");
+    $n = 0;
+    while ($a = tep_db_fetch_array($q)) {
+        $cgid = (int)$a['customers_group_id'];
+        $paq = tep_db_query("SELECT products_attributes_id FROM products_attributes
+                             WHERE products_id={$pid} AND options_values_id={$ovid} LIMIT 1");
+        $par = tep_db_fetch_array($paq);
+        if ($par && $a['ovp_orig'] !== null && $a['prefix_orig'] !== null) {
+            $pa_id = (int)$par['products_attributes_id'];
+            $ovp_s = sprintf('%.4f', (float)$a['ovp_orig']);
+            $pfx_s = tep_db_input($a['prefix_orig']);
+            if ($cgid === 0) {
+                tep_db_query("UPDATE products_attributes SET options_values_price={$ovp_s}, price_prefix='{$pfx_s}', attributes_last_modified='{$now}' WHERE products_attributes_id={$pa_id}");
+            } else {
+                tep_db_query("UPDATE products_attributes_groups SET options_values_price={$ovp_s}, price_prefix='{$pfx_s}' WHERE products_attributes_id={$pa_id} AND customers_group_id={$cgid}");
+            }
+        }
+        tep_db_query("UPDATE auto_specials_active SET estado='closed_manual', motivo=CONCAT(COALESCE(motivo,''), ' · revertida por " . tep_db_input($usuario) . "'), updated_at='{$now}' WHERE id=" . (int)$a['id']);
+        $n++;
+    }
+    return [$n > 0, $n > 0 ? "Revertidas {$n} ofertas de la variante" : "La variante no tiene ofertas activas"];
+}
+
+/**
  * Calcula el delta (options_values_price + price_prefix) que debe tener una
  * variante para que su PVP final sea `target_price`, dado el precio base padre.
  *

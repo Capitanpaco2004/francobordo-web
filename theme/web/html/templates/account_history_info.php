@@ -148,6 +148,33 @@
 	// Bloque "Fecha estimada de entrega" (justo debajo de los círculos de estado).
 	// Sólo se pinta si hay fecha calculada y el pedido aún no está enviado/completado/cancelado/rechazado.
 	$bMostrarEntrega = is_array( $aEntrega ) && ! empty( $aEntrega['estimated_date'] ) && $aEntrega['estimated_date'] !== '0000-00-00' && $max_status < 4 && ! $bRechazado;
+	// Mensaje SIN fecha (estimated_date=='0000-00-00') segun la regla aplicada (backorder/unavailable).
+	// Solo con el flag DELIVERY_ESTIMATE_UNIFIED ON el legacy produce '0000-00-00'; con flag off queda inerte.
+	$sSinFechaMsg = '';
+	if( is_array( $aEntrega ) && ( $aEntrega['estimated_date'] ?? '' ) === '0000-00-00' && $max_status < 4 && ! $bRechazado ) {
+		switch( $aEntrega['rule_applied'] ?? '' ) {
+			case 'backorder':   $sSinFechaMsg = defined('DELIVERY_ESTIMATE_NODATE_BACKORDER')   ? DELIVERY_ESTIMATE_NODATE_BACKORDER   : 'Producto bajo pedido: consulta el plazo de entrega'; break;
+			case 'unavailable': $sSinFechaMsg = defined('DELIVERY_ESTIMATE_NODATE_UNAVAILABLE') ? DELIVERY_ESTIMATE_NODATE_UNAVAILABLE : 'Producto no disponible: consúltanos'; break;
+		}
+	}
+	if( $sSinFechaMsg !== '' ):
+	?>
+		<div class="deliveryEstimateBox" style="margin:20px 0; background:#ffffff; border:1px solid #e4e4e4; border-left:4px solid #2bb0e2; border-radius:6px; padding:20px 24px; display:flex; flex-wrap:wrap; align-items:center; gap:20px; box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+			<div style="flex:0 0 auto;">
+				<i class="fa fa-truck" style="font-size:36px; color:#2bb0e2;"></i>
+			</div>
+			<div style="flex:1 1 auto; min-width:200px;">
+				<div style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin-bottom:4px;"><?php echo defined('DELIVERY_ESTIMATE_TITLE') ? DELIVERY_ESTIMATE_TITLE : 'Fecha estimada de entrega'; ?></div>
+				<div style="font-size:16px; font-weight:bold; color:#333; line-height:1.3;"><?php echo htmlspecialchars( $sSinFechaMsg, ENT_QUOTES, 'UTF-8' ); ?></div>
+			</div>
+			<?php if( ! empty( $aEntrega['comment'] ) ): ?>
+				<div style="flex:1 1 100%; margin-top:4px; padding-top:14px; border-top:1px dashed #e4e4e4; font-size:13px; color:#555; line-height:1.5;">
+					<strong style="color:#2bb0e2;"><?php echo defined('DELIVERY_ESTIMATE_COMMENT_LABEL') ? DELIVERY_ESTIMATE_COMMENT_LABEL : 'Comentario del equipo:'; ?></strong>
+					<span style="font-style:italic;"><?php echo nl2br( htmlspecialchars( $aEntrega['comment'], ENT_QUOTES, 'UTF-8' ) ); ?></span>
+				</div>
+			<?php endif; ?>
+		</div>
+	<?php endif;
 	if( $bMostrarEntrega ):
 		$tsEntrega = strtotime( (string)$aEntrega['estimated_date'] );
 		$tsHoy     = strtotime( date('Y-m-d') );

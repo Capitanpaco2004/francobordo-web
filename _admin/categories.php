@@ -3105,17 +3105,25 @@
 																	echo '<input type="hidden" name="sID" id="sID" value="' . $aProductoOferta['specials_id'] . '" />';
 																		// Listado de ofertas por grupo de cliente + enlace para anadir otra (G1, Amazon, etc.)
 																		$aOfertasGrupos = tep_db_query( 'select s.specials_id, s.customers_group_id, s.specials_new_products_price, cg.customers_group_name, p.products_tax_class_id from specials s inner join products p on (p.products_id = s.products_id) left join customers_groups cg on (cg.customers_group_id = s.customers_group_id) where s.products_id = ' . (int)$_GET['pID'] . ' and s.status = 1 order by s.customers_group_id' );
+																		$sCPathSafe = preg_replace( '/[^0-9_]/', '', (string)$cPath );
 																		echo '<div style="margin-top:8px; padding-top:6px; border-top:1px solid #ddd; font-size:12px;"><b>Ofertas por grupo de cliente:</b><br>';
 																		while( $oGrupo = tep_db_fetch_array( $aOfertasGrupos ) ) {
 																			$sPvGrupo = $currencies->display_price( $oGrupo['specials_new_products_price'], tep_get_tax_rate( $oGrupo['products_tax_class_id'] ) );
-																			echo '&bull; ' . htmlspecialchars( $oGrupo['customers_group_name'] !== null ? $oGrupo['customers_group_name'] : ('Grupo ' . (int)$oGrupo['customers_group_id']) ) . ': <b>' . $sPvGrupo . '</b> c/IVA &nbsp;<a href="' . tep_href_link( 'specials.php', 'sID=' . (int)$oGrupo['specials_id'] . '&action=edit&pID=' . (int)$_GET['pID'] . '&cPath=' . (int)$cPath ) . '" style="color:#1d4ed8;">[Editar]</a><br>';
+																			echo '&bull; ' . htmlspecialchars( $oGrupo['customers_group_name'] !== null ? $oGrupo['customers_group_name'] : ('Grupo ' . (int)$oGrupo['customers_group_id']) ) . ': <b>' . $sPvGrupo . '</b> c/IVA &nbsp;<a href="' . tep_href_link( 'specials.php', 'sID=' . (int)$oGrupo['specials_id'] . '&action=edit&pID=' . (int)$_GET['pID'] . '&cPath=' . $sCPathSafe ) . '" style="color:#1d4ed8;">[Editar]</a><br>';
 																		}
-																		echo '<a href="' . tep_href_link( 'specials.php', 'action=new&pID=' . (int)$_GET['pID'] . '&cPath=' . (int)$cPath ) . '" style="font-weight:bold; color:#5e9424; display:inline-block; margin-top:4px;">[+ A&ntilde;adir oferta para otro grupo (Profesionales, etc.)]</a>';
+																		echo '<a href="' . tep_href_link( 'specials.php', 'action=new&pID=' . (int)$_GET['pID'] . '&cPath=' . $sCPathSafe ) . '" style="font-weight:bold; color:#5e9424; display:inline-block; margin-top:4px;">[+ A&ntilde;adir oferta para otro grupo (Profesionales, etc.)]</a>';
+																		$nTieneVariantes = tep_db_fetch_array( tep_db_query( 'select count(*) as n from products_attributes where products_id = ' . (int)$_GET['pID'] ) );
+																		if( (int)$nTieneVariantes['n'] > 0 )
+																			echo ' &nbsp;|&nbsp; <a href="' . tep_href_link( 'attr_specials.php', 'pID=' . (int)$_GET['pID'] . '&cPath=' . $sCPathSafe ) . '" style="font-weight:bold; color:#1d4ed8; display:inline-block; margin-top:4px;">[Ofertas por variante (' . (int)$nTieneVariantes['n'] . ')]</a>';
 																		echo '</div>';
 																}
 																else
 																{
 																	echo tep_draw_radio_field('products_specials', '1', null ) . '<label style="margin-right: 10px;">SI</label>' . tep_draw_radio_field('products_specials', '0', true) . '<label>NO</label> <span style="float:left;" class="note">Si seleccionas la opci&oacute;n "SI" ser&aacute;s redirigido a las opciones de ofertas una vez introducido el producto.</span>';
+																	$sCPathSafe2 = preg_replace( '/[^0-9_]/', '', (string)$cPath );
+																	$nTieneVariantes2 = tep_db_fetch_array( tep_db_query( 'select count(*) as n from products_attributes where products_id = ' . (int)$_GET['pID'] ) );
+																	if( (int)$nTieneVariantes2['n'] > 0 )
+																		echo '<br style="clear:both"><a href="' . tep_href_link( 'attr_specials.php', 'pID=' . (int)$_GET['pID'] . '&cPath=' . $sCPathSafe2 ) . '" style="font-weight:bold; color:#1d4ed8; display:inline-block; margin-top:4px;">[Ofertas por variante (' . (int)$nTieneVariantes2['n'] . ')]</a>';
 																}
 															}
 															else
