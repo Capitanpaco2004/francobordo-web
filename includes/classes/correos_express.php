@@ -194,7 +194,14 @@ class correos_express {
         $alto    = (string) ($o['alto']    ?? '1');
         $largo   = (string) ($o['largo']   ?? '1');
         $ancho   = (string) ($o['ancho']   ?? '1');
-        $volumen = (string) ($o['volumen'] ?? '1');
+        // Volumen (m³): CEX cubica a 167 kg/m³ y factura MAX(peso real, peso volumétrico).
+        // El default '1' equivalía a 1 m³ = 167 kg cubicado -> sobrefacturaba envíos que su
+        // escáner no medía (factura F2606 jun-26: 19 envíos cubicados a 167 kg). Si el llamante
+        // NO da volumen real, lo derivamos del peso (kilos/167, redondeado a la baja) para que
+        // el peso volumétrico NUNCA supere al real -> se factura por peso real.
+        $volProvided = isset($o['volumen']) && (string) $o['volumen'] !== '' && (float) str_replace(',', '.', (string) $o['volumen']) > 0;
+        $volFromKg = function ($k) { $v = floor((max(0.001, (float) str_replace(',', '.', (string) $k)) / 167) * 1000) / 1000; return number_format(max(0.001, $v), 3, '.', ''); };
+        $volumen = $volProvided ? (string) $o['volumen'] : $volFromKg($kilos);
         $info = array();
         if (!empty($o['etiqueta'])) {
             $info['tipoEtiqueta']        = (string) $o['etiqueta'];   // 1=PDF 10x15, 2=ZPL...
@@ -230,7 +237,8 @@ class correos_express {
                 $listaBultos[] = array(
                     'orden'   => (string) $i,
                     'kilos'   => rtrim(rtrim(number_format($kb, 3, '.', ''), '0'), '.'),
-                    'alto'    => $alto, 'largo' => $largo, 'ancho' => $ancho, 'volumen' => $volumen,
+                    'alto'    => $alto, 'largo' => $largo, 'ancho' => $ancho,
+                    'volumen' => $volProvided ? $volumen : $volFromKg($kb),   // por bulto: kilos_bulto/167
                 );
             }
         }

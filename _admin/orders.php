@@ -1309,7 +1309,9 @@ if( tep_not_null($action) )
 								// actualiza el estado actual; sin esto el desplegable salía vacío casi siempre).
 								$aTrkTl = json_decode( (string)$rTrk['timeline_json'], true );
 								$bTrkFresh = !empty( $rTrk['timeline_at'] ) && ( strtotime( $rTrk['timeline_at'] ) > time() - 3600 );
-								if( !is_array( $aTrkTl ) || ( !$nTrkEntregado && !$bTrkFresh ) ) {
+								// Refrescar tambien si esta ENTREGADO pero el timeline cacheado aun no trae el evento de entrega
+								$bTrkTlDeliv = false; foreach( (array)$aTrkTl as $eChkT ) if( !empty( $eChkT['e'] ) ) { $bTrkTlDeliv = true; break; }
+								if( !is_array( $aTrkTl ) || ( !$bTrkFresh && ( !$nTrkEntregado || !$bTrkTlDeliv ) ) ) {
 									require_once DIR_FS_CATALOG . 'includes/classes/correos_express.php';
 									$qTrkEnv = tep_db_query( "SELECT config_value FROM cex_config WHERE config_key = 'env'" );
 									$sTrkEnv = tep_db_num_rows( $qTrkEnv ) ? tep_db_fetch_array( $qTrkEnv )['config_value'] : 'test';
@@ -1405,10 +1407,34 @@ if( tep_not_null($action) )
 							}
 						}
 						?>
-						<?php if( $sTrkCarrier !== '' ): $aTrkRegs = array_reverse( $aTrkRegs ); ?>
+						<?php
+							// === Botón "Localiza el envío" → página pública del transportista (como
+							//     el "Localiza tu envío" de account_history_info del cliente). ===
+							$sTrkBtnUrl = '';
+							if( $sTrkCarrier === 'Correos Express' ) {
+								$qBt = tep_db_query( "SELECT tracking_url FROM cex_shipments WHERE orders_id = " . (int)$oID . " AND ok = 1 AND cancelled_at IS NULL AND tracking_url <> '' ORDER BY id DESC LIMIT 1" );
+								if( tep_db_num_rows( $qBt ) ) { $rBt = tep_db_fetch_array( $qBt ); $sTrkBtnUrl = (string)$rBt['tracking_url']; }
+							} elseif( $sTrkCarrier === 'Correos' ) {
+								$qBt = tep_db_query( "SELECT tracking_url FROM correos_shipments WHERE orders_id = " . (int)$oID . " AND tracking_url IS NOT NULL AND tracking_url <> '' AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1" );
+								if( tep_db_num_rows( $qBt ) ) { $rBt = tep_db_fetch_array( $qBt ); $sTrkBtnUrl = (string)$rBt['tracking_url']; }
+							} elseif( $sTrkCarrier === 'SEUR' ) {
+								// miSEUR localiza los envíos API por ECB + cp (+tlf); los de la integración vieja no (sin botón).
+								$qBt = ( $seurRefA !== '' )
+									? tep_db_query( "SELECT referencia, ecb FROM seur_tracking WHERE referencia = '" . tep_db_input( $seurRefA ) . "' AND ecb <> '' LIMIT 1" )
+									: tep_db_query( "SELECT referencia, ecb FROM seur_tracking WHERE referencia = 'F" . (int)$oID . "' AND ecb <> '' LIMIT 1" );
+								if( tep_db_num_rows( $qBt ) ) {
+									$rBt = tep_db_fetch_array( $qBt );
+									if( strpos( (string)$rBt['referencia'], 'F' ) === 0 && (string)$rBt['ecb'] !== '' ) {
+										$sTrkBtnUrl = 'https://www.seur.com/miseur/mis-envios?code=' . rawurlencode( (string)$rBt['ecb'] )
+										            . '&cp=' . rawurlencode( preg_replace( '/\s+/', '', (string)( $order->delivery['postcode'] ?? '' ) ) )
+										            . '&email_tlf=' . rawurlencode( preg_replace( '/\s+/', '', (string)( $order->customer['telephone'] ?? '' ) ) );
+									}
+								}
+							}
+							?><?php if( $sTrkCarrier !== '' ): $aTrkRegs = array_reverse( $aTrkRegs ); ?>
 						<!-- Separador -->
 						<div style="border-top:1px dashed #ddd;margin:10px 0;"></div>
-						<div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Registros del envío <small>(<?php echo htmlspecialchars( $sTrkCarrier, ENT_QUOTES, 'UTF-8' ); ?>)</small></div>
+						<div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Registros del envío <small>(<?php echo htmlspecialchars( $sTrkCarrier, ENT_QUOTES, 'UTF-8' ); ?>)</small><?php if( $sTrkBtnUrl !== '' ): ?> <a href="<?php echo htmlspecialchars( $sTrkBtnUrl, ENT_QUOTES, 'UTF-8' ); ?>" target="_blank" style="display:inline-block;margin-left:10px;padding:2px 10px;background:#ee7f00;color:#fff;border-radius:3px;font-size:11px;text-transform:none;letter-spacing:0;text-decoration:none;"><i class="fa fa-truck-moving" style="margin-right:5px;"></i>Localiza el envío</a><?php endif; ?></div>
 						<div style="margin-bottom:6px;">
 							<?php if( $sTrkEstado === '' ): ?>
 								<i class="fa fa-circle" style="font-size:9px;margin-right:5px;color:#bbb;"></i>

@@ -117,7 +117,13 @@ try {
     $aAllProducts = loadAllProductsOptimizedWeb();
     $aAllAtris = loadAllAttributesOptimizedWeb();
     $aAllStockAtris = loadAllStockAttributesOptimizedWeb();
-    
+
+    // Set de productos EXCLUIDOS del marcado -900 (MMEF + packs cat.175 + subarbol neumaticas cat.10).
+    // Se construye una sola vez y se aplica tanto al procesar el XML (Path A) como a "no en XML" (Path B):
+    // para estos productos, cuando no hay stock, se deja 0 en lugar de -900 (no "fuera de catalogo").
+    $ceroIds = buildCeroIdsWeb($aAllProducts);
+    showProgressWeb("Productos excluidos del -900 (MMEF/packs/neumaticas): " . count($ceroIds));
+
     $loadTime = round(microtime(true) - $startTime, 2);
     showProgressWeb("Datos cargados en $loadTime segundos", 'success');
 
@@ -153,7 +159,7 @@ try {
 
         // Procesar lote
         if (count($currentBatch) >= $batchSize) {
-            $results = processBatchOptimizedWeb($currentBatch, $aAllProducts, $aAllAtris, $aAllStockAtris);
+            $results = processBatchOptimizedWeb($currentBatch, $aAllProducts, $aAllAtris, $aAllStockAtris, $ceroIds);
             $productUpdates = array_merge($productUpdates, $results['products']);
             $attributeUpdates = array_merge($attributeUpdates, $results['attributes']);
             $eanUpdates = array_merge($eanUpdates, $results['eans']);
@@ -167,7 +173,7 @@ try {
 
     // Procesar lote final
     if (!empty($currentBatch)) {
-        $results = processBatchOptimizedWeb($currentBatch, $aAllProducts, $aAllAtris, $aAllStockAtris);
+        $results = processBatchOptimizedWeb($currentBatch, $aAllProducts, $aAllAtris, $aAllStockAtris, $ceroIds);
         $productUpdates = array_merge($productUpdates, $results['products']);
         $attributeUpdates = array_merge($attributeUpdates, $results['attributes']);
         $eanUpdates = array_merge($eanUpdates, $results['eans']);
@@ -191,7 +197,7 @@ try {
     // Productos no en XML - reactivado 2026-05-16 tras meses comentado por debug.
     showProgressWeb("Procesando productos no presentes en XML...");
     try {
-        updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAllAtris, $aAllStockAtris);
+        updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAllAtris, $aAllStockAtris, $ceroIds);
         showProgressWeb("Productos no presentes procesados correctamente", 'success');
     } catch (Exception $e) {
         throw new Exception("Error procesando productos no presentes: " . $e->getMessage());
@@ -305,7 +311,7 @@ function loadAllStockAttributesOptimizedWeb()
     return $aAllStockAtris;
 }
 
-function processBatchOptimizedWeb($batch, $aAllProducts, $aAllAtris, $aAllStockAtris)
+function processBatchOptimizedWeb($batch, $aAllProducts, $aAllAtris, $aAllStockAtris, $ceroIds = array())
 {
     $productUpdates = array();
     $attributeUpdates = array();
@@ -321,8 +327,9 @@ function processBatchOptimizedWeb($batch, $aAllProducts, $aAllAtris, $aAllStockA
         // Procesar producto principal
         if (isset($aAllProducts[$modeloLower])) {
             $product = $aAllProducts[$modeloLower];
-            $newQuantity = calculateNewProductQuantityWeb($product['products_quantity'], $nStock, $nStockInternacional);
-            
+            $excluido = isset($ceroIds[$product['products_id']]);
+            $newQuantity = calculateNewProductQuantityWeb($product['products_quantity'], $nStock, $nStockInternacional, $excluido);
+
             if ($newQuantity != $product['products_quantity']) {
                 $productUpdates[] = array(
                     'id' => $product['products_id'],
@@ -337,10 +344,11 @@ function processBatchOptimizedWeb($batch, $aAllProducts, $aAllAtris, $aAllStockA
         if (isset($aAllAtris[$modeloLower])) {
             $attribute = $aAllAtris[$modeloLower];
             $stockKey = $attribute['options_id'] . '-' . $attribute['options_values_id'];
-            $currentStock = isset($aAllStockAtris[$attribute['products_id']][$stockKey]) ? 
+            $currentStock = isset($aAllStockAtris[$attribute['products_id']][$stockKey]) ?
                            $aAllStockAtris[$attribute['products_id']][$stockKey] : 0;
-            
-            $newStock = calculateNewAttributeStockWeb($currentStock, $nStock, $nStockInternacional);
+
+            $excluidoAtr = isset($ceroIds[$attribute['products_id']]);
+            $newStock = calculateNewAttributeStockWeb($currentStock, $nStock, $nStockInternacional, $excluidoAtr);
             
             if ($newStock != $currentStock) {
                 $attributeUpdates[] = array(
@@ -419,29 +427,61 @@ function executeBatchUpdatesWeb($productUpdates, $attributeUpdates, $eanUpdates)
     }
 }
 
-function updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAllAtris, $aAllStockAtris)
+// Construye el set de products_id EXCLUIDOS del marcado -900. Cuando estos productos no tienen
+// stock (esten o no en el feed de Touron) se dejan a 0 en vez de -900 ("fuera de catalogo"). Grupos:
+//   (a) modelos MMEF   -> motores Mercury EFI
+//   (b) categoria 175  -> 'Packs Neumatica + Motor' (packs barca+motor de Francobordo)
+//   (c) subarbol cat 10 'Embarcaciones Neumaticas' -> neumaticas sueltas (por marca/tamaño)
+function buildCeroIdsWeb($aAllProducts)
+{
+    $ceroIds = array();
+    foreach ($aAllProducts as $modeloKey => $prodKey) {
+        if (strpos($modeloKey, 'mmef') === 0) {
+            $ceroIds[$prodKey['products_id']] = true;
+        }
+    }
+    // Categorias excluidas = {175} U descendientes(10). Descendientes por BFS (robusto a nuevas marcas).
+    $catExcl = array(175 => true);
+    $hijosCat = array();
+    $rHijos = tep_db_query("SELECT categories_id, parent_id FROM categories");
+    while ($rowH = tep_db_fetch_array($rHijos)) {
+        $hijosCat[$rowH['parent_id']][] = $rowH['categories_id'];
+    }
+    $pilaCat = array(10);
+    while (!empty($pilaCat)) {
+        $cid = array_pop($pilaCat);
+        if (isset($catExcl[$cid])) continue;
+        $catExcl[$cid] = true;
+        if (isset($hijosCat[$cid])) {
+            foreach ($hijosCat[$cid] as $ch) $pilaCat[] = $ch;
+        }
+    }
+    $idsCatExcl = implode(',', array_map('intval', array_keys($catExcl)));
+    if ($idsCatExcl !== '') {
+        $rCat = tep_db_query("SELECT DISTINCT products_id FROM products_to_categories WHERE categories_id IN ($idsCatExcl)");
+        while ($rowCat = tep_db_fetch_array($rCat)) {
+            $ceroIds[$rowCat['products_id']] = true;
+        }
+    }
+    return $ceroIds;
+}
+
+function updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAllAtris, $aAllStockAtris, $ceroIds = array())
 {
     showProgressWeb("Buscando productos no presentes en XML...");
     
     try {
-        // MMEF (motores Mercury EFI): excluidos del marcado -900. Si NO estan en el XML de
-        // Touron se dejan a stock 0 (no descatalogado). Resto de marcas: comportamiento -900.
-        $mmefIds = array();
-        foreach ($aAllProducts as $modeloKey => $prodKey) {
-            if (strpos($modeloKey, 'mmef') === 0) {
-                $mmefIds[$prodKey['products_id']] = true;
-            }
-        }
-
+        // $ceroIds (MMEF / packs cat.175 / neumaticas cat.10) llega por parametro, construido
+        // una sola vez en el flujo principal y compartido con el procesado del XML (Path A).
         $productosParaActualizar = array();  // -> -900 (fuera de catalogo del proveedor)
-        $productosParaCero       = array();  // -> 0    (MMEF no presente en XML)
+        $productosParaCero       = array();  // -> 0    (excluidos: MMEF / packs cat.175)
         $atributosParaActualizar = array();  // -> -900
-        $atributosParaCero       = array();  // -> 0    (MMEF no presente en XML)
+        $atributosParaCero       = array();  // -> 0    (excluidos: MMEF / packs cat.175)
 
         // Encontrar productos a actualizar
         foreach ($aAllProducts as $modelo => $producto) {
             if (!in_array($modelo, $productosEnXML) && $producto['products_quantity'] <= 0) {
-                if (strpos($modelo, 'mmef') === 0) {
+                if (isset($ceroIds[$producto['products_id']])) {
                     $productosParaCero[] = $producto['products_id'];
                 } else {
                     $productosParaActualizar[] = $producto['products_id'];
@@ -461,7 +501,7 @@ function updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAl
                         'products_id' => $atributo['products_id'],
                         'stock_attributes' => $stockKey
                     );
-                    if (isset($mmefIds[$atributo['products_id']])) {
+                    if (isset($ceroIds[$atributo['products_id']])) {
                         $atributosParaCero[] = $fila;
                     } else {
                         $atributosParaActualizar[] = $fila;
@@ -517,14 +557,14 @@ function updateProductsNotInXMLOptimizedWeb($productosEnXML, $aAllProducts, $aAl
             }
         }
 
-        showProgressWeb("Productos no en XML: " . count($productosParaActualizar) . " a -900 y " . count($productosParaCero) . " MMEF a 0 (productos); " . count($atributosParaActualizar) . " a -900 y " . count($atributosParaCero) . " MMEF a 0 (atributos)");
+        showProgressWeb("Productos no en XML: " . count($productosParaActualizar) . " a -900 y " . count($productosParaCero) . " excluidos a 0 (productos); " . count($atributosParaActualizar) . " a -900 y " . count($atributosParaCero) . " excluidos a 0 (atributos)");
 
     } catch (Exception $e) {
         throw new Exception("Error en updateProductsNotInXMLOptimizedWeb: " . $e->getMessage());
     }
 }
 
-function calculateNewProductQuantityWeb($currentQuantity, $stock, $stockInternacional)
+function calculateNewProductQuantityWeb($currentQuantity, $stock, $stockInternacional, $excluido = false)
 {
     // Cambio solicitado: si stock > 0 => nueva cantidad = -100 (antes: = stock)
     if ($currentQuantity <= 0) {
@@ -533,13 +573,13 @@ function calculateNewProductQuantityWeb($currentQuantity, $stock, $stockInternac
         } elseif ($stock <= 0 && $stockInternacional > 0) {
             return -800;
         } elseif ($stock <= 0 && $stockInternacional <= 0) {
-            return -900;
+            return $excluido ? 0 : -900; // excluidos (MMEF/packs/neumaticas): 0 en vez de -900
         }
     }
     return $currentQuantity;
 }
 
-function calculateNewAttributeStockWeb($currentStock, $stock, $stockInternacional)
+function calculateNewAttributeStockWeb($currentStock, $stock, $stockInternacional, $excluido = false)
 {
     // Aplicamos la misma regla a atributos para consistencia
     if ($currentStock <= 0) {
@@ -548,7 +588,7 @@ function calculateNewAttributeStockWeb($currentStock, $stock, $stockInternaciona
         } elseif ($stock <= 0 && $stockInternacional > 0) {
             return -800;
         } elseif ($stock <= 0 && $stockInternacional <= 0) {
-            return -900;
+            return $excluido ? 0 : -900; // excluidos (MMEF/packs/neumaticas): 0 en vez de -900
         }
     }
     return $currentStock;

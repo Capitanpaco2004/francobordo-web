@@ -88,6 +88,12 @@ function db_index_exists($table, $indexName)
 	return tep_db_num_rows($q) > 0;
 }
 
+function db_column_exists($table, $column)
+{
+	$q = tep_db_query("SHOW COLUMNS FROM `" . tep_db_input($table) . "` LIKE '" . tep_db_input($column) . "'");
+	return tep_db_num_rows($q) > 0;
+}
+
 function ensure_sales_stats_table_and_indexes()
 {
 	// 1) Tabla projector
@@ -103,6 +109,9 @@ function ensure_sales_stats_table_and_indexes()
 				impuestos DECIMAL(15,2) NOT NULL DEFAULT 0,
 				envio DECIMAL(15,2) NOT NULL DEFAULT 0,
 				descuento DECIMAL(15,2) NOT NULL DEFAULT 0,
+				seguro DECIMAL(15,2) NOT NULL DEFAULT 0,
+				puntos DECIMAL(15,2) NOT NULL DEFAULT 0,
+				mediana DECIMAL(15,2) NOT NULL DEFAULT 0,
 				cost DECIMAL(15,2) NOT NULL DEFAULT 0,
 				pedidos INT NOT NULL DEFAULT 0,
 
@@ -113,6 +122,17 @@ function ensure_sales_stats_table_and_indexes()
 				KEY idx_status (orders_status_id)
 			) ENGINE=InnoDB DEFAULT CHARSET=utf8
 		");
+	}
+
+	// 1b) Migración: columnas seguro de envío + puntos canjeados (2026-07)
+	if (!db_column_exists('sales_stats_monthly', 'seguro')) {
+		tep_db_query("ALTER TABLE sales_stats_monthly ADD COLUMN seguro DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER descuento");
+	}
+	if (!db_column_exists('sales_stats_monthly', 'puntos')) {
+		tep_db_query("ALTER TABLE sales_stats_monthly ADD COLUMN puntos DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER seguro");
+	}
+	if (!db_column_exists('sales_stats_monthly', 'mediana')) {
+		tep_db_query("ALTER TABLE sales_stats_monthly ADD COLUMN mediana DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER puntos");
 	}
 
 	// 2) Índices recomendados (si no existen)
@@ -212,10 +232,25 @@ if ($isDailyView) {
 			END
 		) impuestos,
 		SUM(CASE WHEN ot.class='ot_shipping' THEN ot.value ELSE 0 END) envio,
-		SUM(CASE WHEN ot.class LIKE 'ot_discount%' THEN ot.value ELSE 0 END) descuento,
+		-- las líneas ot_custom_* las crea el editor de pedidos del admin al reguardar;
+		-- se reclasifican por título para que no escapen de su columna
+		-- (orders_total.title es utf8mb3_bin → LIKE distingue mayúsculas; de ahí el LOWER)
+		SUM(CASE WHEN ot.class LIKE 'ot_discount%'
+			  OR (ot.class LIKE 'ot_custom%' AND (LOWER(ot.title) LIKE 'cup%' OR LOWER(ot.title) LIKE 'descuento cup%'))
+			THEN ot.value ELSE 0 END) descuento,
+		SUM(CASE WHEN ot.class='ot_insurance'
+			  OR (ot.class LIKE 'ot_custom%' AND (LOWER(ot.title) LIKE 'seguro%' OR LOWER(ot.title) LIKE 'shipping insurance%'))
+			THEN ot.value ELSE 0 END) seguro,
+		SUM(CASE WHEN ot.class='ot_redemptions' THEN ot.value
+			 WHEN ot.class LIKE 'ot_custom%' AND (LOWER(ot.title) LIKE '%puntos%' OR LOWER(ot.title) LIKE 'points redeemed%') THEN -ot.value
+			 ELSE 0 END) puntos,
 
-		-- coste PREAGREGADO por pedido
-		SUM(COALESCE(c.cost,0)) cost
+		-- coste PREAGREGADO por pedido, contado UNA sola vez (en su fila ot_total;
+		-- sin el CASE, el join con orders_total lo multiplica por el nº de líneas)
+		SUM(CASE WHEN ot.class='ot_total' THEN COALESCE(c.cost,0) ELSE 0 END) cost,
+
+		-- mediana de cesta del día (constante por día en el subquery md)
+		MAX(COALESCE(md.mediana,0)) mediana
 
 	FROM orders o
 
@@ -229,6 +264,20 @@ if ($isDailyView) {
 		FROM orders_products
 		GROUP BY orders_id
 	) c ON c.orders_id = o.orders_id
+
+	LEFT JOIN (
+		SELECT t.d2, MAX(t.med) mediana
+		FROM (
+			SELECT
+				DAY(o2.date_purchased) d2,
+				MEDIAN(ot2.value) OVER (PARTITION BY DAY(o2.date_purchased)) med
+			FROM orders o2
+			JOIN orders_total ot2 ON ot2.orders_id = o2.orders_id AND ot2.class = 'ot_subtotal'
+			WHERE o2.date_purchased BETWEEN '$dateFrom' AND '$dateTo'
+			".($status>0?" AND o2.orders_status=".(int)$status:"")."
+		) t
+		GROUP BY t.d2
+	) md ON md.d2 = DAY(o.date_purchased)
 
 	WHERE o.date_purchased BETWEEN '$dateFrom' AND '$dateTo'
 	".($status>0?" AND o.orders_status=".(int)$status:"")."
@@ -244,7 +293,7 @@ if ($isDailyView) {
 	if ($month>0) $where[]="month=".(int)$month;
 
 	$sql = "
-		SELECT year y, month m, ingresos, ventas, impuestos, envio, descuento, cost, pedidos
+		SELECT year y, month m, ingresos, ventas, impuestos, envio, descuento, seguro, puntos, mediana, cost, pedidos
 		FROM sales_stats_monthly
 		WHERE ".implode(' AND ',$where)."
 		ORDER BY y DESC, m DESC
@@ -339,36 +388,47 @@ $sHtml .= '<th class="tright">Ventas</th>';
 $sHtml .= '<th class="tright">Coste</th>';
 $sHtml .= '<th class="tright">Impuestos</th>';
 $sHtml .= '<th class="tright">Envío</th>';
-$sHtml .= '<th class="tright">Descuento</th>';
-$sHtml .= '<th class="tright">Beneficio</th>';
-$sHtml .= '<th class="tright">Cesta media</th>';
+$sHtml .= '<th class="tright">Seguro envío</th>';
+$sHtml .= '<th class="tright">Cupones</th>';
+$sHtml .= '<th class="tright">Puntos (€)</th>';
+$sHtml .= '<th class="tright" title="Ventas − Coste + Cupones − Puntos (sin envío ni seguro)">Beneficio</th>';
+$sHtml .= '<th class="tright">Cesta mediana</th>';
 $sHtml .= '<th class="tright">Pedidos</th>';
 $sHtml .= '</tr></thead><tbody>';
 
+function render_year_totals_row($year, $totals)
+{
+	$s  = '<tr class="dataTableHeadingRow dataTableYearTotal"><td><b>Totales del Año '.$year.'</b></td>';
+	$s .= '<td class="tright"><b>'.number_format($totals['ingresos'],2).'</b></td>';
+	$s .= '<td class="tright"><b>'.number_format($totals['ventas'],2).'</b></td>';
+	$s .= '<td class="tright"><b>'.number_format($totals['cost'],2).'</b></td>';
+	$s .= '<td class="tright"><b>'.number_format($totals['impuestos'],2).'</b></td>';
+	$s .= '<td class="tright"><b>'.number_format($totals['envio'],2).'</b></td>';
+	$s .= '<td class="tright"><b>'.number_format($totals['seguro'],2).'</b></td>';
+	$s .= '<td class="tright"><b>'.number_format($totals['descuento'],2).'</b></td>';
+	$s .= '<td class="tright"><b>'.number_format($totals['puntos'] == 0 ? 0 : -$totals['puntos'],2).'</b></td>';
+	// Beneficio = ventas − coste + cupones(neg) − puntos; sin coste registrado (años <2023) no es calculable
+	$s .= '<td class="tright"><b>'.($totals['cost'] > 0 ? number_format($totals['ventas'] - $totals['cost'] + $totals['descuento'] - $totals['puntos'],2) : '—').'</b></td>';
+	$s .= '<td class="tright">—</td>';
+	$s .= '<td class="tright"><b>'.$totals['orders'].'</b></td></tr>';
+	return $s;
+}
+
 $currentYear=null;
-$yearTotals=['ingresos'=>0,'ventas'=>0,'cost'=>0,'impuestos'=>0,'envio'=>0,'descuento'=>0,'orders'=>0];
+$yearTotals=['ingresos'=>0,'ventas'=>0,'cost'=>0,'impuestos'=>0,'envio'=>0,'descuento'=>0,'seguro'=>0,'puntos'=>0,'orders'=>0];
 
 while($r=tep_db_fetch_array($q)){
 
 	if(!$isDailyView){
 		if($currentYear!==null && $currentYear!=$r['y']){
-			$sHtml.='<tr class="dataTableHeadingRow dataTableYearTotal"><td><b>Totales del Año '.$currentYear.'</b></td>';
-			$sHtml.='<td class="tright"><b>'.number_format($yearTotals['ingresos'],2).'</b></td>';
-			$sHtml.='<td class="tright"><b>'.number_format($yearTotals['ventas'],2).'</b></td>';
-			$sHtml.='<td class="tright"><b>'.number_format($yearTotals['cost'],2).'</b></td>';
-			$sHtml.='<td class="tright"><b>'.number_format($yearTotals['impuestos'],2).'</b></td>';
-			$sHtml.='<td class="tright"><b>'.number_format($yearTotals['envio'],2).'</b></td>';
-			$sHtml.='<td class="tright"><b>'.number_format($yearTotals['descuento'],2).'</b></td>';
-			$sHtml.='<td class="tright"><b>'.number_format($yearTotals['ventas']-$yearTotals['cost']-$yearTotals['descuento'],2).'</b></td>';
-			$sHtml.='<td class="tright">—</td>';
-			$sHtml.='<td class="tright"><b>'.$yearTotals['orders'].'</b></td></tr>';
+			$sHtml.=render_year_totals_row($currentYear,$yearTotals);
 			foreach($yearTotals as $k=>$v)$yearTotals[$k]=0;
 		}
 		$currentYear=$r['y'];
 	}
 
-	$benefit=$r['ventas']-$r['cost']+$r['descuento'];
-	$basket=$r['pedidos']?($r['ventas']/$r['pedidos']):0;
+	$basket=$r['mediana'];
+	$benefit=($r['cost'] > 0) ? ($r['ventas'] - $r['cost'] + $r['descuento'] - $r['puntos']) : null;
 
 	if(!$isDailyView){
 		$yearTotals['ingresos']+=$r['ingresos'];
@@ -377,6 +437,8 @@ while($r=tep_db_fetch_array($q)){
 		$yearTotals['impuestos']+=$r['impuestos'];
 		$yearTotals['envio']+=$r['envio'];
 		$yearTotals['descuento']+=$r['descuento'];
+		$yearTotals['seguro']+=$r['seguro'];
+		$yearTotals['puntos']+=$r['puntos'];
 		$yearTotals['orders']+=$r['pedidos'];
 	}
 
@@ -401,11 +463,17 @@ while($r=tep_db_fetch_array($q)){
 		$sHtml .= '</span>';
 	$sHtml .= '</td>';
 	$sHtml.='<td class="tright">'.number_format($r['envio'],2).'</td>';
+	$sHtml.='<td class="tright">'.number_format($r['seguro'],2).'</td>';
 	$sHtml.='<td class="tright">'.number_format($r['descuento'],2).'</td>';
-	$sHtml.='<td class="tright">'.number_format($benefit,2).'</td>';
+	$sHtml.='<td class="tright">'.number_format($r['puntos'] == 0 ? 0 : -$r['puntos'],2).'</td>';
+	$sHtml.='<td class="tright">'.($benefit === null ? '—' : number_format($benefit,2)).'</td>';
 	$sHtml.='<td class="tright">'.number_format($basket,2).'</td>';
 	$sHtml.='<td class="tright">'.$r['pedidos'].'</td>';
 	$sHtml.='</tr>';
+}
+
+if(!$isDailyView && $currentYear!==null){
+	$sHtml.=render_year_totals_row($currentYear,$yearTotals);
 }
 
 $sHtml.='</tbody></table></div></div></div>';
@@ -567,7 +635,7 @@ function rebuild_sales_stats_last_months($monthsBack)
 	// ===== TODOS LOS ESTADOS (orders_status_id = 0)
 	$sqlAll = "
 		REPLACE INTO sales_stats_monthly
-		(year,month,orders_status_id,ingresos,ventas,impuestos,envio,descuento,cost,pedidos,updated_at)
+		(year,month,orders_status_id,ingresos,ventas,impuestos,envio,descuento,seguro,puntos,cost,pedidos,updated_at)
 		SELECT
 			YEAR(o.date_purchased),
 			MONTH(o.date_purchased),
@@ -579,8 +647,16 @@ function rebuild_sales_stats_last_months($monthsBack)
 				  OR ot.class LIKE 'ot_recargo%'
 				THEN ot.value ELSE 0 END),
 			SUM(CASE WHEN ot.class='ot_shipping' THEN ot.value ELSE 0 END),
-			SUM(CASE WHEN ot.class LIKE 'ot_discount%' THEN ot.value ELSE 0 END),
-			SUM(COALESCE(c.cost,0)),
+			SUM(CASE WHEN ot.class LIKE 'ot_discount%'
+				  OR (ot.class LIKE 'ot_custom%' AND (LOWER(ot.title) LIKE 'cup%' OR LOWER(ot.title) LIKE 'descuento cup%'))
+				THEN ot.value ELSE 0 END),
+			SUM(CASE WHEN ot.class='ot_insurance'
+				  OR (ot.class LIKE 'ot_custom%' AND (LOWER(ot.title) LIKE 'seguro%' OR LOWER(ot.title) LIKE 'shipping insurance%'))
+				THEN ot.value ELSE 0 END),
+			SUM(CASE WHEN ot.class='ot_redemptions' THEN ot.value
+				 WHEN ot.class LIKE 'ot_custom%' AND (LOWER(ot.title) LIKE '%puntos%' OR LOWER(ot.title) LIKE 'points redeemed%') THEN -ot.value
+				 ELSE 0 END),
+			SUM(CASE WHEN ot.class='ot_total' THEN COALESCE(c.cost,0) ELSE 0 END),
 			COUNT(DISTINCT o.orders_id),
 			NOW()
 		FROM ".TABLE_ORDERS." o
@@ -594,7 +670,7 @@ function rebuild_sales_stats_last_months($monthsBack)
 	// ===== POR CADA ESTADO (para filtro rápido)
 	$sqlByStatus = "
 		REPLACE INTO sales_stats_monthly
-		(year,month,orders_status_id,ingresos,ventas,impuestos,envio,descuento,cost,pedidos,updated_at)
+		(year,month,orders_status_id,ingresos,ventas,impuestos,envio,descuento,seguro,puntos,cost,pedidos,updated_at)
 		SELECT
 			YEAR(o.date_purchased),
 			MONTH(o.date_purchased),
@@ -606,8 +682,16 @@ function rebuild_sales_stats_last_months($monthsBack)
 				  OR ot.class LIKE 'ot_recargo%'
 				THEN ot.value ELSE 0 END),
 			SUM(CASE WHEN ot.class='ot_shipping' THEN ot.value ELSE 0 END),
-			SUM(CASE WHEN ot.class LIKE 'ot_discount%' THEN ot.value ELSE 0 END),
-			SUM(COALESCE(c.cost,0)),
+			SUM(CASE WHEN ot.class LIKE 'ot_discount%'
+				  OR (ot.class LIKE 'ot_custom%' AND (LOWER(ot.title) LIKE 'cup%' OR LOWER(ot.title) LIKE 'descuento cup%'))
+				THEN ot.value ELSE 0 END),
+			SUM(CASE WHEN ot.class='ot_insurance'
+				  OR (ot.class LIKE 'ot_custom%' AND (LOWER(ot.title) LIKE 'seguro%' OR LOWER(ot.title) LIKE 'shipping insurance%'))
+				THEN ot.value ELSE 0 END),
+			SUM(CASE WHEN ot.class='ot_redemptions' THEN ot.value
+				 WHEN ot.class LIKE 'ot_custom%' AND (LOWER(ot.title) LIKE '%puntos%' OR LOWER(ot.title) LIKE 'points redeemed%') THEN -ot.value
+				 ELSE 0 END),
+			SUM(CASE WHEN ot.class='ot_total' THEN COALESCE(c.cost,0) ELSE 0 END),
 			COUNT(DISTINCT o.orders_id),
 			NOW()
 		FROM ".TABLE_ORDERS." o
@@ -617,6 +701,49 @@ function rebuild_sales_stats_last_months($monthsBack)
 		GROUP BY YEAR(o.date_purchased), MONTH(o.date_purchased), o.orders_status
 	";
 	tep_db_query($sqlByStatus);
+
+	// ===== MEDIANA de cesta (subtotal por pedido) — no derivable de agregados,
+	// se calcula aparte con función de ventana y se vuelca sobre los meses reconstruidos
+	$sqlMedianaAll = "
+		UPDATE sales_stats_monthly s
+		JOIN (
+			SELECT t.y, t.m, MAX(t.med) med
+			FROM (
+				SELECT
+					YEAR(o.date_purchased) y,
+					MONTH(o.date_purchased) m,
+					MEDIAN(ot.value) OVER (PARTITION BY YEAR(o.date_purchased), MONTH(o.date_purchased)) med
+				FROM ".TABLE_ORDERS." o
+				JOIN ".TABLE_ORDERS_TOTAL." ot ON ot.orders_id=o.orders_id AND ot.class='ot_subtotal'
+				WHERE o.date_purchased BETWEEN '".tep_db_input($startDate)."' AND '".tep_db_input($endDate)."'
+			) t
+			GROUP BY t.y, t.m
+		) x ON x.y=s.year AND x.m=s.month
+		SET s.mediana = x.med
+		WHERE s.orders_status_id=0
+	";
+	tep_db_query($sqlMedianaAll);
+
+	$sqlMedianaByStatus = "
+		UPDATE sales_stats_monthly s
+		JOIN (
+			SELECT t.y, t.m, t.st, MAX(t.med) med
+			FROM (
+				SELECT
+					YEAR(o.date_purchased) y,
+					MONTH(o.date_purchased) m,
+					o.orders_status st,
+					MEDIAN(ot.value) OVER (PARTITION BY YEAR(o.date_purchased), MONTH(o.date_purchased), o.orders_status) med
+				FROM ".TABLE_ORDERS." o
+				JOIN ".TABLE_ORDERS_TOTAL." ot ON ot.orders_id=o.orders_id AND ot.class='ot_subtotal'
+				WHERE o.date_purchased BETWEEN '".tep_db_input($startDate)."' AND '".tep_db_input($endDate)."'
+			) t
+			GROUP BY t.y, t.m, t.st
+		) x ON x.y=s.year AND x.m=s.month AND x.st=s.orders_status_id
+		SET s.mediana = x.med
+		WHERE s.orders_status_id>0
+	";
+	tep_db_query($sqlMedianaByStatus);
 
 	tep_db_query('COMMIT');
 }

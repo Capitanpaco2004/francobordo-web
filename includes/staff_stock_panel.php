@@ -36,22 +36,32 @@ if ( ( $_SERVER['REMOTE_ADDR'] ?? '' ) === '217.127.199.171'
             . ' ORDER BY variante, prop1, prop2, prop3, ubicacion'
         );
         while ( $rl = tep_db_fetch_array( $qLoc ) ) {
-            $sVar = trim( (string)( $rl['variante'] ?? '' ) );
-            if ( $sVar === '' ) {
-                // Fallback al codigo de propiedad si el nombre VStock no trae sufijo "~"
-                $sVar = trim( implode( ' / ', array_filter( array(
-                    trim( (string)$rl['prop1'] ),
-                    trim( (string)$rl['prop2'] ),
-                    trim( (string)$rl['prop3'] ),
-                ) ) ) );
-            }
-            if ( $sVar === '' ) $sVar = '(sin variante)';
-            if ( ! isset( $aVariantes[ $sVar ] ) )
-                $aVariantes[ $sVar ] = array( 'unidades' => 0.0, 'disponible' => 0.0, 'ubis' => array() );
-            $aVariantes[ $sVar ]['disponible'] = (float)( $rl['disponible'] ?? 0 );
+            // Clave de agrupación = CCODIVAL (prop1/2/3), NO el nombre legible:
+            // en QFac puede haber DOS variantes distintas con el mismo nombre
+            // (visto en 21604000: '19MM.' y '20MM.-3' ambas llamadas "19 mm.").
+            $sProps = trim( implode( ' / ', array_filter( array(
+                trim( (string)$rl['prop1'] ),
+                trim( (string)$rl['prop2'] ),
+                trim( (string)$rl['prop3'] ),
+            ) ) ) );
+            $sKey = ( $sProps !== '' ) ? $sProps : '(sin variante)';
+            $sLabel = trim( (string)( $rl['variante'] ?? '' ) );
+            if ( $sLabel === '' ) $sLabel = $sKey;
+            if ( ! isset( $aVariantes[ $sKey ] ) )
+                $aVariantes[ $sKey ] = array( 'label' => $sLabel, 'props' => $sProps, 'unidades' => 0.0, 'disponible' => 0.0, 'ubis' => array() );
+            $aVariantes[ $sKey ]['disponible'] = (float)( $rl['disponible'] ?? 0 );
             $fU = (float)$rl['unidades'];
-            $aVariantes[ $sVar ]['unidades'] += $fU;
-            $aVariantes[ $sVar ]['ubis'][] = array( trim( (string)$rl['ubicacion'] ), $fU );
+            $aVariantes[ $sKey ]['unidades'] += $fU;
+            $aVariantes[ $sKey ]['ubis'][] = array( trim( (string)$rl['ubicacion'] ), $fU );
+        }
+        // Nombres duplicados (variantes distintas con mismo nombre en QFac):
+        // añadir el código CCODIVAL al label para distinguirlas visualmente.
+        $aLabelCount = array();
+        foreach ( $aVariantes as $aV )
+            $aLabelCount[ $aV['label'] ] = ( $aLabelCount[ $aV['label'] ] ?? 0 ) + 1;
+        foreach ( $aVariantes as $k => $aV ) {
+            if ( $aLabelCount[ $aV['label'] ] > 1 && $aV['props'] !== '' )
+                $aVariantes[ $k ]['label'] .= ' [' . $aV['props'] . '] ⚠️';
         }
     }
 
@@ -84,9 +94,9 @@ if ( ( $_SERVER['REMOTE_ADDR'] ?? '' ) === '217.127.199.171'
                     </tr>
                 </thead>
                 <tbody>
-                <?php foreach ( $aVariantes as $sVar => $aV ): ?>
+                <?php foreach ( $aVariantes as $aV ): ?>
                     <tr style="border-bottom:1px solid #f0e2a8;">
-                        <td style="padding:4px 8px;vertical-align:top;"><?php echo htmlspecialchars( $sVar, ENT_QUOTES, 'UTF-8' ); ?></td>
+                        <td style="padding:4px 8px;vertical-align:top;"><?php echo htmlspecialchars( $aV['label'], ENT_QUOTES, 'UTF-8' ); ?></td>
                         <td style="padding:4px 8px;vertical-align:top;">
                             <?php
                             $aPieces = array();

@@ -282,6 +282,11 @@
 						$corrTrk = null;
 						$corrTrkQ = tep_db_query("SELECT * FROM correos_tracking WHERE referencia = 'F" . (int) $_GET['order_id'] . "' LIMIT 1");
 						if (tep_db_num_rows($corrTrkQ)) $corrTrk = tep_db_fetch_array($corrTrkQ);
+						$corrUrl = '';
+						if ($corrTrk) {
+							$corrUrlQ = tep_db_query("SELECT tracking_url FROM correos_shipments WHERE orders_id = '" . (int) $_GET['order_id'] . "' AND tracking_url IS NOT NULL AND tracking_url <> '' AND cancelled_at IS NULL ORDER BY id DESC LIMIT 1");
+							if (tep_db_num_rows($corrUrlQ)) { $corrUrlR = tep_db_fetch_array($corrUrlQ); $corrUrl = $corrUrlR['tracking_url']; }
+						}
 						// Tracking SEUR (seur_tracking, lo alimenta cron_seur_tracking.php).
 						// Referencia 'F{oid}' (integración API) o '{oid}' a pelo (integración
 						// vieja de Vstock) — se prueba la F primero.
@@ -329,6 +334,14 @@
 								</a>
 							</small>
 						<?php
+						// Correos: boton al localizador oficial (tracking_url con el packageCode real de correos_shipments).
+						elseif ($corrTrk && $corrUrl !== ''): ?>
+							<small class="localizaEnvio">
+								<a style="background: #ee7f00 !important;" class="Button" href="<?php echo htmlspecialchars($corrUrl); ?>" target="_blank">
+									<i style="margin-right: 5px" class="fa fa-truck-moving" ></i><?php echo $sTextLocalizaEnvio; ?>
+								</a>
+							</small>
+						<?php
 						//Si tenemos un array y una url válida, motramos el banner.
 						elseif (!empty($aUrlEnvio) && !empty($aUrlEnvio[0]) && filter_var($aUrlEnvio[0][0], FILTER_VALIDATE_URL)): ?>
 							<small class="localizaEnvio">
@@ -369,7 +382,8 @@
 					if ($cexTrk):
 						$cexTimeline = !empty($cexTrk['timeline_json']) ? json_decode($cexTrk['timeline_json'], true) : null;
 						$cexFresh = !empty($cexTrk['timeline_at']) && (strtotime($cexTrk['timeline_at']) > time() - 3600);
-						if (!is_array($cexTimeline) || (empty($cexTrk['entregado']) && !$cexFresh)) {
+						$cexTlDeliv = false; foreach ((array) $cexTimeline as $cexChk) if (!empty($cexChk['e'])) { $cexTlDeliv = true; break; }
+						if (!is_array($cexTimeline) || (!$cexFresh && (empty($cexTrk['entregado']) || !$cexTlDeliv))) {
 							require_once $_SERVER['DOCUMENT_ROOT'] . '/' . DIR_WS_CLASSES . 'correos_express.php';
 							$cexEnvQ = tep_db_query("SELECT config_value FROM cex_config WHERE config_key = 'env'");
 							$cexEnv  = tep_db_num_rows($cexEnvQ) ? tep_db_fetch_array($cexEnvQ)['config_value'] : 'test';

@@ -95,11 +95,19 @@ $whereOrigin = '(' . implode(' OR ', $likeClauses) . ')';
 
 logMsg("Buscando productos con EAN vacío o inválido en $whereOrigin …");
 // Traemos todos y filtramos en PHP por validez (la regla del checksum no se puede expresar en SQL fácilmente)
+// Regla W2 (2026-07-06): productos con EAN a nivel de VARIANTE no llevan
+// EAN maestro (el codigo vive en la variante; los feeds miran ambos campos).
+$hasAttrEan = [];
+$rA = $mysqli->query("SELECT DISTINCT products_id FROM products_attributes WHERE products_attributes_ean IS NOT NULL AND products_attributes_ean NOT IN ('','0')");
+while ($rowA = $rA->fetch_assoc()) $hasAttrEan[(int) $rowA['products_id']] = true;
+
 $r = $mysqli->query("SELECT products_id, products_import_origin, product_ean FROM products WHERE $whereOrigin ORDER BY products_id");
 $prods = [];
 $skippedValid = 0;
 $invalidExisting = 0;
+$skippedVariant = 0;
 while ($row = $r->fetch_assoc()) {
+	if (isset($hasAttrEan[(int) $row['products_id']])) { $skippedVariant++; continue; }
 	$cur = trim((string) $row['product_ean']);
 	if ($cur === '') {
 		$prods[] = $row;
@@ -110,6 +118,7 @@ while ($row = $r->fetch_assoc()) {
 		$skippedValid++;
 	}
 }
+logMsg("Excluidos por tener EAN de variante (regla W2, maestro debe ir vacio): $skippedVariant");
 logMsg("Productos candidatos: " . count($prods) . " (de los cuales $invalidExisting tienen EAN inválido — ej: 'v', URL slug, 12 dígitos…)");
 logMsg("Productos con EAN-13 válido conservado: $skippedValid");
 

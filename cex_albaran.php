@@ -172,6 +172,11 @@ if (strlen($cty) === 2) {
     $st->execute();
     if ($row = $st->get_result()->fetch_assoc()) $iso = strtoupper($row['countries_iso_code_2']);
 }
+/* Salvaguarda Portugal: pedidos con el PAÍS mal grabado (p.ej. QFac pone "España" en
+ * un pedido a Portugal) pero con CP portugués (formato NNNN-NNN). Sin esto se tratan
+ * como nacional y CEX rechaza el CP (error 23 "CP NACIONAL FORMATO INCORRECTO").
+ * El CP español es siempre 5 dígitos sin guion, así que este patrón es inequívoco. */
+if ($iso === 'ES' && preg_match('/(?:^|\D)\d{4}-\d{3}(?:\D|$)/', (string) $o['delivery_postcode'])) $iso = 'PT';
 
 /* ---- Punto vs domicilio + sabado ----
  * Punto: fila en cex_pudo_orders (lo guardo el checkout cexpunto). producto 18 + idPtoExterno.
@@ -213,6 +218,11 @@ $cpRaw  = trim((string) $o['delivery_postcode']);
 $cpInt  = preg_replace('/\s+/', '', $cpRaw);
 $cpNac  = preg_match('/\d{5}/', $cpRaw, $mmcp) ? $mmcp[0] : preg_replace('/\D/', '', $cpInt);
 $cpDest = $intl ? $cpInt : $cpNac;
+
+/* BALEARES (CP 07xxx): ePaq24 (93) NO cubre islas -> CEX lo re-factura como Paq 14 (62, caro,
+ * ~15-31€). El producto correcto y más barato es "Islas Express" (26, ~6,74€/5kg), que es el
+ * que usaba la integración VStock antigua. Solo domicilio (punto/sábado no aplican a islas). */
+if ($producto === '93' && strncmp($cpNac, '07', 2) === 0) { $producto = '26'; $entrSabado = ''; }
 /* CEX limita longitudes del destinatario: nomDest/contacDest 40, pobDest 30, dirDest 100.
  * (errores "NOMBRE DESTINATARIO: SUPERA LOS 40 CARACTERES", etc.) */
 $nomDest = trim((string) $o['delivery_name']) ?: trim((string) ($o['delivery_company'] ?? ''));
@@ -245,7 +255,10 @@ $opt = array(
     'codPosIntDest' => $intl ? $cpDest : '',
     'paisISODest'   => $iso,
     'contacDest'    => $nomDest,
-    'telefDest'     => preg_replace('/\D/', '', (string) $o['customers_telephone']),  // solo dígitos: CEX rechaza '+'/'?'/espacios ("TELEFONO NO VALIDO")
+    // Saneo teléfono: solo dígitos (CEX rechaza '?'/espacios/guiones, "TELEFONO NO VALIDO")
+    // PERO conservando el '+' inicial si viene (formato internacional E.164, p.ej. +32...).
+    'telefDest'     => ((strpos(ltrim((string) $o['customers_telephone']), '+') === 0) ? '+' : '')
+                       . preg_replace('/\D/', '', (string) $o['customers_telephone']),
     'emailDest'     => trim((string) $o['customers_email_address']),
     'observac'      => $free ? ('Envio manual CEX / ' . $freeRef)
                              : ('Pedido ' . ($manual ? 'QFac ' : 'web ') . $oid . ($alb !== '' ? ' / Albaran ' . $alb : '')),

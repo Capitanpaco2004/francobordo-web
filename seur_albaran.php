@@ -200,6 +200,22 @@ if (($v = trim((string) ($in['dcountry'] ?? ''))) !== '') {
     $dest['country'] = $iso;
 }
 
+/* FALLBACK ciudad vacía (pedido con delivery_city='' — p.ej. address_book viejo sin
+ * blindar, caso 10363995): SEUR EXIGE cityName y sin él el alta devuelve un 400
+ * ENGAÑOSO "Invalid service-product". Se resuelve la población oficial del CP con
+ * la API cities() (mismo patrón que seurpunto::puntos); último recurso: provincia. */
+if (trim((string) $dest['cityName']) === '' && trim((string) $dest['postalCode']) !== '') {
+    $sCity = new seur($env);
+    $sCity->setTimeout(10);
+    $rcty = $sCity->cities(preg_replace('/\s+/', '', (string) $dest['postalCode']), $dest['country']);
+    $dcty = seur::payload($rcty);
+    if (is_array($dcty) && !empty($dcty[0]['cityName'])) {
+        $dest['cityName'] = (string) $dcty[0]['cityName'];
+    } elseif (trim((string) ($o['delivery_state'] ?? '')) !== '') {
+        $dest['cityName'] = trim((string) $o['delivery_state']);
+    }
+}
+
 /* Entrega en punto SEUR (2shop): si el pedido eligió punto en el checkout,
  * servicio 1/48 (nac) ó 77/48 (intl) + pickupCentreCode en el receiver.
  * La dirección de entrega del pedido YA es la del punto (checkout_process). */

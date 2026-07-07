@@ -90,6 +90,19 @@ class cexpunto {
             $this->enabled = false;
             return array();
         }
+
+        // CEX avisa la recogida por SMS y su API solo admite MÓVIL ESPAÑOL en punto
+        // ("teléfono móvil del destinatario obligatorio"; rechaza extranjeros en
+        // cualquier formato — caso cliente belga 2026-07-06). Sin móvil ES válido
+        // no se ofrece Paq Punto: el cliente sigue viendo domicilio, donde su
+        // teléfono sí es válido.
+        $tel = preg_replace('/\D/', '', (string) ($order->customer['telephone'] ?? ''));
+        if (strpos($tel, '0034') === 0) $tel = substr($tel, 4);
+        elseif (strlen($tel) === 11 && strpos($tel, '34') === 0) $tel = substr($tel, 2);
+        if (!preg_match('/^[67]\d{8}$/', $tel)) {
+            $this->enabled = false;
+            return array();
+        }
         // El precio sigue al PUNTO elegido (a donde va realmente el paquete), no a la
         // dirección del cliente: si ya hay punto en sesión usamos SU CP para la zona.
         // checkout_shipping re-cotiza DESPUÉS de fijar el punto en sesión, así que el
