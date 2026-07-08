@@ -187,7 +187,7 @@ function llmCall($systemPrompt, $userText, $maxRetries = 2, $maxTokens = 2000) {
 		'temperature' => 0.2,
 		'max_tokens' => $maxTokens,
 		'chat_template_kwargs' => ['enable_thinking' => false],
-	], JSON_UNESCAPED_UNICODE);
+	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	for ($i = 0; $i <= $maxRetries; $i++) {
 		$ch = curl_init(LLM_URL);
 		curl_setopt_array($ch, [
@@ -683,7 +683,7 @@ $processProduct = function ($row, $isVariantParent, $variantsList) use (
 	//   - Si suelto: el nombre tal cual del xlsm.
 	if ($isVariantParent) {
 		$variantNames = array_column($variantsList, 'name');
-		$prefix = trim(longestCommonPrefix($variantNames), " -–·,");
+		$prefix = preg_replace('/^[\s\-–·,]+|[\s\-–·,]+$/u', '', longestCommonPrefix($variantNames));
 		if (mb_strlen($prefix, "UTF-8") >= 4) {
 			$mainName = $prefix;
 		} else {
@@ -769,12 +769,12 @@ $processProduct = function ($row, $isVariantParent, $variantsList) use (
 				return true;
 			}));
 			$variantNames = array_column($variantsList, 'name');
-			$prefix = trim(longestCommonPrefix($variantNames), " -–·,");
+			$prefix = preg_replace('/^[\s\-–·,]+|[\s\-–·,]+$/u', '', longestCommonPrefix($variantNames));
 			// Track de OVs ya consumidos por este producto (guardia anti-colisión de labels)
 			$ovsUsados = [];
 			foreach ($variantsList as $v) {
 				$labelRaw = trim(mb_substr($v['name'], mb_strlen($prefix, 'UTF-8'), null, 'UTF-8'));
-				$labelRaw = trim($labelRaw, " -–·,");
+				$labelRaw = preg_replace('/^[\s\-–·,]+|[\s\-–·,]+$/u', '', $labelRaw);
 				if ($labelRaw === '') $labelRaw = $v['name'];
 				$labelRaw = cleanCressiSizeMarker($labelRaw);
 				$labelRaw = mb_substr($labelRaw, 0, 64, 'UTF-8');

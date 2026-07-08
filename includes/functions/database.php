@@ -179,6 +179,13 @@ function tep_db_fetch_array($db_query, $type = PDO::FETCH_ASSOC)
         return $db_query;
     }
 
+    // tep_db_query() devuelve false cuando su guard anti-inyección bloquea la query
+    // (sleep(/information_schema) o cuando falla; sin esto, false->fetch() es Fatal.
+    // Degradamos a "sin filas" (el caller ya trata false: while() no entra, if(<=0) salta).
+    if (!($db_query instanceof PDOStatement)) {
+        return false;
+    }
+
     return $db_query->fetch($type);
 }
 
@@ -189,9 +196,11 @@ function tep_db_fetch_array($db_query, $type = PDO::FETCH_ASSOC)
 */
 function tep_db_num_rows($db_query)
 {
-	if (isset($db_query)) {
+	// isset(false) es true → sin instanceof, false->rowCount() era Fatal (query bloqueada/fallida).
+	if ($db_query instanceof PDOStatement) {
 		return $db_query->rowCount();
 	}
+	return 0;
 }
 
 /**

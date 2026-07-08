@@ -76,7 +76,8 @@ function cleanHtmlAggressive($html) {
 	$out = [];
 	$emptyStreak = 0;
 	foreach ($lines as $l) {
-		$l = trim(preg_replace('/[ \t\xC2\xA0]+/', ' ', $l));
+		// \x{00A0} con /u = NBSP real; sin /u la clase opera a nivel de BYTE y mutila UTF-8 (à = C3 A0 pierde el A0)
+		$l = trim(preg_replace('/[ \t\x{00A0}]+/u', ' ', $l));
 		if ($l === '') {
 			if ($emptyStreak < 1 && !empty($out)) { $out[] = ''; }
 			$emptyStreak++;
@@ -208,7 +209,7 @@ function llmTranslate($text, $maxRetries = 2) {
 		'temperature' => 0.2,
 		'max_tokens' => 1500,
 		'chat_template_kwargs' => ['enable_thinking' => false],
-	], JSON_UNESCAPED_UNICODE);
+	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	for ($i = 0; $i <= $maxRetries; $i++) {
 		$ch = curl_init(LLM_URL);
 		curl_setopt_array($ch, [

@@ -269,7 +269,7 @@ function llmCall($systemPrompt, $userText, $maxTokens = 1500, $maxRetries = 2) {
         'temperature' => 0.2,
         'max_tokens' => $maxTokens,
         'chat_template_kwargs' => ['enable_thinking' => false],
-    ], JSON_UNESCAPED_UNICODE);
+    ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     for ($i = 0; $i <= $maxRetries; $i++) {
         $ch = curl_init(LLM_URL);
         curl_setopt_array($ch, [
@@ -434,10 +434,10 @@ function vetusExtractMeasure($title) {
 /** Calcula la etiqueta EN de cada variante: medida del nombre → resto tras LCP → SKU. */
 function vetusComputeVariantLabels(array $items) {
     $titlesAll = array_map(fn($it) => $it['_NAME_EN'], $items);
-    $common = rtrim(longestCommonPrefix($titlesAll), " -–·,");
+    $common = preg_replace('/[\s\-–·,]+$/u', '', longestCommonPrefix($titlesAll));
     $lcpStrip = function ($name, $common) {
         if ($common === '' || mb_strpos($name, $common) !== 0) return '';
-        $rest = ltrim(trim(mb_substr($name, mb_strlen($common, 'UTF-8'), null, 'UTF-8')), " -–·,;");
+        $rest = preg_replace('/^[\s\-–·,;]+/u', '', trim(mb_substr($name, mb_strlen($common, 'UTF-8'), null, 'UTF-8')));
         return (mb_strlen($rest, 'UTF-8') <= 64) ? $rest : '';
     };
     $sigs = [];

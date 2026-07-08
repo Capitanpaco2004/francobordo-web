@@ -270,7 +270,7 @@ function llmCall($systemPrompt, $userText, $maxTokens = 2500, $maxRetries = 2) {
         'temperature' => 0.2,
         'max_tokens' => $maxTokens,
         'chat_template_kwargs' => ['enable_thinking' => false],
-    ], JSON_UNESCAPED_UNICODE);
+    ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     for ($i = 0; $i <= $maxRetries; $i++) {
         $ch = curl_init(LLM_URL);
         curl_setopt_array($ch, [

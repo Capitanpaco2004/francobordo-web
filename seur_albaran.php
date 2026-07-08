@@ -274,11 +274,17 @@ if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === '48') && $iso =
     $opts['observations'] .= ' / SEUR 24 (B2C)';
 }
 
-/* ENVIO MANUAL: servicio/producto explicito elegido en el formulario (override). */
-if ($free && trim((string) ($in['svccode'] ?? '')) !== '') {
+/* SERVICIO/PRODUCTO explicito (envio manual O selector de "Anular y regenerar" del
+ * panel, 2026-07-07): svccode/prodcode mandan sobre svc= y sobre el default por pais.
+ * Si el servicio elegido NO es 2shop (producto 48), se quita el pickupCentreCode:
+ * ese campo solo vale con 2shop y SEUR rechazaria el alta. */
+if (($free || $regen) && trim((string) ($in['svccode'] ?? '')) !== '') {
     $opts['service'] = preg_replace('/\D/', '', (string) $in['svccode']);
     $pc = preg_replace('/\D/', '', (string) ($in['prodcode'] ?? ''));
     if ($pc !== '') $opts['product'] = $pc;
+    if (($opts['product'] ?? '') !== '48' && isset($dest['pickupCentreCode'])) {
+        unset($dest['pickupCentreCode']);
+    }
 }
 
 if ($regen) {

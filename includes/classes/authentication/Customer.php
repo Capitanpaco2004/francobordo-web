@@ -44,7 +44,7 @@ class Customer
 	public static function createByEmail(string $email, string $password, array $parameters = []): self
 	{
 		$customer = pharaonix_queryOne('SELECT customers_id, customers_gender, customers_firstname, customers_lastname, DATE_FORMAT(customers_dob, "%d/%m/%Y") as customers_dob, customers_email_address, customers_default_address_id, customers_telephone, customers_fax, customers_password, customers_group_id, customers_payment_allowed, customers_shipment_allowed, customers_order_total_allowed, customers_specific_taxes_exempt, member_level, customers_language_id, proveedor, proveedor_iae, recargo_equivalencia, id_term_pivacy_general, status_disabled
-										FROM customers WHERE LCASE(customers_email_address) = "' . tep_db_input(strtolower($email)) . '"', true);
+										FROM customers WHERE LCASE(CONVERT(customers_email_address USING utf8mb4)) = "' . tep_db_input(strtolower($email)) . '"', true);
 
 		if ($customer->num_rows == 0) {
 			throw new CustomerNotExistException();

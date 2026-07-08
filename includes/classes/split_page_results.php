@@ -46,52 +46,13 @@
 
 	 if( $sQueryCount === false )
 	 {
-		// Construimos el SQL del count en variable (idéntico a antes) para poder registrarlo si falla.
 		if( preg_match( '/union/i', $query ) )
-			$__countSql = "select count(" . $count_string . ") as total FROM (" . substr($query, 0, $pos_to) . ') AS count_query';
+			$count_query = tep_db_query("select count(" . $count_string . ") as total FROM (" . substr($query, 0, $pos_to) . ') AS count_query');
 		else
-			$__countSql = "select count(" . $count_string . ") as total " . substr($query, $pos_from, ($pos_to - $pos_from));
-
-		// DIAGNÓSTICO TEMPORAL (2026-06-24): captura la query COUNT malformada del buscador
-		// (PDOException "unexpected $end", search.php → splitPageResults). El log normal trunca
-		// la query; aquí la guardamos COMPLETA + el SQL original + URL/UA para diagnosticar.
-		// QUITAR este try/catch tras capturar 1-2 muestras. Ver francobordo_php8_gotchas.md.
-		try {
-			$count_query = tep_db_query( $__countSql );
-		} catch ( \Throwable $__e ) {
-			@error_log(
-				"==== [SPLITCOUNT-DEBUG] " . date('Y-m-d H:i:s') . " ====\n"
-				. "MSG: "  . $__e->getMessage() . "\n"
-				. "URL: "  . ( $_SERVER['REQUEST_URI'] ?? 'cli' ) . "\n"
-				. "UA:  "  . ( $_SERVER['HTTP_USER_AGENT'] ?? '' ) . "\n"
-				. "COUNT_SQL: " . $__countSql . "\n"
-				. "FULL_SQL:  " . $this->sql_query . "\n\n",
-				3, '/home/francobordo/logs/splitcount_debug.log'
-			);
-			throw $__e; // re-lanzamos: comportamiento idéntico al actual, solo añadimos visibilidad
-		}
+		  $count_query = tep_db_query("select count(" . $count_string . ") as total " . substr($query, $pos_from, ($pos_to - $pos_from)));
 	 }
 	 else
-	 {
-		// DIAGNÓSTICO TEMPORAL (2026-06-30): el count del buscador entra por AQUÍ (changePriceCustomer
-		// pasa QUERY_COUNT = 'select count(*) FROM (<$sSql>) as cnt'), no por la rama === false.
-		// Capturamos la query COUNT completa + SQL original + URL/UA si falla, y re-lanzamos.
-		// QUITAR tras capturar muestra. Ver francobordo_php8_gotchas.md.
-		try {
-			$count_query = tep_db_query( $sQueryCount );
-		} catch ( \Throwable $__e2 ) {
-			@error_log(
-				"==== [SPLITCOUNT-DEBUG/else] " . date('Y-m-d H:i:s') . " ====\n"
-				. "MSG: "       . $__e2->getMessage() . "\n"
-				. "URL: "       . ( $_SERVER['REQUEST_URI'] ?? 'cli' ) . "\n"
-				. "UA:  "       . ( $_SERVER['HTTP_USER_AGENT'] ?? '' ) . "\n"
-				. "QUERY_COUNT: " . $sQueryCount . "\n"
-				. "FULL_SQL:   " . $this->sql_query . "\n\n",
-				3, '/home/francobordo/logs/splitcount_debug.log'
-			);
-			throw $__e2;
-		}
-	 }
+		  $count_query = tep_db_query( $sQueryCount );
 
 		// Obtenemos el total de filas //
 

@@ -143,7 +143,7 @@ function llmCall($systemPrompt, $userText, $maxTokens = 1500, $maxRetries = 2) {
     if (trim((string) $userText) === '') return '';
     $payload = json_encode(['model'=>LLM_MODEL,
         'messages'=>[['role'=>'system','content'=>$systemPrompt],['role'=>'user','content'=>$userText]],
-        'temperature'=>0.2,'max_tokens'=>$maxTokens,'chat_template_kwargs'=>['enable_thinking'=>false]], JSON_UNESCAPED_UNICODE);
+        'temperature'=>0.2,'max_tokens'=>$maxTokens,'chat_template_kwargs'=>['enable_thinking'=>false]], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     for ($i=0;$i<=$maxRetries;$i++) {
         $ch=curl_init(LLM_URL);
         curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_HTTPHEADER=>['Content-Type: application/json'],CURLOPT_POSTFIELDS=>$payload,CURLOPT_TIMEOUT=>90,CURLOPT_CONNECTTIMEOUT=>10]);
@@ -201,8 +201,8 @@ function extractMeasure($t) {
     return '';
 }
 function computeLabels(array $items) {
-    $common = rtrim(longestCommonPrefix(array_map(fn($r)=>$r['NAME'],$items)), " -–·,");
-    $strip = function($n,$c){ if($c===''||mb_strpos($n,$c)!==0)return ''; $r=ltrim(trim(mb_substr($n,mb_strlen($c,'UTF-8'),null,'UTF-8'))," -–·,;"); return mb_strlen($r,'UTF-8')<=64?$r:''; };
+    $common = preg_replace('/[\s\-–·,]+$/u', '', longestCommonPrefix(array_map(fn($r)=>$r['NAME'],$items)));
+    $strip = function($n,$c){ if($c===''||mb_strpos($n,$c)!==0)return ''; $r=preg_replace('/^[\s\-–·,;]+/u','',trim(mb_substr($n,mb_strlen($c,'UTF-8'),null,'UTF-8'))); return mb_strlen($r,'UTF-8')<=64?$r:''; };
     $sigs=[]; foreach($items as $c=>$it){ $sigs[$c]=['measure'=>normMeasure(extractMeasure($it['NAME'])),'lcp'=>normMeasure($strip($it['NAME'],$common))]; }
     $labels=[];
     foreach(['measure','lcp'] as $sig){ $vals=array_map(fn($x)=>$x[$sig],$sigs); $ne=array_filter($vals,fn($v)=>$v!==''); if(count($ne)===count($vals)&&count(array_unique($ne))===count($vals)){$labels=$vals;break;} }

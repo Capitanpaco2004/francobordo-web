@@ -94,7 +94,8 @@ function cleanHtmlAggressive($html) {
 	$out = [];
 	$emptyStreak = 0;
 	foreach ($lines as $l) {
-		$l = trim(preg_replace('/[ \t\xC2\xA0]+/', ' ', $l));
+		// \x{00A0} con /u = NBSP real; sin /u la clase opera a nivel de BYTE y mutila UTF-8 (à = C3 A0 pierde el A0)
+		$l = trim(preg_replace('/[ \t\x{00A0}]+/u', ' ', $l));
 		if ($l === '') {
 			if ($emptyStreak < 1 && !empty($out)) { $out[] = ''; }
 			$emptyStreak++;
@@ -231,7 +232,7 @@ function llmTranslate($text, $maxRetries = 2, $maxOutChars = 0) {
 		'repetition_penalty' => 1.15, // frena los bucles degenerados del NVFP4
 		'max_tokens' => 1500,
 		'chat_template_kwargs' => ['enable_thinking' => false],
-	], JSON_UNESCAPED_UNICODE);
+	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	for ($i = 0; $i <= $maxRetries; $i++) {
 		$ch = curl_init(LLM_URL);
 		curl_setopt_array($ch, [
@@ -732,12 +733,12 @@ foreach ($families as $parent => $items) {
 		// TODOS los SKUs tienen valor no-vacío y único. Si ninguna funciona → SKU como fallback.
 		$itTitlesAll = array_map(fn($it) => $it['NAME_IT'] !== '' ? $it['NAME_IT'] : $it['NAME_EN'], $items);
 		$enTitlesAll = array_map(fn($it) => $it['NAME_EN'] !== '' ? $it['NAME_EN'] : $it['NAME_IT'], $items);
-		$commonIt = rtrim(longestCommonPrefix($itTitlesAll), " -–·,");
-		$commonEn = rtrim(longestCommonPrefix($enTitlesAll), " -–·,");
+		$commonIt = preg_replace('/[\s\-–·,]+$/u', '', longestCommonPrefix($itTitlesAll));
+		$commonEn = preg_replace('/[\s\-–·,]+$/u', '', longestCommonPrefix($enTitlesAll));
 		$lcpStrip = function ($name, $common) {
 			if ($common === '' || mb_strpos($name, $common) !== 0) return '';
 			$rest = trim(mb_substr($name, mb_strlen($common, 'UTF-8'), null, 'UTF-8'));
-			$rest = ltrim($rest, " -–·,;");
+			$rest = preg_replace('/^[\s\-–·,;]+/u', '', $rest);
 			return (mb_strlen($rest, 'UTF-8') <= 64) ? $rest : '';
 		};
 		$candidates = [];

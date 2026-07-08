@@ -186,5 +186,26 @@
 					<?php echo tep_admin_files_boxes('Actualizador_precios_tecnoseal.php', '<i class="bullet"></i> Actualizador precios'); ?>
 				</div>
 			</div>
+			<div>
+				<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> VDM (Alliance Marine) <i class="fa fa-angle-right"></i></a>
+				<div class="sbmn">
+					<?php echo tep_admin_files_boxes('import-vdm-altas.php', '<i class="bullet"></i> Importador'); ?>
+					<?php echo tep_admin_files_boxes('Actualizador_precios_vdm.php', '<i class="bullet"></i> Actualizador precios'); ?>
+				</div>
+			</div>
+			<div>
+				<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> KENT (Alliance Marine) <i class="fa fa-angle-right"></i></a>
+				<div class="sbmn">
+					<?php echo tep_admin_files_boxes('import-kent-altas.php', '<i class="bullet"></i> Importador'); ?>
+					<?php echo tep_admin_files_boxes('Actualizador_precios_kent.php', '<i class="bullet"></i> Actualizador precios'); ?>
+				</div>
+			</div>
+			<div>
+				<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> SEIMI (Alliance Marine) <i class="fa fa-angle-right"></i></a>
+				<div class="sbmn">
+					<?php echo tep_admin_files_boxes('import-seimi-altas.php', '<i class="bullet"></i> Importador'); ?>
+					<?php echo tep_admin_files_boxes('Actualizador_precios_seimi.php', '<i class="bullet"></i> Actualizador precios'); ?>
+				</div>
+			</div>
 	</div>
 </div>

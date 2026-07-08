@@ -178,10 +178,15 @@ $sOrder = '';
 // Singular y plural
 $sSearch = getPluralSingular( $sSearch );
 
+// Saneado para FULLTEXT BOOLEAN MODE: neutraliza los operadores especiales ( + - < > ( ) ~ * " @ ' )
+// que, sin balancear (típico de bots de SQLi contra el buscador), rompen la sintaxis del operador
+// MATCH...AGAINST con error 1064. La búsqueda por palabras se conserva (FULLTEXT tokeniza igual).
+$sSearchSafe = str_replace( array('"', "'", '(', ')', '@', '+', '-', '~', '<', '>', '*'), ' ', $sSearch );
+
 // Construimos los campos select
 $sSelect = SQL_SELECT . ' IF (products_quantity>0, 1, 0) as disponibilidad, /*IF (pov.products_options_values_name is not null, 1, 0) as relevance,*/
-	MATCH(pd.products_name) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE) AS relevance2,
-	' . ($bSearchDescription ? 'MATCH(pd.products_description) AGAINST ("' . $sSearch . '" IN BOOLEAN MODE) AS relevance3, ' : '') . '
+	MATCH(pd.products_name) AGAINST ("' . $sSearchSafe . '" IN BOOLEAN MODE) AS relevance2,
+	' . ($bSearchDescription ? 'MATCH(pd.products_description) AGAINST ("' . $sSearchSafe . '" IN BOOLEAN MODE) AS relevance3, ' : '') . '
     p.products_id, p.products_model, pd.products_description, p.products_price, p.products_tax_class_id, pd.products_name, p.products_quantity, p.products_image, p.products_date_available,
     IF(s.status, s.specials_new_products_price, NULL) as specials_new_products_price, IF(s.status, s.specials_new_products_price, p.products_price) as final_price';
 
@@ -208,10 +213,7 @@ $sWhere .= ' p.products_status = 1';
 
 // Si ya lo hemos encontrado por su ID no hacemos nada
 if ($bBuscarId === false) {
-    // Sanear $sSearch para FULLTEXT BOOLEAN MODE: si contiene `"` o `)` rompe la query
-    // con "unexpected ')'" (visto en producción). Quitamos también caracteres con
-    // significado en BOOLEAN MODE que el usuario no suele querer pasar literalmente.
-    $sSearchSafe = str_replace(['"', '(', ')'], ' ', $sSearch);
+    // $sSearchSafe ya está saneado arriba (neutraliza operadores BOOLEAN MODE).
 
     // Buscamos por nombre
     $sWhere .= ' AND (MATCH(pd.products_name) AGAINST ("' . $sSearchSafe . '" IN BOOLEAN MODE)';

@@ -125,7 +125,7 @@ function computeNewLabel($titleIt, $commonPrefix, $fallback) {
 function renameLabels($mysqli, $pid, $variants, $dryRun) {
 	$itTitles = [];
 	foreach ($variants as $v) if ($v['feed']) $itTitles[] = $v['feed']['desc_it'];
-	$commonPrefix = rtrim(longestCommonPrefix($itTitles), " -–·,");
+	$commonPrefix = preg_replace('/[\s\-–·,]+$/u', '', longestCommonPrefix($itTitles));
 
 	// Calcular labels propuestos
 	$proposed = [];
@@ -171,7 +171,7 @@ function splitOffBrandIntoNewProduct($mysqli, $oldPid, $oldRow, $brand, $varsBra
 	if ($dryRun) {
 		logMsg("      WOULD CREATE producto '$brandDisplay' (mfg) con " . count($varsBrand) . " variantes, ej. nombre ES='$nameEs'");
 		$itTitles = array_filter(array_map(fn($v)=>$v['feed']['desc_it'] ?? '', $varsBrand));
-		$commonPrefix = rtrim(longestCommonPrefix(array_values($itTitles)), " -–·,");
+		$commonPrefix = preg_replace('/[\s\-–·,]+$/u', '', longestCommonPrefix(array_values($itTitles)));
 		foreach ($varsBrand as $v) {
 			if (!$v['feed']) continue;
 			$nl = computeNewLabel($v['feed']['desc_it'], $commonPrefix, $v['feed']['base_code']);
@@ -213,7 +213,7 @@ function splitOffBrandIntoNewProduct($mysqli, $oldPid, $oldRow, $brand, $varsBra
 	logMsg("        producto creado pid=$newPid '$nameEs'");
 
 	$itTitles = array_filter(array_map(fn($v)=>$v['feed']['desc_it'] ?? '', $varsBrand));
-	$commonPrefix = rtrim(longestCommonPrefix(array_values($itTitles)), " -–·,");
+	$commonPrefix = preg_replace('/[\s\-–·,]+$/u', '', longestCommonPrefix(array_values($itTitles)));
 	foreach ($varsBrand as $v) {
 		if (!$v['feed']) continue;
 		$newLabel = computeNewLabel($v['feed']['desc_it'], $commonPrefix, $v['feed']['base_code']);

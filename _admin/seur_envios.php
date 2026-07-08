@@ -210,7 +210,25 @@ if ($action !== '' && $shipId > 0) {
                     } else { // mantener destino actual
                         if ($esQfac) $err = 'Los pedidos QFac requieren elegir "Domicilio" e introducir la dirección.';
                         elseif (!empty($s['pudo_id'])) { $params['pudo'] = $s['pudo_id']; $params['pname'] = (string) $s['pudo_name']; }
-                        elseif ((string) $s['service_code'] === '9') $params['svc'] = '1330';
+                        // preservar el servicio original (sin esto, el regen caería al default 31/2)
+                        elseif ((string) $s['service_code'] === '9')  $params['svc'] = '1330';
+                        elseif ((string) $s['service_code'] === '3')  $params['svc'] = '1000';
+                        elseif ((string) $s['service_code'] === '57') $params['svc'] = 'sabado';
+                    }
+
+                    // Selector "Servicio SEUR" (2026-07-07): si se elige uno, manda sobre la
+                    // preservación automática. No aplica a punto SEUR (punto = siempre 2shop 1/48).
+                    $svcNew = trim((string) ($_POST['svc_new'] ?? ''));
+                    if ($err === '' && $svcNew !== '' && strpos($svcNew, '/') !== false
+                        && $modo !== 'punto' && empty($params['pudo'])) {
+                        list($scN, $pcN) = explode('/', $svcNew, 2);
+                        $scN = preg_replace('/\D/', '', $scN);
+                        $pcN = preg_replace('/\D/', '', $pcN);
+                        if ($scN !== '' && $pcN !== '') {
+                            $params['svccode']  = $scN;
+                            $params['prodcode'] = $pcN;
+                            unset($params['svc']);
+                        }
                     }
 
                     if ($err !== '') { $msg = $err; $msgClass = 'danger'; }
@@ -429,13 +447,24 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
   ?>
   <div style="border:1px solid #b9d7f5;background:#f4f9ff;border-radius:6px;padding:14px;margin:12px 0;max-width:780px">
     <h3 style="margin:0 0 4px">Regenerar envío <code><?php echo htmlspecialchars($editRow['shipment_code']); ?></code></h3>
-    <p class="muted" style="font-size:12px;margin:0 0 12px"><?php echo $eRef; ?> · servicio actual <?php echo htmlspecialchars($editRow['service_code'].'/'.$editRow['product_code']); ?> · <strong>se anulará el actual y se creará uno nuevo</strong> (ref nueva; la etiqueta saldrá por la Zebra).</p>
+    <p class="muted" style="font-size:12px;margin:0 0 12px"><?php echo $eRef; ?> · servicio actual <?php echo htmlspecialchars($editRow['service_code'].'/'.$editRow['product_code']); ?> · <strong>se anulará el actual y se creará uno nuevo</strong> (ref nueva; la etiqueta saldrá por la Zebra). Puedes cambiar peso, bultos, destino y <strong>servicio</strong>.</p>
     <form method="post" id="seurModForm">
       <input type="hidden" name="do" value="modify"><input type="hidden" name="ship" value="<?php echo (int) $editRow['id']; ?>">
       <input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px">
         <label>Peso (kg)<br><input type="number" step="0.1" min="0.1" name="kilos" value="<?php echo htmlspecialchars($editRow['kilos'] ?: '1'); ?>" style="width:90px"></label>
         <label>Nº bultos<br><input type="number" min="1" name="bultos" value="1" style="width:90px"></label>
+        <label>Servicio SEUR<br>
+          <select name="svc_new">
+            <option value="">(mantener el actual: <?php echo htmlspecialchars($editRow['service_code'] . '/' . $editRow['product_code']); ?>)</option>
+            <option value="31/2">SEUR 24 — domicilio (31/2)</option>
+            <option value="9/2">SEUR 13:30 (9/2)</option>
+            <option value="3/2">SEUR 10 — antes de las 10h (3/2)</option>
+            <option value="57/2">SEUR Sábado (57/2)</option>
+            <option value="77/104">Internacional Classic (77/104)</option>
+          </select>
+          <span class="muted" style="font-size:11px;display:block">Se ignora si el destino es punto SEUR (punto = 2shop).</span>
+        </label>
       </div>
       <p style="margin:6px 0 4px"><strong>Destino:</strong></p>
       <?php if (!$eQfac): ?>

@@ -344,7 +344,7 @@ function llmFormatOsculatiHtml($html) {
 		'chat_template_kwargs' => ['enable_thinking' => false],
 		'max_tokens' => 1500,
 		'temperature' => 0.2,
-	], JSON_UNESCAPED_UNICODE);
+	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	for ($i = 0; $i <= 2; $i++) {
 		$ch = curl_init(LLM_URL);
 		curl_setopt_array($ch, [
@@ -490,7 +490,7 @@ function oscLlmTranslateSpecTerms(array $terms) {
 		],
 		'chat_template_kwargs' => ['enable_thinking' => false],
 		'max_tokens' => 2000, 'temperature' => 0.1,
-	], JSON_UNESCAPED_UNICODE);
+	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	for ($i = 0; $i <= 2; $i++) {
 		$ch = curl_init(LLM_URL);
 		curl_setopt_array($ch, [CURLOPT_POST=>true, CURLOPT_POSTFIELDS=>$payload, CURLOPT_HTTPHEADER=>['Content-Type: application/json'], CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>90]);
@@ -534,7 +534,7 @@ function oscLlmTranslateSpecTermsEn(array $terms) {
 		],
 		'chat_template_kwargs' => ['enable_thinking' => false],
 		'max_tokens' => 2000, 'temperature' => 0.1,
-	], JSON_UNESCAPED_UNICODE);
+	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	for ($i = 0; $i <= 2; $i++) {
 		$ch = curl_init(LLM_URL);
 		curl_setopt_array($ch, [CURLOPT_POST=>true, CURLOPT_POSTFIELDS=>$payload, CURLOPT_HTTPHEADER=>['Content-Type: application/json'], CURLOPT_RETURNTRANSFER=>true, CURLOPT_TIMEOUT=>90]);
@@ -664,7 +664,7 @@ function translateITto($text, $targetLang = 'es') {
 		'chat_template_kwargs' => ['enable_thinking' => false],
 		'max_tokens' => 2000,
 		'temperature' => 0.3,
-	], JSON_UNESCAPED_UNICODE);
+	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 
 	$ch = curl_init(LLM_URL);
 	curl_setopt($ch, CURLOPT_POST, true);
@@ -1140,7 +1140,7 @@ if ($isAction) {
 			// Calcular el prefijo común IT para extraer el sufijo de variante (ej. "4 mm")
 			$itTitles = array_map(function($it) { return trim($it['desc_it']); }, $items);
 			$commonItPrefix = longestCommonPrefix($itTitles);
-			$commonItPrefix = rtrim($commonItPrefix, " -–·"); // limpiar separadores finales
+			$commonItPrefix = preg_replace('/[\s\-–·]+$/u', '', $commonItPrefix); // limpiar separadores finales
 
 			$variantsCreated = 0;
 			// Track de OVs ya consumidos por este producto (guardia anti-colisión de labels)

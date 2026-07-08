@@ -126,7 +126,7 @@ function llmCall($systemPrompt, $userText, $maxTokens = 1500, $maxRetries = 2) {
         'temperature' => 0.2,
         'max_tokens' => $maxTokens,
         'chat_template_kwargs' => ['enable_thinking' => false],
-    ], JSON_UNESCAPED_UNICODE);
+    ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     for ($i = 0; $i <= $maxRetries; $i++) {
         $ch = curl_init(LLM_URL);
         curl_setopt_array($ch, [
@@ -693,14 +693,14 @@ function bwInsertProduct($mysqli, $context, $padre, array $variants, $meta, $dry
             // Etiquetas: medida del nombre, o LCP-strip, o el code
             $labels = [];
             $names = array_map(fn($v) => $v['NAME'], $variants);
-            $lcp = rtrim(longestCommonPrefix($names), " -–·,");
+            $lcp = preg_replace('/[\s\-–·,]+$/u', '', longestCommonPrefix($names));
             foreach ($variants as $code => $v) {
                 $m = bwExtractMeasure($v['NAME']);
                 if ($m !== '') { $labels[$code] = $m; continue; }
                 $rest = '';
                 if ($lcp !== '' && mb_strpos($v['NAME'], $lcp) === 0) {
                     $rest = trim(mb_substr($v['NAME'], mb_strlen($lcp, 'UTF-8'), null, 'UTF-8'));
-                    $rest = ltrim($rest, " -–·,;");
+                    $rest = preg_replace('/^[\s\-–·,;]+/u', '', $rest);
                 }
                 $labels[$code] = $rest !== '' && mb_strlen($rest, 'UTF-8') <= 40 ? $rest : $code;
             }

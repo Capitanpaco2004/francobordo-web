@@ -231,7 +231,7 @@ function llmCall($systemPrompt, $userText, $maxTokens = 1500, $maxRetries = 2) {
         'temperature' => 0.2,
         'max_tokens' => $maxTokens,
         'chat_template_kwargs' => ['enable_thinking' => false],
-    ], JSON_UNESCAPED_UNICODE);
+    ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     for ($i = 0; $i <= $maxRetries; $i++) {
         $ch = curl_init(LLM_URL);
         curl_setopt_array($ch, [
@@ -1039,12 +1039,12 @@ foreach ($families as $famKey => $items) {
 
         // Etiquetas variantes: medida del title → resto tras LCP → resto antes del LCS → CODE
         $titlesAll = array_map(fn($it) => $it['DESC'], $items);
-        $common = rtrim(longestCommonPrefix($titlesAll), " -–·,");
-        $commonSuf = ltrim(longestCommonSuffix($titlesAll), " -–·,");
+        $common = preg_replace('/[\s\-–·,]+$/u', '', longestCommonPrefix($titlesAll));
+        $commonSuf = preg_replace('/^[\s\-–·,]+/u', '', longestCommonSuffix($titlesAll));
         $lcpStrip = function ($name, $common) {
             if ($common === '' || mb_strpos($name, $common) !== 0) return '';
             $rest = trim(mb_substr($name, mb_strlen($common, 'UTF-8'), null, 'UTF-8'));
-            $rest = ltrim($rest, " -–·,;");
+            $rest = preg_replace('/^[\s\-–·,;]+/u', '', $rest);
             return (mb_strlen($rest, 'UTF-8') <= 64) ? $rest : '';
         };
         $lcsStrip = function ($name, $commonSuf) {
@@ -1054,7 +1054,7 @@ foreach ($families as $famKey => $items) {
             if ($sLen <= $cLen) return '';
             if (mb_substr($name, -$cLen, $cLen, 'UTF-8') !== $commonSuf) return '';
             $rest = trim(mb_substr($name, 0, $sLen - $cLen, 'UTF-8'));
-            $rest = rtrim($rest, " -–·,;");
+            $rest = preg_replace('/[\s\-–·,;]+$/u', '', $rest);
             // Quitar MPN inicial si parece código alfanumérico largo (≥6 chars sin espacios)
             if (preg_match('/^[A-Za-z0-9]{6,}\s+(.+)$/', $rest, $m)) $rest = $m[1];
             return (mb_strlen($rest, 'UTF-8') <= 64) ? $rest : '';
