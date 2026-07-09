@@ -23,8 +23,8 @@ if (!function_exists('fb_is_real_gs1_ean13')) {
         if (!preg_match('/^[0-9]{13}$/', $ean)) {
             return false;
         }
-        if (preg_match('/^(2|0[245])/', $ean)) {
-            return false; // rangos de distribucion restringida / uso interno
+        if (preg_match('/^(2|0[245]|9[89])/', $ean)) {
+            return false; // rangos restringidos GS1: 2x/02/04/05 (uso interno) + 98x/99x (cupones/devoluciones)
         }
         $sum = 0;
         for ($i = 0; $i < 12; $i++) {

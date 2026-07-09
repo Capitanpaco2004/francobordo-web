@@ -21,11 +21,11 @@ const PRFEED_OUT       = 'fm-feeds/product_reviews.xml'; // relativo a DIR_FS_CA
 header('Content-Type: text/plain; charset=utf-8');
 if (($_GET['token'] ?? '') !== PRFEED_TOKEN) { http_response_code(403); echo "forbidden\n"; exit; }
 
-// EAN-13 GS1 real (mismo criterio que jsonld_seo_patch.php: excluye internos 2x/02/04/05 + valida digito)
+// EAN-13 GS1 real (mismo criterio que jsonld_seo_patch.php: excluye internos 2x/02/04/05 + cupones 98x/99x + valida digito)
 function prfeed_is_gs1_ean13($ean) {
     $ean = trim((string)$ean);
     if (!preg_match('/^[0-9]{13}$/', $ean)) return false;
-    if (preg_match('/^(2|0[245])/', $ean)) return false;
+    if (preg_match('/^(2|0[245]|9[89])/', $ean)) return false;
     $sum = 0;
     for ($i = 0; $i < 12; $i++) { $d = (int)$ean[$i]; $sum += ($i % 2 === 0) ? $d : $d * 3; }
     return ((10 - ($sum % 10)) % 10) === (int)$ean[12];

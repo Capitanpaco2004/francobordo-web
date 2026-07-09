@@ -149,7 +149,7 @@ function loadGarminCsvPrices($path) {
 		$dealer = garminParseEuroNum($r[$idxDealer] ?? '');
 		if ($rspIVA === null || $rspIVA <= 0 || $dealer === null || $dealer <= 0) continue;
 		$cost  = $dealer;
-		$price = roundToNickel($rspIVA / TAX_RATE);
+		$price = round($rspIVA / TAX_RATE, 4); // PVP con IVA = RSP EXACTO del CSV (Garmin da un PVP terminado; NO redondear a .05). G1 y specials SÍ se redondean.
 		$prices[$sku] = ['cost' => $cost, 'price' => $price, 'rsp_iva' => $rspIVA];
 	}
 	fclose($f);

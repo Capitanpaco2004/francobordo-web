@@ -322,8 +322,8 @@ $aGcrGtins = [];
 $qGcrP = tep_db_query("select distinct product_ean from " . TABLE_ORDERS_PRODUCTS . " where orders_id = '" . (int)$orders['orders_id'] . "' and product_ean is not null and product_ean <> ''");
 while ($rGcrP = tep_db_fetch_array($qGcrP)) {
     $ean = trim((string)$rGcrP['product_ean']);
-    // 13 digitos, fuera de rangos restringidos (2x, 0[245] = EAN internos), digito de control valido
-    if (preg_match('/^[0-9]{13}$/', $ean) && !preg_match('/^(2|0[245])/', $ean)) {
+    // 13 digitos, fuera de rangos restringidos (2x/0[245] = EAN internos; 9[89] = cupones GS1), digito de control valido
+    if (preg_match('/^[0-9]{13}$/', $ean) && !preg_match('/^(2|0[245]|9[89])/', $ean)) {
         $sum = 0;
         for ($i = 0; $i < 12; $i++) { $d = (int)$ean[$i]; $sum += ($i % 2 === 0) ? $d : $d * 3; }
         if (((10 - ($sum % 10)) % 10) === (int)$ean[12]) { $aGcrGtins[] = ['gtin' => $ean]; }

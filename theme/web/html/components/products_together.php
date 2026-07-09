@@ -8,27 +8,22 @@
 			echo '<div class="wrpr-rows">';
 				while( $aDato = tep_db_fetch_array( $aDatos ) )
 				{
-					// Datos
+					// Datos — complemento a su precio normal (sin descuento "juntos")
 					$nTaxRate = ($nCustomerGroupId != 0 ? 0 : tep_get_tax_rate( $aDato['products_tax_class_id'] ));
-					$sPrecioRelacionado = tep_add_tax( $aDato['price'], $nTaxRate );
 					$sPrecio = $currencies->display_price( $aDato['products_price'], $nTaxRate );
+					$sPrecio = str_replace( array( '&euro;' ), array( '€' ), $sPrecio );
 					$sOferta = '';
+					$nPrecioActual   = tep_add_tax( $aDato['products_price'], $nTaxRate );
+					$nPrecioAnterior = 0;
 
-					// Si tiene oferta
+					// Si el producto tiene su PROPIA oferta, mostramos su precio anterior tachado
 					if( $aDato['products_price_anterior'] != '' )
 					{
-						$sPrecio = $currencies->display_price( $aDato['products_price'], $nTaxRate );
-						$sPrecio = str_replace( array( '&euro;' ), array( '€' ), $sPrecio );
 						$sOferta = $currencies->display_price( $aDato['products_price_anterior'], $nTaxRate );
+						$nPrecioAnterior = tep_add_tax( $aDato['products_price_anterior'], $nTaxRate );
 					}
 
-					// Formateamos
-					$sPrecioLastFormat = tep_add_tax( $aDato['products_price'], $nTaxRate );
-					$sPrecioFormat = $sPrecioRelacionado;
 					$sClass = claseBotonComprar( $aDato['products_quantity'], $aDato['check_stock'] );
-
-					// Calculamos porcentaje de oferta
-					$nPorcentaje = floatval( $sPrecioFormat * 100 / $sPrecioLastFormat );
 
 					$attributes = [];
 					if ($aDato['attributes'] != '') {
@@ -52,11 +47,11 @@
 						echo '<div class="col-2 d-flex align-items-center">';
 							echo '<input data-min="' . $aDato['products_min_order_qty'] . '" type="text" value="' . $aDato['products_min_order_qty'] . '" class="cart_quantity" name="cart_quantity">';
 
-							echo '<div class="prco' . ($sPrecioRelacionado < $sPrecioLastFormat ? ' prdt-ofrt' : '') . ($sPrecioRelacionado <= 0 ? ' free' : '') . '">';
-								if  ($sPrecioRelacionado < $sPrecioLastFormat && $sPrecioRelacionado > 0)
-									echo '<s>' . $sPrecio . '</s>';
+							echo '<div class="prco' . ($nPrecioAnterior > $nPrecioActual ? ' prdt-ofrt' : '') . '">';
+								if( $nPrecioAnterior > $nPrecioActual )
+									echo '<s>' . $sOferta . '</s>';
 
-								echo ($sPrecioRelacionado > 0 ? $currencies->display_price( $sPrecioRelacionado, 0 ) : TEXT_GRATIS);
+								echo $sPrecio;
 							echo '</div>';
 
 							echo '<input type="hidden" name="products_id" value="' . $aDato['products_id'] . '" />';

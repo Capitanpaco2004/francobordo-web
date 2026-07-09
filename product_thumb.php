@@ -71,6 +71,12 @@
 		// Nombre del archivo thumb
 		$sFileNameThumb = $aInfoFile['filename'] . '_thumb_' . $nWidth . 'x' . $nHeight . ($bOferta == 'true' ? '_o' : '') . ($bEnvio == 'true' ? '_e' : '') . ($bBgWhite ? '_w' : '') . '.png';
 
+		// (2026-07-08) Invalidacion por mtime: si el thumb cacheado es mas viejo que la imagen
+		// fuente, lo borramos para forzar regeneracion. Antes lo forzaba el borrado glob del admin
+		// (categories.php ~1312), eliminado por rendimiento. Alinea con el tep_image_thumb de la tienda.
+		if( file_exists( $sPathThumbnail . $sFileNameThumb ) && filemtime( $sPathThumbnail . $sFileNameThumb ) < filemtime( $sImagen ) )
+			@unlink( $sPathThumbnail . $sFileNameThumb );
+
 		// Si existe la imagen del thumb cargamos desde la cache y no queremos eliminarla
 		if( file_exists( $sPathThumbnail . $sFileNameThumb ) && $bDelete == 'false' )
 		{

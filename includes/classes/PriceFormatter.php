@@ -180,9 +180,12 @@ class PriceFormatter {
 	global $cart;
 	$currencies = new currencies();
 
-	if( !array_key_exists( 'curl_oe', $_GET ) )
+	// products_together: descuento contextual DESACTIVADO 2026-07-08 (f.rodriguez).
+	// El modulo pasa a "productos complementarios" a su precio normal (sin descuento).
+	// Para reactivar el descuento: quitar el "false &&" de la condicion siguiente.
+	if( false && !array_key_exists( 'curl_oe', $_GET ) )
 	{
-		$aDatos = tep_db_query( 'select pg.parent_id, pg.price, p.products_tax_class_id
+		$aDatos = tep_db_query( 'select pg.parent_id, p.products_tax_class_id
 								 from products_together pg
 								 inner join products p ON (p.products_id = pg.products_id)
 								 where pg.products_id = "' . $this->product_id . '"' );

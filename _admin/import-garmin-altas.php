@@ -724,7 +724,7 @@ foreach ($rows as $row) {
 	if ($dealerCost === null || $dealerCost <= 0) { $nSkippedNoPrice++; continue; }
 
 	$cost  = $dealerCost;                    // Dealer Price (sin IVA)
-	$price = roundToNickel($rspWithIva / TAX_RATE); // RSP / 1.21 → redondeado a .05 con IVA
+	$price = round($rspWithIva / TAX_RATE, 4); // PVP con IVA = RSP EXACTO del CSV (Garmin ya da un PVP terminado en ,99; NO redondear a .05). G1 y specials SÍ se redondean.
 	$g1    = roundToNickel(calcG1Price($price, $cost));
 	$weight = garminParseWeight($row['Netweight'] ?? '');
 	if ($weight === null || $weight <= 0) $weight = 1.0;

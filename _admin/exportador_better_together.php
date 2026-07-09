@@ -106,7 +106,7 @@ while ($row = tep_db_fetch_array($act)) {
 		fwrite($ficheroabierto, 'PT ID'.$s.'IVA'.$s.'ID Principal'.$s.'ID Relacionado'.$s.'Modelo'.$s.'P.Relacionado'.$s.'PVP+IVA'.$s.'PVP Of.+IVA'.$s.'Pcompra+Iva*'.$f);
 		while ($row = tep_db_fetch_array($act)) {
 
-			fwrite ($ficheroabierto, $row['products_together_id'].$s.$row['tax_rate'].$s.$row['parent_id'].$s.$row['products_id'].$s.$row['products_model'].$s.mb_convert_encoding($row['products_name'] ?? '', 'ISO-8859-1', 'UTF-8').$s.round($row['products_price']*(1+($row['tax_rate']/100)),2).$s.round($row['price']*(1+($row['tax_rate']/100)),2).$s.round(($row['products_cost'])*(1+($row['tax_rate']/100)),2).$f);
+			fwrite ($ficheroabierto, $row['products_together_id'].$s.$row['tax_rate'].$s.$row['parent_id'].$s.$row['products_id'].$s.$row['products_model'].$s.mb_convert_encoding($row['products_name'] ?? '', 'ISO-8859-1', 'UTF-8').$s.round($row['products_price']*(1+($row['tax_rate']/100)),2).$s.round(($row['price'] ?? 0)*(1+($row['tax_rate']/100)),2).$s.round(($row['products_cost'])*(1+($row['tax_rate']/100)),2).$f);
 		}
 		fclose($ficheroabierto);
 	}

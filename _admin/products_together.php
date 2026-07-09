@@ -112,8 +112,8 @@
 							$(this).parent().css("display", "none");
 						else
 						{
-							sHtml += "<td><s>" + ui.item.price_last + "</s> <span data-price=\"" + ui.item.price_format + "\" class=\"prco\">" + ui.item.price + "</span></td>";
-							sHtml += "<td><input type=\'hidden\' name=\'tax[]\' value=\'" + ui.item.tax + "\' /> Porcentaje: <input type=\"number\" class=\"porcentaje\" value=\"0\" max=\"100\" min=\"0\" step=\"0.01\" style=\"width:60px;\" /> Precio: <input type=\"text\" class=\"precio\" name=\"precio[]\" value=\"" + ui.item.price_format + "\" /></td>";
+							sHtml += "<td><s>" + ui.item.price_last + "</s> <span class=\"prco\">" + ui.item.price + "</span></td>";
+							// (celda de descuento eliminada 2026-07-08: complementos a su precio normal)
 						}
 
 						sHtml += "<td><strong>Para ver los atributos, debe guardar el elemento.</strong></td>"
@@ -308,20 +308,17 @@
 		case 'save':
 			// Variables
 			$sGetId = tep_db_prepare_input( $_GET['id'] );
-			$sPostParentId = tep_db_prepare_input( $_POST['id_producto_principal'] );			
+			$sPostParentId = tep_db_prepare_input( $_POST['id_producto_principal'] );
 			$sPostProductsId = tep_db_prepare_input( $_POST['id_producto_relacionado'] );
-			$sPostTax = tep_db_prepare_input( $_POST['tax'] );
-			$sPostPrice = tep_db_prepare_input( $_POST['precio'] );
-			
+
 			// Si estamos editando eliminamos
 			if( $sGetId !== '' )
-				tep_db_query( 'delete from products_together where parent_id = "' . $sPostParentId[0] . '"' );
-			
-			// Insertamos
+				tep_db_query( 'delete from products_together where parent_id = "' . (int)$sPostParentId[0] . '"' );
+
+			// Insertamos — complementos a su precio normal: sin descuento (price = 0, ya no se usa)
 			foreach( $sPostProductsId as $sKey => $sId )
 			{
-				$nPrice = $sPostPrice[$sKey] / (1 + ($sPostTax[$sKey] / 100) );				
-				tep_db_query( 'insert into products_together (parent_id, products_id, price) values (' . $sPostParentId[0] . ', ' . $sId . ', ' . $nPrice . ')' );
+				tep_db_query( 'insert into products_together (parent_id, products_id) values (' . (int)$sPostParentId[0] . ', ' . (int)$sId . ')' );
 			}
 
 			foreach($_POST['id_producto_relacionado'] as $id) {
@@ -453,8 +450,7 @@
 								$sHtmlModule .= '<td style="text-align: left; width: 1px;">Id</td>';
 								$sHtmlModule .= '<td width="125" style="text-align: left;">Imagen</td>';
 								$sHtmlModule .= '<td style="text-align: left;">Nombre</td>';
-								$sHtmlModule .= '<td style="text-align: left;">Precio base</td>';
-								$sHtmlModule .= '<td style="text-align: left;">Descuento</td>';
+								$sHtmlModule .= '<td style="text-align: left;">Precio</td>';
 								$sHtmlModule .= '<td style="text-align: left;">Atributos</td>';
 								$sHtmlModule .= '<td width="125">Acciones</td>';
 							$sHtmlModule .= '</tr>';
@@ -462,7 +458,7 @@
 						$sHtmlModule .= '<tbody class="box-sort" id="box-producto_relacionado">';			
 							if( $sGetId != '' )
 							{
-								$aDatos = tep_db_query( 'select pg.attributes, p.products_id, p.products_image, p.products_tax_class_id, pg.price, pd.products_name, IF(s.specials_new_products_price is not null, p.products_price, NULL) as products_price_anterior, IF(s.specials_new_products_price is not null, s.specials_new_products_price, p.products_price) as products_price
+								$aDatos = tep_db_query( 'select pg.attributes, p.products_id, p.products_image, p.products_tax_class_id, pd.products_name, IF(s.specials_new_products_price is not null, p.products_price, NULL) as products_price_anterior, IF(s.specials_new_products_price is not null, s.specials_new_products_price, p.products_price) as products_price
 														from products p 
 														inner join products_together pg on (p.products_id = pg.products_id)
 														inner join products_description pd on (p.products_id = pd.products_id)
@@ -472,7 +468,7 @@
 								while( $aDato = tep_db_fetch_array( $aDatos ) )
 								{
 									// Datos
-									$sPrecioRelacionado = floatval( str_replace( array( '&euro;', ',' ), array( '', '.' ), $currencies->display_price( $aDato['price'], ($nCustomerGroupId != 0 ? 0 : tep_get_tax_rate( $aDato['products_tax_class_id'] )) ) ) );
+									// (columna price eliminada 2026-07-08: el complemento se muestra a su precio real)
 									$sPrecio = $currencies->display_price( $aDato['products_price'], ($nCustomerGroupId != 0 ? 0 : tep_get_tax_rate( $aDato['products_tax_class_id'] )) );
 									$sPrecioFormat = floatval( str_replace( array( '&euro;', ',' ), array( '', '.' ), $sPrecio ) );
 									$sOferta = '';
@@ -489,8 +485,7 @@
 										$sHtmlModule .= '<td style="text-align: left; width: 1px;">' . $aDato['products_id'] . '<input type="hidden" name="id_producto_relacionado[]" value="' . $aDato['products_id'] . '" /></td>';
 										$sHtmlModule .= '<td style="text-align: left;"><img src="/images/productos/' . $aDato['products_image'] . '" width="120" height="120" /></td>';
 										$sHtmlModule .= '<td style="text-align: left;">' . $aDato['products_name'] . '</td>';
-										$sHtmlModule .= '<td style="text-align: left;"><s>' . $sOferta . '</s> <span data-price="' . $sPrecioFormat . '" class="prco">' . $sPrecio . '</span></td>';
-										$sHtmlModule .= '<td style="text-align: left;"><input type="hidden" value="' . tep_get_tax_rate( $aDato['products_tax_class_id'] ) . '" name="tax[]" /> Porcentaje: <input style="width:60px;" type="number" step="0.01" min="0" max="100" value="0" class="porcentaje"/> Precio: <input type="text" value="' . $sPrecioRelacionado . '" name="precio[]" class="precio"/></td>';
+										$sHtmlModule .= '<td style="text-align: left;"><s>' . $sOferta . '</s> <span class="prco">' . $sPrecio . '</span></td>';
 										
 										$sql = "SELECT popt.products_options_name, popt.products_options_id, patrib.options_values_id , patrib.products_attributes_id, IF(ps.products_stock_quantity < 0, 0, ps.products_stock_quantity) as products_stock_quantity, pag.options_values_price, pov.products_options_values_name
 										FROM products_options popt

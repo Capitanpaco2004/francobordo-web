@@ -52,20 +52,27 @@ class delivery_estimate {
 		// se entrega el LUNES. addDays(,1) salta sabados/domingos y festivos (BUSINESS_DAYS=True)
 		// -> viernes->lunes, jueves->viernes. Las reglas de stock de abajo no aplican.
 		$sm = (string)$row['shipping_module'];
+
+		// Con el flag unificado, el despacho depende SIEMPRE del stock, tambien para SEUR (un -100/-800/
+		// -900 no se entrega en 24h por elegir SEUR; SEUR 24 NO es urgente). Las ramas SEUR de abajo solo
+		// cortocircuitan el stock en el camino LEGACY. En unified, SEUR se trata como cualquier metodo
+		// (despacho por stock + transito por CP; el sabado sale solo si el pedido va en stock).
+		$unified = ( defined('DELIVERY_ESTIMATE_UNIFIED') && constant('DELIVERY_ESTIMATE_UNIFIED') == 'True' );
+
 		// SEUR Sábado ('seursabado'): solo se ofrece el VIERNES -> entrega el dia SIGUIENTE = SABADO
 		// (el complemento 'Entrega en Sabado' lo permite). +1 NATURAL (no dia habil).
-		if( strpos( $sm, 'seursabado' ) === 0 ) {
+		if( ! $unified && strpos( $sm, 'seursabado' ) === 0 ) {
 			$estimated = date( 'Y-m-d', strtotime( '+1 day', strtotime( $datePurchased ) ) );
 			tep_db_query( "insert into orders_delivery_estimate (orders_id, estimated_date, rule_applied, comment, is_manual, admin_user, email_sent, created_at) values ('" . $orders_id . "', '" . tep_db_input( $estimated ) . "', 'seursabado_sat', NULL, 0, NULL, 0, now())" );
 			return $estimated;
 		}
 		// SEUR 24 ('seur48' = B2C 31/2): entrega en 24h = +1 dia habil.
-		if( strpos( $sm, 'seur48' ) === 0 ) {
+		if( ! $unified && strpos( $sm, 'seur48' ) === 0 ) {
 			$estimated = $this->addDays( $datePurchased, 1 );
 			tep_db_query( "insert into orders_delivery_estimate (orders_id, estimated_date, rule_applied, comment, is_manual, admin_user, email_sent, created_at) values ('" . $orders_id . "', '" . tep_db_input( $estimated ) . "', 'seur24_24h', NULL, 0, NULL, 0, now())" );
 			return $estimated;
 		}
-		if( strpos( $sm, 'seurnacional' ) === 0 || strpos( $sm, 'seurdiez' ) === 0 ) {
+		if( ! $unified && ( strpos( $sm, 'seurnacional' ) === 0 || strpos( $sm, 'seurdiez' ) === 0 ) ) {
 			$estimated = $this->addDays( $datePurchased, 1 );
 			$rule = ( strpos( $sm, 'seurdiez' ) === 0 ) ? 'seur10_24h' : 'seur1330_24h';
 			tep_db_query( "insert into orders_delivery_estimate (orders_id, estimated_date, rule_applied, comment, is_manual, admin_user, email_sent, created_at) values ('" . $orders_id . "', '" . tep_db_input( $estimated ) . "', '" . tep_db_input( $rule ) . "', NULL, 0, NULL, 0, now())" );
@@ -74,14 +81,8 @@ class delivery_estimate {
 
 		$sqlP = tep_db_query( "select orders_products_id, products_id, products_quantity from " . TABLE_ORDERS_PRODUCTS . " where orders_id = '" . $orders_id . "'" );
 
-		// -------------------------------------------------------------
-		// FASE 1 refactor plazos: bifurcacion por feature flag.
-		// Con DELIVERY_ESTIMATE_UNIFIED ausente o != 'True' se ejecuta el
-		// camino legacy INTACTO (else de mas abajo). Solo con el flag ON se
-		// usa el nucleo canonico (leadTimeForProduct / transitDaysForCp).
-		// -------------------------------------------------------------
-		$unified = ( defined('DELIVERY_ESTIMATE_UNIFIED') && constant('DELIVERY_ESTIMATE_UNIFIED') == 'True' );
-
+		// FASE 1 refactor plazos: $unified ya se calculo arriba (junto a la deteccion SEUR). Camino
+		// legacy INTACTO en el else; solo con el flag ON se usa el nucleo (leadTimeForProduct / transit).
 		if( $unified ) {
 			$destCp   = isset( $row['delivery_postcode'] ) ? (string)$row['delivery_postcode'] : '';
 			$destProv = isset( $row['delivery_state'] ) ? $row['delivery_state'] : null;
@@ -370,7 +371,10 @@ class delivery_estimate {
 			$rawStock = (int)$aux['products_quantity'];
 		}
 
-		$forClassify = $stockDecremented ? ( $rawStock + $qty ) : $rawStock;
+		// Revertimos el descuento del checkout SOLO para stock REAL (>=0). Los centinelas NEGATIVOS
+		// (-100 proveedor / -800 bajo pedido / -900 descatalogado) NO los decrementa el checkout, asi
+		// que sumarles qty los sacaria de su rango (-100 -> -99 = no_stock). Se clasifican en crudo.
+		$forClassify = ( $stockDecremented && $rawStock >= 0 ) ? ( $rawStock + $qty ) : $rawStock;
 		$c = self::classifyStock( $forClassify, $qty );
 
 		$transit = $c['available'] ? self::transitDaysForCp( $cp, $province ) : 0;

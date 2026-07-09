@@ -794,19 +794,30 @@
                     for( $i = 0, $n = sizeof( $product_categories ); $i < $n; $i++ )
                     {
                         tep_db_query( "delete from " . TABLE_PRODUCTS_TO_CATEGORIES . " where products_id = '" . (int)$product_id . "' and categories_id = '" . (int)$product_categories[$i] . "'" );
-
-                        // BOF Separate Pricing Per Customer
-                        tep_db_query( "delete from " . TABLE_PRODUCTS_GROUPS . " where products_id = '" . tep_db_input($product_id) . "' " );
-                        // EOF Separate Pricing Per Customer
                     }
-
-                    tep_db_query( "delete from " . TABLE_PRODUCTS_PRICE_BREAK . " where products_id = '" . (int)$product_id . "'" );
 
                     $product_categories_query = tep_db_query( "select count(*) as total from " . TABLE_PRODUCTS_TO_CATEGORIES . " where products_id = '" . (int)$product_id . "'" );
                     $product_categories = tep_db_fetch_array( $product_categories_query );
 
                     if( $product_categories['total'] == '0' )
                     {
+                        // El producto ya no esta en NINGUNA categoria: se elimina de verdad.
+                        // Estos borrados (precio por grupo, rapels, relacionados y specs) SOLO
+                        // deben ejecutarse aqui. Antes se ejecutaban siempre -incluso al quitar
+                        // el producto de una sola de sus categorias-, destruyendo el precio
+                        // G1/Profesionales, los rapels, los relacionados y las specs de un
+                        // producto que seguia existiendo en las demas categorias.
+                        // BOF Separate Pricing Per Customer
+                        tep_db_query( "delete from " . TABLE_PRODUCTS_GROUPS . " where products_id = '" . (int)$product_id . "'" );
+                        tep_db_query( "delete from " . TABLE_PRODUCTS_PRICE_BREAK . " where products_id = '" . (int)$product_id . "'" );
+                        // EOF Separate Pricing Per Customer
+                        /* Optional Related Products (ORP) */
+                        tep_db_query( "delete from " . TABLE_PRODUCTS_RELATED_PRODUCTS . " where pop_products_id_master = '" . (int)$product_id . "'" );
+                        tep_db_query( "delete from " . TABLE_PRODUCTS_RELATED_PRODUCTS . " where pop_products_id_slave = '" . (int)$product_id . "'" );
+                        //ORP: end
+                        // Start Products Specifications
+                        tep_db_query( "delete from " . TABLE_PRODUCTS_SPECIFICATIONS . " where products_id = '" . (int)$product_id . "'" );
+                        // End Products Specifications
                         // Lista negra de reimportación: registra el producto antes de borrarlo
                         // para que los importadores de proveedor no lo vuelvan a dar de alta.
                         if( !empty( $_POST['blacklist_reimport'] ) )
@@ -819,15 +830,7 @@
                         tep_remove_product($product_id);
                     }
 
-                    /* Optional Related Products (ORP) */
-                    tep_db_query( "delete from " . TABLE_PRODUCTS_RELATED_PRODUCTS . " where pop_products_id_master = '" . (int)$product_id . "'" );
-                    tep_db_query( "delete from " . TABLE_PRODUCTS_RELATED_PRODUCTS . " where pop_products_id_slave = '" . (int)$product_id . "'" );
-                    //ORP: end
                 }
-
-				// Start Products Specifications
-				tep_db_query ("delete from " . TABLE_PRODUCTS_SPECIFICATIONS . " where products_id = '" . (int) $product_id . "'");
-				// End Products Specifications
 
                 if( USE_CACHE == 'true' )
                 {
@@ -1308,13 +1311,11 @@
 							$sTituloProducto = getSlug( $_POST["products_name"][3] );
 							$nContImages = 0;
 
-							// Borramos thumbs si nos han enviado imagen
-							$aFiles = glob( getcwd() . '/../images/productos/thumbnails/' . $sTituloProducto . '-' . $products_id . '_thumb*' );
-
-							// Recorremos para eliminar
-							if( is_array( $aFiles ) )
-								foreach( $aFiles as $sFile )
-									@unlink( $sFile );
+							// (2026-07-08) Eliminado el borrado eager de thumbnails por glob(): hacia readdir
+							// O(n) sobre images/productos/thumbnails/ (~839k ficheros, ~400 ms por guardado).
+							// Innecesario: los tres thumbnailers (tep_image_thumb admin+tienda y product_thumb.php)
+							// invalidan por mtime -> si la imagen cambia regeneran solos; los huerfanos (imagen
+							// borrada/renombrada) los limpia el cron thumbs_orphan_sweep.php.
 
 							// Array con los numeros consecutivos para controlar el numero de subida del fichero
 							$aNumeros = range( 1, 50 );
@@ -1896,8 +1897,8 @@
 						)
 						values
 						(
-							'" . tep_db_input('products_fileupload') . "',
-							'" . tep_db_input('products_pdfupload'). "',
+							'" . tep_db_input($product['products_fileupload']) . "',
+							'" . tep_db_input($product['products_pdfupload']). "',
 							'" . tep_db_input($product['products_quantity']) . "',
 							'" . tep_db_input($product['products_quantity_deseada']) . "',
 							'" . tep_db_input($product['check_stock']) . "',
@@ -2029,7 +2030,7 @@
 
 						while ($specifications = tep_db_fetch_array ($specifications_query) )
 						{
-							tep_db_query ("insert into " . TABLE_PRODUCTS_SPECIFICATIONS . " (products_id, specifications_id, language_id, specification) values ( '" . (int) $dup_products_id . "', '" . (int) $specifications['specification_description_id'] . "', '" . (int)$specifications['language_id'] . "', '" . tep_db_input ($specifications['specification']) . "')");
+							tep_db_query ("insert into " . TABLE_PRODUCTS_SPECIFICATIONS . " (products_id, specifications_id, language_id, specification) values ( '" . (int) $dup_products_id . "', '" . (int) $specifications['specifications_id'] . "', '" . (int)$specifications['language_id'] . "', '" . tep_db_input ($specifications['specification']) . "')");
 						} // while ($specifications
 						// End Products Specifications
 
@@ -2407,7 +2408,7 @@
         <?php
             $sActionForm = (isset($_GET['pID'])) ? 'update_product' : 'insert_product';
 
-			$trueEditPath1 = empty($search) ? 'page='.$page.'&cPath=' . $cPath : 'page='.$page. '&search=' . $search;
+			$trueEditPath1 = empty($search) ? 'page='.$page.'&cPath=' . $cPath : 'page='.$page. '&search=' . rawurlencode($search);
         ?>
 				<tr>
 					<td>
@@ -3510,6 +3511,7 @@
 													$class = substr($file, 0, strrpos($file, '.'));
 
 													if (tep_class_exists($class)) {
+														try {
 														$module = new $class;
 														if ($module->check() > 0) {
 															echo ' <div class="formRow">
@@ -3517,6 +3519,11 @@
 																		<div class="clear"></div>
 																	</div>
 																';
+														}
+														} catch (\Throwable $e) {
+															// Modulo presente pero no instanciable (p.ej. constante de configuration ausente en PHP 8);
+															// se omite en vez de tumbar toda la ficha de producto. Ver categories_module_fatal.
+															error_log('categories.php: modulo ' . $class . ' omitido (no instanciable): ' . $e->getMessage());
 														}
 													}
 												}
@@ -3564,12 +3571,18 @@
 													$class = substr($file, 0, strrpos($file, '.'));
 
 													if (tep_class_exists($class)) {
+														try {
 														$module = new $class;
 														if ($module->check() > 0) {
 															echo '<div class="formRow">
 																	<div class="grid12 check"><input type="checkbox" name="payment_methods[]" value="' . $class . '"' . (in_array($class, $current_methods) ? ' CHECKED' : '') . '><label>' . $module->title . '</label></div>
 																	<div class="clear"></div>
 																</div>';
+														}
+														} catch (\Throwable $e) {
+															// Modulo presente pero no instanciable (p.ej. constante de configuration ausente en PHP 8);
+															// se omite en vez de tumbar toda la ficha de producto. Ver categories_module_fatal.
+															error_log('categories.php: modulo ' . $class . ' omitido (no instanciable): ' . $e->getMessage());
 														}
 													}
 												}
@@ -4345,7 +4358,7 @@
                           					if (isset($_GET['search']))
                                             {
                                                 $search = tep_db_prepare_input($_GET['search']);
-                                                $products_query = tep_db_query("select p.products_fileupload, p.products_pdfupload, p.products_id, pd.products_name, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_image, p.products_price, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_status, p.amazon_status, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "' and p.products_id = p2c.products_id and (pd.products_name like '%" . tep_db_input($search) . "%' or p.products_model like '%" . tep_db_input($search) . "%') order by FIELD(p.products_status, 1, 2, 0), p.products_model");
+                                                // (2026-07-08) Query de busqueda muerta eliminada: se asignaba a $products_query pero el listado de productos de mas abajo la reasigna antes de leerla (hacia un LIKE full-scan inutil en cada busqueda).
                                                 // EOF: More Pics 6
                                             }
                                             else
@@ -4464,7 +4477,7 @@
                                                 $showOff = isset($_GET['show_off']);
                                                 $hideOff = $isStagingCat && !$showOff;
                                                 if ($hideOff) $search_query .= " and p.products_status <> 0 ";
-                                                $products_query = tep_db_query("select DISTINCT p.products_fileupload, p.products_sort_order, p.products_import_exclude, p.products_import_origin, p.products_pdfupload, p.products_id, pd.products_name, p.products_model, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_cost, p.products_image, p.products_subimages, p.products_price, p.products_tax_class_id, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_status, p.amazon_status, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id " . $search_query . " and pd.language_id = '" . (int)$languages_id . "' order by FIELD(p.products_status, 1, 2, 0), p.products_model");
+                                                $products_query = tep_db_query("select DISTINCT p.products_fileupload, p.products_sort_order, p.products_import_exclude, p.products_import_origin, p.products_pdfupload, p.products_id, pd.products_name, p.products_model, p.product_ean, p.reference_prov, pd.products_seo_url, p.products_quantity, p.products_cost, p.products_image, p.products_subimages, p.products_price, p.products_tax_class_id, p.products_date_added, p.products_last_modified, p.products_date_available, p.products_import_exclude, p.products_import_origin, p.products_status, p.amazon_status, p.products_model, p2c.categories_id from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd, " . TABLE_PRODUCTS_TO_CATEGORIES . " p2c where p.products_id = pd.products_id " . $search_query . " and pd.language_id = '" . (int)$languages_id . "' GROUP BY p.products_id order by FIELD(p.products_status, 1, 2, 0), p.products_model");
 
                                             while( $products = tep_db_fetch_array($products_query) )
                                             {
@@ -4490,7 +4503,7 @@
                                                         echo '<tr id="defaultSelected" class="dataTableRowSelected" onmouseover="rowOverEffect(this)" onmouseout="rowOutEffect(this)">' . "\n";
                                                     elseif( isset( $_GET['search'] ) )
 													{
-														echo '<tr class="dataTableRow" onmouseover="rowOverEffect(this)" onmouseout="rowOutEffect(this)" data-href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&search=' . $_GET['search'] . '">' . "\n";
+														echo '<tr class="dataTableRow" onmouseover="rowOverEffect(this)" onmouseout="rowOutEffect(this)" data-href="' . tep_href_link(FILENAME_CATEGORIES, 'cPath=' . $cPath . '&pID=' . $products['products_id']) . '&search=' . rawurlencode($_GET['search']) . '">' . "\n";
 													}
                                                     else
 													{

@@ -474,13 +474,25 @@ function tep_get_category_tree($parent_id = '0', $spacing = '', $exclude = '', $
 		$category_tree_array[] = ['id' => $parent_id, 'text' => $category['categories_name']];
 	}
 
-	$categories_query = tep_db_query("select c.categories_id, cd.categories_name, c.parent_id from " . TABLE_CATEGORIES . " c INNER JOIN " . TABLE_CATEGORIES_DESCRIPTION . " cd on (c.categories_id = cd.categories_id) where cd.language_id = '" . (int)$languages_id . "' and c.parent_id = '" . (int)$parent_id . "' order by c.sort_order, cd.categories_name");
-	while ($categories = tep_db_fetch_array($categories_query)) {
-		if ($exclude != $categories['categories_id']) {
-			$category_tree_array[] = ['id' => $categories['categories_id'], 'text' => $spacing . $categories['categories_name']];
+	// FIX perf 2026-07-08 (lentitud _admin/categories.php): antes esta funcion era recursiva
+	// y lanzaba 1 query por nodo (N+1: ~1559 queries / ~292 ms con 1568 categorias EN CADA
+	// render del <select>, x2 en move/copy). Ahora carga TODAS las categorias en 1 sola query
+	// (getAllCategoryArray: mismo INNER JOIN de idioma y mismo ORDER BY sort_order,
+	// categories_name) y construye el arbol en memoria con un walk recursivo. Salida
+	// byte-identica verificada (mismo orden, espaciado &nbsp; por nivel, exclude, TOP e
+	// include_itself intactos) para las 6 firmas usadas en el admin.
+	$aAllCategories = getAllCategoryArray();
+	$fnWalk = function ($nParent, $sSpacing) use (&$fnWalk, &$aAllCategories, $exclude, &$category_tree_array) {
+		if (isset($aAllCategories[$nParent])) {
+			foreach ($aAllCategories[$nParent] as $aCategory) {
+				if ($exclude != $aCategory['categories_id']) {
+					$category_tree_array[] = ['id' => $aCategory['categories_id'], 'text' => $sSpacing . $aCategory['categories_name']];
+				}
+				$fnWalk((int)$aCategory['categories_id'], $sSpacing . '&nbsp;&nbsp;&nbsp;');
+			}
 		}
-		$category_tree_array = tep_get_category_tree($categories['categories_id'], $spacing . '&nbsp;&nbsp;&nbsp;', $exclude, $category_tree_array);
-	}
+	};
+	$fnWalk((int)$parent_id, $spacing);
 
 	return $category_tree_array;
 }

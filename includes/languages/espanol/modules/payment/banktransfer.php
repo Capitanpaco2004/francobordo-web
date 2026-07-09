@@ -9,7 +9,7 @@
   define('MODULE_PAYMENT_BANKTRANSFER_TEXT_TITLE', 'Transferencia Bancaria');
   define('MODULE_PAYMENT_BANKTRANSFER_TEXT_DESCRIPTION', 'Por favor use los siguientes datos para transferir el valor total de su compra:<br>
 <table border="1" cellspacing="0" cellpadding="2">
-<tr><td class="main">Número de Cuenta</td><td class="main">' . MODULE_PAYMENT_BANKTRANSFER_ACCNAM . '</td></tr>
+<tr><td class="main">Titular de la Cuenta</td><td class="main">' . MODULE_PAYMENT_BANKTRANSFER_ACCNAM . '</td></tr>
 <tr><td class="main">Nombre del Banco</td><td class="main">' . MODULE_PAYMENT_BANKTRANSFER_BANKNAM . '</td></tr>
 <tr><td class="main">Número de Cuenta</td><td class="main">' . MODULE_PAYMENT_BANKTRANSFER_ACCNUM . '</td></tr>
 </table>

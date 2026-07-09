@@ -36,9 +36,7 @@ define('HEADING_TITLE', 'Importador productos en CSV');
 			$iva=1+($campo[1]/100);
 		
 
-				// producto
-				$sql = "update products_together set price = " . $campo[7]/$iva ." where products_together_id = ".$campo[0];
-				$act = tep_db_query($sql) or die($sql);
+				// producto (columna price eliminada 2026-07-08: solo se remapea products_id)
 				$sql_2 = "update products_together set products_id = " . $campo[3] ." where products_together_id = ".$campo[0];
 				$act_2 = tep_db_query($sql_2) or die($sql_2);
 				

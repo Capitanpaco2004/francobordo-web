@@ -56,68 +56,88 @@ function tep_image_thumb($sImagen, $nWidth, $nHeight, $sDefault = '') {
 	$format = strtolower(defined('IMAGEN_TIPO_IMAGEN') ? IMAGEN_TIPO_IMAGEN : 'JPG');
 	$quality = intval(defined('IMAGEN_COMPRESS_IMAGE') ? IMAGEN_COMPRESS_IMAGE : 75);
 
-	// Directorio del thumbnail y preparación del nombre del archivo
+	// FIX ruta web vs FS (perf categories.php jul-2026): los callers pasan una ruta WEB
+	// ('/images/...') pero las operaciones de disco (file_exists/mkdir/save/filemtime)
+	// necesitan ruta de FICHERO. Antes se usaba la ruta web como ruta FS -> file_exists
+	// SIEMPRE false -> se regeneraba el thumb con GD en CADA llamada (~18 ms/fila) y se
+	// devolvia el placeholder. Mapear WEB->FS con DIR_FS_CATALOG; las rutas relativas
+	// (fallback no_image, o callers que pasan '../images/...') se dejan intactas porque
+	// ya resuelven desde el CWD (comportamiento anterior de esos callers sin cambios).
+	$fnToFs = function($p) {
+		if ($p === '' || $p[0] !== '/') return $p;                                    // relativa -> intacta
+		if (defined('DIR_FS_CATALOG') && strpos($p, DIR_FS_CATALOG) === 0) return $p;  // ya es FS bajo docroot
+		return (defined('DIR_FS_CATALOG') ? rtrim(DIR_FS_CATALOG, '/') : '') . '/' . ltrim($p, '/');
+	};
+
+	// Directorio del thumbnail y preparación del nombre del archivo (nombre derivado de la ruta WEB)
 	$pathInfo = pathinfo($sImagen);
 	$sPathThumbnail = $pathInfo['dirname'] . '/thumbnails/';
 	$sFileNameThumb = $pathInfo['filename'] . '_thumb_' . $nWidth . 'x' . $nHeight;
-	$fullPathThumb = $sPathThumbnail . $sFileNameThumb . '.' . $format;
+	$fullPathThumb = $sPathThumbnail . $sFileNameThumb . '.' . $format;      // ruta WEB (para el <img src>)
 	$fullPathThumbWebP = $sPathThumbnail . $sFileNameThumb . '.webp';
 
+	// Equivalentes en FS para operar en disco
+	$sImagenFs           = $fnToFs($sImagen);
+	$sPathThumbnailFs    = $fnToFs($sPathThumbnail);
+	$fullPathThumbFs     = $fnToFs($fullPathThumb);
+	$fullPathThumbWebPFs = $fnToFs($fullPathThumbWebP);
+
 	// Asegurar la creación del directorio de miniaturas
-	if (!is_dir($sPathThumbnail)) {
-		mkdir($sPathThumbnail, 0777, true);
+	if (!is_dir($sPathThumbnailFs)) {
+		@mkdir($sPathThumbnailFs, 0777, true);
 	}
 
 	// Verificar si la imagen original existe
-	if (!file_exists($sImagen)) {
+	if (!file_exists($sImagenFs)) {
 		// Si no existe, usar la defaultImage para generar el thumbnail
 		$sImagen = $sDefault ?: '../theme/web/images/general/no_image.jpg';
+		$sImagenFs = $fnToFs($sImagen);
 	}
 
 	// Si tenemos thumb, pero fue creada antes que la imagen normal, la borramos.
-	if( file_exists( $fullPathThumb ) && file_exists( $sImagen ) ) {
-		if (filemtime($fullPathThumb) < filemtime($sImagen)) {
-			unlink($sPathThumbnail . $sFileNameThumb);
-			unlink($fullPathThumbWebP);
+	if( file_exists( $fullPathThumbFs ) && file_exists( $sImagenFs ) ) {
+		if (filemtime($fullPathThumbFs) < filemtime($sImagenFs)) {
+			@unlink($fullPathThumbFs);
+			@unlink($fullPathThumbWebPFs);
 		}
 	}
 
 	// Si existe la imagen del thumb cargamos desde la cache y no queremos eliminarla
-	if( file_exists( $fullPathThumb ) && file_exists( $fullPathThumbWebP ) && $bDelete == 'false' )
+	if( file_exists( $fullPathThumbFs ) && file_exists( $fullPathThumbWebPFs ) && $bDelete == 'false' )
 	{
-		// Mostramos la imagen ya guardada
+		// Mostramos la imagen ya guardada (se devuelve la ruta WEB para el <img src>)
 		return $fullPathThumb;
 	}
 
 	// Si la imagen existe y deseamos eliminarla
-	if (file_exists($sPathThumbnail . $sFileNameThumb) && $bDelete == 'true') {
-		unlink($fullPathThumb);
-		unlink($fullPathThumbWebP);
+	if (file_exists($fullPathThumbFs) && $bDelete == 'true') {
+		@unlink($fullPathThumbFs);
+		@unlink($fullPathThumbWebPFs);
 	}
 
 	try {
 		// Cargar la imagen original
-		$image = $manager->read($sImagen);
+		$image = $manager->read($sImagenFs);
 
 		// Redimensionar la imagen manteniendo el aspecto original
 		$image->pad($nWidth, $nHeight);
 
 		// encode edited image
 		if( $format == 'png' ) {
-			$image->toPng(true)->save($fullPathThumb);
+			$image->toPng(true)->save($fullPathThumbFs);
 		} elseif ($format == 'gif') {
-			$image->toGif($quality)->save($fullPathThumb);
+			$image->toGif($quality)->save($fullPathThumbFs);
 		}elseif ($format == 'jpg'){
-			$image->toJpeg($quality)->save($fullPathThumb);
+			$image->toJpeg($quality)->save($fullPathThumbFs);
 		}
-		$image->toWebp($quality)->save($fullPathThumbWebP);
+		$image->toWebp($quality)->save($fullPathThumbWebPFs);
 
 	} catch (Exception $e) {
 		// Manejo de errores
 		return $sDefault ?: '../theme/web/images/general/no_image.jpg';
 	}
 
-	return $fullPathThumb . (defined('CACHE_IMAGE_VERSION') && CACHE_IMAGE_VERSION == 'true' ? '?v=' . filemtime($sImagen) : '');
+	return $fullPathThumb . (defined('CACHE_IMAGE_VERSION') && CACHE_IMAGE_VERSION == 'true' ? '?v=' . filemtime($sImagenFs) : '');
 }
 
 // "On the Fly" Auto Thumbnailer using GD Library, servercaching and browsercaching
