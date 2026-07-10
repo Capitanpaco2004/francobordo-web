@@ -1,6 +1,7 @@
  <form name="checkout_select_zone" action="<?php echo tep_href_link(FILENAME_CHECKOUT_SELECT_ZONE); ?>" method="post">
     <div class="rows dx xform sp10 amiddle">
         <div class="col d12 m12">
+            <?php echo $messageStack->show('message_error'); ?>
             <?php echo $messageStack->show(array('text' => CHECKOUT_SELECT_ZONE_INFO, 'class' => 'warning')); ?></p>
         </div>
 

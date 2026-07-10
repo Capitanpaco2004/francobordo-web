@@ -190,7 +190,9 @@ class fb_vies
             // tenia. Asi NO se avisa de validaciones nacionales ES, de UK, de marketplaces, ni de los
             // re-checks del cron de clientes que ya eran 0%.
             $getsRC = self::reverseChargeAllowed($customers_id, $grpId); // ¿lo consigue ahora? (estado NUEVO)
-            if ($getsRC && !$wasRC) {
+            // source='backfill' NO notifica (validacion masiva inicial de la cartera: evitaria decenas
+            // de emails de golpe a NOTIFY_EMAIL). Las validaciones normales (signup/admin/cron) si.
+            if ($getsRC && !$wasRC && $source !== 'backfill') {
                 try { self::notifyValidated($customers_id, $r); } catch (\Throwable $e) { /* no romper la validacion */ }
             }
         }

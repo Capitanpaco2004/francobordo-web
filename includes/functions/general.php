@@ -222,20 +222,21 @@ function getInformationPages()
 			break;
 
 			case 'getCp':
-				// Variables
-				$nCp = (int)arrays::getValueByKey( $_POST, 'cp', 0 );
+				// Variables (postcode-fix 2026-07-09: cp como STRING; el cast (int) perdia el cero inicial
+				// y rompia el autocompletado de TODAS las provincias 01-09, p.ej. 03700 Denia)
+				$sCp = trim( (string)arrays::getValueByKey( $_POST, 'cp', '' ) );
 				$nCountry = (int)arrays::getValueByKey( $_POST, 'country', 0 );
-				$aCity = getCityByCP( $nCp, $nCountry );
+				$aCity = getCityByCP( $sCp, $nCountry );
 				$aReturn = array();
 
 				// Pais
-				$aReturn['country'] = $aCity['id_country'];
+				$aReturn['country'] = is_array( $aCity ) && isset( $aCity['id_country'] ) ? $aCity['id_country'] : null;
 
 				// Zonas
 				$aReturn['zones'] = isset( $aCity['id_zone'] ) && isset( $aCity['id_country'] ) ? getZonesByCountry( array( 'country' => $aCity['id_country'], 'zone' => $aCity['id_zone'] ) ) : array();
 
 				// Ciudad
-				$aReturn['cities'] = isset( $aCity['id_zone'] ) && isset( $aCity['id_country'] ) ? getCitiesByCountryByZone( array( 'country' => $aCity['id_country'], 'zone' => $aCity['id_zone'], 'cp' => $nCp, 'city' => $aCity['id'] ) ) : array();
+				$aReturn['cities'] = isset( $aCity['id_zone'] ) && isset( $aCity['id_country'] ) ? getCitiesByCountryByZone( array( 'country' => $aCity['id_country'], 'zone' => $aCity['id_zone'], 'cp' => $sCp, 'city' => $aCity['id'] ) ) : array();
 
 				// Json
 				echo json_encode( $aReturn );
@@ -318,10 +319,11 @@ function tep_exit()
 		}
 
 		if ($sCp != ''){
-			$sQuery = 'SELECT id, CONCAT( name, " [", cp, "]" ) AS name, cp, id_zone, id_country FROM cities WHERE cp = "' . $sCp . '" AND id_country = "' . $nCountry . '" ORDER BY name';
+				// postcode-fix 2026-07-09: normalizamos el CP (PT busca por CP4) y escapamos
+			$sQuery = 'SELECT id, CONCAT( name, " [", cp, "]" ) AS name, cp, id_zone, id_country FROM cities WHERE cp = "' . tep_db_input( fb_cp_lookup_value( $sCp, (int)$nCountry ) ) . '" AND id_country = "' . (int)$nCountry . '" ORDER BY name';
 		}
 		else{
-			$sQuery = 'SELECT id, CONCAT( name, " [", cp, "]" ) AS name, id_zone FROM cities WHERE id_zone = "' . (int)$nZone . '" AND id_country = "' . $nCountry . '" ORDER BY name';
+			$sQuery = 'SELECT id, CONCAT( name, " [", cp, "]" ) AS name, id_zone FROM cities WHERE id_zone = "' . (int)$nZone . '" AND id_country = "' . (int)$nCountry . '" ORDER BY name';
 		}
 
 		// Consulta para crear el array choices
@@ -334,17 +336,34 @@ function tep_exit()
 		// Si solo tenemos un registro
 		if( count( $aCities ) == 1 )
 			return tep_draw_input_field( 'city', $nCityDefault ) . $returnInput;
-		//Si el pais no es España forzamosque nos escriban el nombre de la ciudad
-		if($nCountry != 195)
+		//Si el pais no tiene ciudades cargadas (hoy ES y PT) forzamos que nos escriban el nombre de la ciudad
+		if( !in_array( (int)$nCountry, array( 195, 171 ), true ) )
 			return tep_draw_input_field( 'city', $nCityDefault );
 		// Retornamos
 		return tep_draw_pull_down_menu( 'city_id', $aCities, $nCityDefault, 'data-ajax-city class="select2 not" ' . $sParameters ) . $returnInput;
     }
 
+	// Normaliza un CP de formulario al valor de busqueda en cities.cp:
+	// ES = 5 digitos (conservando el cero inicial); PT (171) = los 4 primeros digitos del CP7 (cities guarda CP4)
+	if (!function_exists('fb_cp_lookup_value')) {
+		function fb_cp_lookup_value($sCp, $nCountry = 0)
+		{
+			$sCp = trim( (string)$sCp );
+			$sDigits = preg_replace( '/[^0-9]/', '', $sCp );
+			if( (int)$nCountry === 171 || ( (int)$nCountry === 0 && preg_match( '/^[0-9]{4}\s*-\s*[0-9]{3}$/', $sCp ) ) )
+				return substr( $sDigits, 0, 4 );
+			return substr( $sDigits, 0, 5 );
+		}
+	}
+
 	// Devuelve la ciudad mediante un CP
 	function getCityByCP($nCp = false, $nCountry = 0)
     {
-		return pharaonix_queryOne( 'SELECT id, id_country, id_zone FROM cities WHERE cp = "' . (int)$nCp . '"' . ($nCountry === 0 ? '' : ' AND id_country = "' . (int)$nCountry . '"') )->records;
+			// postcode-fix 2026-07-09: cp como string escapado; el (int) anterior perdia el cero inicial (provincias 01-09)
+		$sCp = fb_cp_lookup_value( $nCp, (int)$nCountry );
+		if( $sCp === '' || $sCp === false )
+			return false;
+		return pharaonix_queryOne( 'SELECT id, id_country, id_zone FROM cities WHERE cp = "' . tep_db_input( $sCp ) . '"' . ((int)$nCountry === 0 ? '' : ' AND id_country = "' . (int)$nCountry . '"') )->records;
     }
 
 /**

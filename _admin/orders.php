@@ -48,6 +48,10 @@ if( tep_not_null($action) )
 			 * con o sin bonus +10% según el checkbox.
 			 */
 			case 'refund-points':
+				// CSRF: solo POST (el botón "Devolver en puntos" es un form POST).
+				if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+					tep_redirect(tep_href_link('orders.php', 'oID=' . (int)($_GET['oID'] ?? 0) . '&action=edit'));
+				}
 				$oID    = (int) ($_GET['oID'] ?? 0);
 				$amount = (float) str_replace(',', '.', (string) ($_POST['amount'] ?? '0'));
 				$bonus  = !empty($_POST['bonus']);
@@ -249,8 +253,13 @@ if( tep_not_null($action) )
 					curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
 
 					$result = curl_exec($curl);
+					$httpCode = (int) curl_getinfo($curl, CURLINFO_HTTP_CODE);
 
-					if (strpos(strtolower($result), 'error') === false) {
+					// Solo asentar la devolución si el POST al SIS realmente se completó (curl OK,
+					// HTTP 200) y la respuesta no contiene 'error'. Antes, un fallo de red devolvía
+					// $result=false → strtolower('') → strpos===false → se registraba como éxito
+					// una devolución que NUNCA salió (dinero no devuelto pero contabilizado).
+					if ($result !== false && $httpCode === 200 && stripos((string)$result, 'error') === false) {
 						$values = [
 							'reference' => $order['reference'],
 							'value' => $_GET['amount'] * -1,
@@ -479,8 +488,8 @@ if( tep_not_null($action) )
 			case 'show_delete_orders_masivo':
 				echo '<div id="hdr-ordr-cmt" class="hdr-tlbr" style="height: auto; padding: 0px;">';
 					echo tep_draw_form('status', FILENAME_ORDERS, 'action=delete_orders_masivo', 'post', 'id="form_orders_ajax"');
-						echo '<input type="hidden" id="ids" name="ids" value="' . $_GET['ids'] . '" />';
-						echo '<input type="hidden" id="page" name="page" value="' . $_GET['page'] . '" />';
+						echo '<input type="hidden" id="ids" name="ids" value="' . htmlspecialchars((string)($_GET['ids'] ?? ''), ENT_QUOTES, 'UTF-8') . '" />';
+						echo '<input type="hidden" id="page" name="page" value="' . (int)($_GET['page'] ?? 0) . '" />';
 						?>
 						<div class="formRow" style="height: 22px;">
 							<div class="grid3 check">
@@ -518,8 +527,8 @@ if( tep_not_null($action) )
 			case 'show_estado_notificacion':
 				echo '<div id="hdr-ordr-cmt" class="hdr-tlbr" style="height: auto; padding: 0px;">';
 					echo tep_draw_form('status', FILENAME_ORDERS, 'action=execute_estado_notificacion', 'post', 'id="form_orders_ajax"'); ?>
-						<input type="hidden" id="input_orders" name="input_orders" value="<?php echo $_GET['ids']; ?>" />
-						<input type="hidden" id="page" name="page" value="<?php echo $_GET['page']; ?>" />
+						<input type="hidden" id="input_orders" name="input_orders" value="<?php echo htmlspecialchars((string)($_GET['ids'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" />
+						<input type="hidden" id="page" name="page" value="<?php echo (int)($_GET['page'] ?? 0); ?>" />
 						<div class="formRow">
 							<div class="grid3"><label style="line-height: 33px;">Añadir texto predefinido:&nbsp;&nbsp;</label></div>
 							<div class="grid9">
@@ -597,14 +606,14 @@ if( tep_not_null($action) )
 					if( SISTEMA_OPINION_ENABLED == 'true' )
 					{
 						// Obtenemos la opinion
-						$aDatos = tep_db_query( 'select id_opinion, orders_id, email_primero_enviado from opinion where orders_id = ' . $oID );
+						$aDatos = tep_db_query( 'select id_opinion, orders_id, email_primero_enviado from opinion where orders_id = ' . (int)$oID );
 
 						// Obtenemos el array de estados
 						$aAux = explode( ',', SISTEMA_OPINION_ESTADO_PEDIDO );
 
 						// Si el estado es el configurado y no existe opinion aun para este pedido, insertamos el registro de opinion
 						if( in_array( $status, $aAux ) && tep_db_num_rows( $aDatos ) == 0 )
-							tep_db_query( 'insert into opinion (customers_id,orders_id, uniqid) values (' . $check_status['customers_id'] . ', ' . $oID . ', "' . uniqid( '', true ) . '_' . md5(mt_rand() ) . '")' );
+							tep_db_query( 'insert into opinion (customers_id,orders_id, uniqid) values (' . (int)$check_status['customers_id'] . ', ' . (int)$oID . ', "' . uniqid( '', true ) . '_' . md5(mt_rand() ) . '")' );
 						// Si cambia el estado por otro este sera eliminado si existe la opinion y esta aun no ha sido enviada
 						else if( $check_status['orders_status'] != $status && tep_db_num_rows( $aDatos ) > 0 )
 						{
@@ -676,7 +685,7 @@ if( tep_not_null($action) )
 						}
 						######## Points/Rewards Module V2.1rc2a EOF ##################
 
-						tep_db_query("insert into " . TABLE_ORDERS_STATUS_HISTORY . " (orders_id, orders_status_id, date_added, customer_notified, comments) values ('" . (int)$oID . "', '" . tep_db_input($status) . "', now(), '" . tep_db_input($customer_notified) . "', '" . html_entity_decode( tep_db_input($comments) )  . "')");
+						tep_db_query("insert into " . TABLE_ORDERS_STATUS_HISTORY . " (orders_id, orders_status_id, date_added, customer_notified, comments) values ('" . (int)$oID . "', '" . tep_db_input($status) . "', now(), '" . tep_db_input($customer_notified) . "', '" . tep_db_input( html_entity_decode( (string)$comments ) )  . "')");
 						$order_updated = true;
 
 						/**
@@ -711,6 +720,10 @@ if( tep_not_null($action) )
 			break;
 
 			case 'update_order':
+				// CSRF: solo POST (único caller = el form POST de comentarios/estado de esta página).
+				if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+					tep_redirect(tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('action')) . 'action=edit'));
+				}
 				$oID = tep_db_prepare_input($_GET['oID']);
 				$status = tep_db_prepare_input($_POST['status']);
 				$comments = tep_db_prepare_input($_POST['comments']);
@@ -724,14 +737,14 @@ if( tep_not_null($action) )
 				if( SISTEMA_OPINION_ENABLED == 'true' )
 				{
 					// Obtenemos la opinion
-					$aDatos = tep_db_query( 'select id_opinion, orders_id, email_primero_enviado from opinion where orders_id = ' . $oID );
+					$aDatos = tep_db_query( 'select id_opinion, orders_id, email_primero_enviado from opinion where orders_id = ' . (int)$oID );
 
 					// Obtenemos el array de estados
 					$aAux = explode( ',', SISTEMA_OPINION_ESTADO_PEDIDO );
 
 					// Si el estado es el configurado y no existe opinion aun para este pedido, insertamos el registro de opinion
 					if( in_array( $status, $aAux ) && tep_db_num_rows( $aDatos ) == 0 )
-						tep_db_query( 'insert into opinion (customers_id,orders_id, uniqid) values (' . $check_status['customers_id'] . ', ' . $oID . ', "' . uniqid( '', true ) . '_' . md5(mt_rand() ) . '")' );
+						tep_db_query( 'insert into opinion (customers_id,orders_id, uniqid) values (' . (int)$check_status['customers_id'] . ', ' . (int)$oID . ', "' . uniqid( '', true ) . '_' . md5(mt_rand() ) . '")' );
 					// Si cambia el estado por otro este sera eliminado si existe la opinion y esta aun no ha sido enviada
 					else if( $check_status['orders_status'] != $status && tep_db_num_rows( $aDatos ) > 0 )
 					{
@@ -862,8 +875,16 @@ if( tep_not_null($action) )
 			break;
 
 			case 'deleteconfirm':
-				$oID = tep_db_prepare_input($_GET['oID']);
-				tep_remove_order($oID, $_POST['restock']);
+				// CSRF: solo POST (la ruta legítima es el form POST de deleteOrder()); corta el
+				// borrado por GET vía enlace/imagen. Único caller = el JS de esta misma página.
+				if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+					tep_redirect(tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action'))));
+				}
+				$oID = (int)tep_db_prepare_input($_GET['oID']);
+				// Reponer stock solo si el operador marcó "RESTAURAR STOCK": el JS manda '1', pero
+				// tep_remove_order() exige exactamente 'on' → antes NUNCA reponía (bug silencioso).
+				$restock = (($_POST['restock'] ?? '') === '1' || ($_POST['restock'] ?? '') === 'on') ? 'on' : false;
+				tep_remove_order($oID, $restock);
 				tep_redirect(tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action'))));
 			break;
 
@@ -1146,15 +1167,40 @@ if( tep_not_null($action) )
 			$order->billing['nif'] = $aDatos['entry_NIF'];
 		}
 
+		// Navegación anterior/siguiente respetando los mismos filtros del listado
+		// (status, ship, cID, aID, ebay_id) que tep_get_all_get_params arrastra en la URL
+		$nav_where = '';
+		if (!empty($_GET['status'])) {
+			$nav_where .= " and orders_status = " . (int)tep_db_prepare_input($_GET['status']);
+		}
+		if (!empty($_GET['ship'])) {
+			$sh_nav = tep_db_prepare_input($_GET['ship']);
+			if ($sh_nav === 'seururgente') {
+				$nav_where .= " and shipping_module IN ('seurnacional_seurnacional', 'seurdiez_seurdiez')";
+			} else {
+				$nav_where .= " and shipping_module = '" . tep_db_input($sh_nav) . "'";
+			}
+		}
+		if (!empty($_GET['cID'])) {
+			$nav_where .= " and customers_id = " . (int)tep_db_prepare_input($_GET['cID']);
+		}
+		if (!empty($_GET['aID'])) {
+			$nav_where .= " and amazon_id LIKE '%" . tep_db_input(tep_db_prepare_input($_GET['aID'])) . "%'";
+		}
+		if (!empty($_GET['ebay_id'])) {
+			$eID_nav = tep_db_input(tep_db_prepare_input($_GET['ebay_id']));
+			$nav_where .= " and (ebay_id LIKE '%" . $eID_nav . "%' or ebay_nick LIKE '%" . $eID_nav . "%')";
+		}
+
 ?>
 <!-- BEGIN NEXT AND PREVIOUS ORDERS DISPLAY IN ADMIN //-->
 
    <tr>
     <td width="100%"><table border="0" width="100%" cellspacing="0" cellpadding="0">
       <tr>
-        <td class="pageHeading"><?php if( $nextid = get_order_id($oID,'prev')) { echo '<a href="' .tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action')) . 'oID=' . $nextid . '&action=edit') . '">' . PREV_ORDER . '</a>'; } ?></td>
+        <td class="pageHeading"><?php if( $nextid = get_order_id($oID, 'prev', $nav_where)) { echo '<a href="' .tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action')) . 'oID=' . $nextid . '&action=edit') . '">' . PREV_ORDER . '</a>'; } ?></td>
         <td class="pageHeading" align="right"><?php echo tep_draw_separator('pixel_trans.gif', 1, 10); ?></td>
-        <td class="pageHeading" align="right"><?php if( $previd = get_order_id($oID)) echo '<a href="' .tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action')) . 'oID=' . $previd . '&action=edit') . '">' . NEXT_ORDER . '</a>'; ?></td>
+        <td class="pageHeading" align="right"><?php if( $previd = get_order_id($oID, 'next', $nav_where)) echo '<a href="' .tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action')) . 'oID=' . $previd . '&action=edit') . '">' . NEXT_ORDER . '</a>'; ?></td>
       </tr>
     </table></td>
    </tr>
@@ -1163,13 +1209,13 @@ if( tep_not_null($action) )
 	<div>
 		<div class="toolbarHead">
 			<div class="hdr-tlbr">
-				<h1 class="pageHeading">Pedido Nº <?php echo $oID; ?> - <?php echo tep_date_short( $order->info['date_purchased'] ); ?> <?php echo date('H:i', strtotime($order->info['date_purchased'])); ?><br><br><?php echo ($order->info['amazon_id'] ? 'ID Amazon: ' . $order->info['amazon_id'] : ($order->info['ebay_id'] ? 'ID eBay: ' . $order->info['ebay_id'] : '')); ?></h1>
+				<h1 class="pageHeading">Pedido Nº <?php echo $oID; ?> - <?php echo tep_date_short( $order->info['date_purchased'] ); ?> <?php echo date('H:i', strtotime($order->info['date_purchased'])); ?><br><br><?php echo ($order->info['amazon_id'] ? 'ID Amazon: ' . htmlspecialchars((string)$order->info['amazon_id'], ENT_QUOTES, 'UTF-8') : ($order->info['ebay_id'] ? 'ID eBay: ' . htmlspecialchars((string)$order->info['ebay_id'], ENT_QUOTES, 'UTF-8') : '')); ?></h1>
 				<div class="btn-right">
 					<a href="#" onclick="connectAsCustomer('<?php echo htmlspecialchars($order->customer['email_address'], ENT_QUOTES); ?>', '<?php echo tep_master_connect_token($order->customer['email_address']); ?>');return false;" style="float: left;"><img class="dx-hovr" src="images/icons/cnct_user.png" border="0" /></a>
 					<a href="<?php echo tep_href_link(FILENAME_ORDERS_EDIT, 'oID=' . $oID);?>" title="Crear Pedido"><img class="dx-hovr" src="images/icons/icon_edit_order.png"></a>
 					<a href="#" onclick="showDeleteOptions(<?php echo $oID; ?>); return false;" title="Eliminar Pedido"><img class="dx-hovr" src="images/icons/icon_delete_order.png"></a>
 					<a href="<?php echo tep_href_link(FILENAME_ORDERS_PACKINGSLIP, 'oID=' . $oID);?>" title="Etiqueta de Envío"><img class="dx-hovr" src="images/icons/icon_edit_order_etiqueta.png"></a>
-					<a href="<?php echo tep_href_link('albaran.php', 'oID=' . $oID);?>" title="Albarán"><img class="dx-hovr" src="images/icons/icon_edit_order_albaran.png"></a> &nbsp;&nbsp;&nbsp;&nbsp; <a href="<?php echo $back_orders;?>" title="Volver Atrás"><img class="dx-hovr" src="images/icons/icon_back.png"></a>
+					<a href="<?php echo $back_orders;?>" title="Volver Atrás"><img class="dx-hovr" src="images/icons/icon_back.png"></a>
 				</div>
 			</div>
 		</div>
@@ -1187,8 +1233,8 @@ if( tep_not_null($action) )
 						<?php echo tep_address_format($order->customer['format_id'], $order->customer, 1, '', '<br>', 'customers_', $oID); ?>
 						<p>&nbsp;</p>
 						<p><?php echo (!empty($order->billing['nif']) ? ENTRY_NIF . ' ' . $order->billing['nif'] : ''); ?></p>
-						<p><?php echo ENTRY_EMAIL_ADDRESS; ?> <a href="javascript: updateOrderField('<?php echo $oID; ?>', 'orders', 'customers_email_address', '<?php echo $order->customer['email_address']; ?>');" class="ajaxLink"><?php echo $order->customer['email_address'] . '</a>'; ?></p>
-						<p><?php echo ENTRY_TELEPHONE_NUMBER; ?> <a href="javascript: updateOrderField('<?php echo $oID; ?>', 'orders', 'customers_telephone', '<?php echo $order->customer['telephone']; ?>');" class="ajaxLink"><?php echo $order->customer['telephone']; ?></a></p>
+						<p><?php echo ENTRY_EMAIL_ADDRESS; ?> <a href="javascript: updateOrderField('<?php echo (int)$oID; ?>', 'orders', 'customers_email_address', '<?php echo htmlspecialchars((string)$order->customer['email_address'], ENT_QUOTES, 'UTF-8'); ?>');" class="ajaxLink"><?php echo htmlspecialchars((string)$order->customer['email_address'], ENT_QUOTES, 'UTF-8') . '</a>'; ?></p>
+						<p><?php echo ENTRY_TELEPHONE_NUMBER; ?> <a href="javascript: updateOrderField('<?php echo (int)$oID; ?>', 'orders', 'customers_telephone', '<?php echo htmlspecialchars((string)$order->customer['telephone'], ENT_QUOTES, 'UTF-8'); ?>');" class="ajaxLink"><?php echo htmlspecialchars((string)$order->customer['telephone'], ENT_QUOTES, 'UTF-8'); ?></a></p>
 						<p>&nbsp;</p>
 						<p><?php echo ENTRY_CUSTOMER_GROUP . ' ' . $order->customer['customers_group_name']; ?></p>
 						<p><?php echo ENTRY_FECHA_REGISTRO . ' ' . getFechaRegistroCliente($order->customer['email_address'], $order->customer['id']);?>
@@ -1209,7 +1255,7 @@ if( tep_not_null($action) )
 						<h6><?php echo ENTRY_SHIPPING_ADDRESS; ?></h6>
 						<div class="clear"></div>
 					</div>
-					<div class="box-txt"><?php echo tep_address_format($order->delivery['format_id'], $order->delivery, 1, '', '<br>', 'customers_', $oID); ?><br><?php echo ENTRY_TELEPHONE_NUMBER . ' ' . $order->customer['telephone']; ?></div>
+					<div class="box-txt"><?php echo tep_address_format($order->delivery['format_id'], $order->delivery, 1, '', '<br>', 'customers_', $oID); ?><br><?php echo ENTRY_TELEPHONE_NUMBER . ' ' . htmlspecialchars((string)$order->customer['telephone'], ENT_QUOTES, 'UTF-8'); ?></div>
 				</div>
 				<?php
 					// Fecha estimada de entrega (se renderiza dentro de la caja "Método de envío" de abajo)
@@ -1831,7 +1877,7 @@ if( tep_not_null($action) )
 								<option value="<?php echo $_SERVER['SERVER_NAME']; ?>">Web</option>
 								<option value="<?php echo STORE_OWNER; ?>">Dueño de la tienda</option>
 								<option value="<?php echo STORE_OWNER_EMAIL_ADDRESS; ?>">Email de la tienda</option>
-								<option value="<?php echo $_GET['oID']; ?>">Nº Pedido</option>
+								<option value="<?php echo (int)($_GET['oID'] ?? 0); ?>">Nº Pedido</option>
 								<option value="<?php echo str_replace( '/', '-', tep_date_short( $order->info['date_purchased'] ) ); ?>">Fecha del Pedido</option>
 							</optgroup>
 
@@ -1845,9 +1891,9 @@ if( tep_not_null($action) )
 							?>
 							</optgroup>
 							<optgroup label="Seguimiento de pedido">
-								<option value="http://www.seur.com/seguimiento/<?php echo $_GET['oID']; ?>/fecha/<?php echo str_replace( '/', '-', tep_date_short( $order->info['date_purchased'] ) ); ?>">Seur</option>
-								<option value="http://www.gls-group.eu/276-I-PORTAL-WEB/content/GLS/ES01/ES/5004.htm?txtAction=71010&un=7240003784&pw=1234&rf=&crf=<?php echo $_GET['oID']; ?>&lc=ES&no=7240003784">GLS</option>
-								<option value="http://trackandtrace.kiala.com/search?countryid=ES&language=es&dspid=34600140&dspparcelid=<?php echo $_GET['oID']; ?>">Kiala</option>
+								<option value="http://www.seur.com/seguimiento/<?php echo (int)($_GET['oID'] ?? 0); ?>/fecha/<?php echo str_replace( '/', '-', tep_date_short( $order->info['date_purchased'] ) ); ?>">Seur</option>
+								<option value="http://www.gls-group.eu/276-I-PORTAL-WEB/content/GLS/ES01/ES/5004.htm?txtAction=71010&un=7240003784&pw=1234&rf=&crf=<?php echo (int)($_GET['oID'] ?? 0); ?>&lc=ES&no=7240003784">GLS</option>
+								<option value="http://trackandtrace.kiala.com/search?countryid=ES&language=es&dspid=34600140&dspparcelid=<?php echo (int)($_GET['oID'] ?? 0); ?>">Kiala</option>
 							</optgroup>
 
 						</select>
@@ -1930,7 +1976,7 @@ if( tep_not_null($action) )
 								echo '<li>
 										<span class="'.$tick.'">
 											<p>' . $orders_status_array[$orders_history['orders_status_id']] . '</p>
-											<span class="cmnt-dscrpt">' . str_replace( chr(13), '<br/>', $orders_history['comments'] ?? '' ) . '</span>
+											<span class="cmnt-dscrpt">' . str_replace( chr(13), '<br/>', htmlspecialchars( (string)($orders_history['comments'] ?? ''), ENT_QUOTES, 'UTF-8' ) ) . '</span>
 										</span>
 										<span class="uDate"><span>' . tep_date_day_short($orders_history['date_added']) . '</span>' . tep_date_month_short($orders_history['date_added']) . '<br>' . tep_datetime_hour_short($orders_history['date_added']) . '</span>
 										<span class="clear"></span>
@@ -2083,11 +2129,10 @@ $orders_query = tep_db_query($orders_query_raw);
 		  <tr>
 			  <td class="smallText" align="left">
 				  <div id="arrow_select_all" style="transform: rotatex(179deg); margin-top:17px; transform-origin: center center;"></div>
-				  <select id="ords-msva" data-page="<?php echo $_GET['page']; ?>">
+				  <select id="ords-msva" data-page="<?php echo (int)($_GET['page'] ?? 0); ?>">
 					  <option value="">Seleccione opción masiva</option>
 					  <option value="1">Cambiar estados / notificaciones</option>
 					  <option value="3">Eliminar pedidos</option>
-					  <option value="4" data-href="albaran.php?null=null" data-text="¿Realmente deseas imprimir los albaránes?">Imprimir albaránes</option>
 					  <option value="5" data-href="packingslip.php?null=null" data-text="¿Realmente deseas imprimir las etiquetas?">Imprimir etiquetas</option>
 				  </select>
 			  </td>
@@ -2137,8 +2182,8 @@ $orders_query = tep_db_query($orders_query_raw);
 ?>
 				<td align="center" class="checkbox_orders"><input style="position: relative; top: 7px; margin: 0px;" type="checkbox" value="<?php echo $orders['orders_id']; ?>" name="orders"></td>
                 <td class="dataTableContent">#<?php echo $orders['orders_id']; ?></td>
-				<td class="dataTableContent"><?php echo ($orders['ebay_id'] ? tep_image(DIR_WS_IMAGES . 'ebay.png').'<br /><small style="font-size: 8px; opacity: 0.6;">'.$orders['ebay_id'].'</small>' : ''); ?><?php echo ($orders['amazon_id'] ? tep_image(DIR_WS_IMAGES . 'amazon.png').'<br /><small style="font-size: 8px; opacity: 0.6;">'.$orders['amazon_id'].'</small>' : ''); ?></td>
-                <td class="dataTableContent"><?php echo '<a href="' . tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action')) . 'oID=' . $orders['orders_id'] . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.png', ICON_PREVIEW) . '</a>&nbsp;' . $orders['customers_name']; ?></td><!-- next td added for SPPC -->
+				<td class="dataTableContent"><?php echo ($orders['ebay_id'] ? tep_image(DIR_WS_IMAGES . 'ebay.png').'<br /><small style="font-size: 8px; opacity: 0.6;">'.htmlspecialchars((string)$orders['ebay_id'], ENT_QUOTES, 'UTF-8').'</small>' : ''); ?><?php echo ($orders['amazon_id'] ? tep_image(DIR_WS_IMAGES . 'amazon.png').'<br /><small style="font-size: 8px; opacity: 0.6;">'.htmlspecialchars((string)$orders['amazon_id'], ENT_QUOTES, 'UTF-8').'</small>' : ''); ?></td>
+                <td class="dataTableContent"><?php echo '<a href="' . tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action')) . 'oID=' . $orders['orders_id'] . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.png', ICON_PREVIEW) . '</a>&nbsp;' . htmlspecialchars((string)$orders['customers_name'], ENT_QUOTES, 'UTF-8'); ?></td><!-- next td added for SPPC -->
                 <td class="dataTableContent"><?php echo $orders['customers_id']; ?></td>
 				<td class="dataTableContent"><?php echo $orders['customers_group_name']; ?></td>
                 <td class="dataTableContent" align="right"><?php echo strip_tags($orders['order_total']); ?></td>
@@ -2177,7 +2222,6 @@ $orders_query = tep_db_query($orders_query_raw);
 							<li><a href="<?php echo tep_href_link('edit_orders.php', tep_get_all_get_params(array('oID', 'action')) . 'oID=' . $orders['orders_id'] . '&action=edit'); ?>"><i class="fas fa-edit"></i> Editar</a></li>
 							<li><a href="#" onclick="showDeleteOptions(<?php echo $orders['orders_id']; ?>); return false;"><i class="fas fa-trash-alt"></i> Eliminar</a></li>
 							<li><a href="<?php echo tep_href_link(FILENAME_ORDERS_PACKINGSLIP, 'oID=' . $orders['orders_id']); ?>" target="_blank"><i class="fas fa-file-alt"></i> Ver Etiqueta</a></li>
-							<li><a href="<?php echo tep_href_link('albaran.php', 'oID=' . $orders['orders_id']); ?>" target="_blank"><i class="fas fa-truck"></i> Ver Albarán</a></li>
 						</ul>
 					</div>
 				</td>
@@ -2191,11 +2235,10 @@ $orders_query = tep_db_query($orders_query_raw);
 						<tr>
 							<td class="smallText" align="left">
 								<div id="arrow_select_all"></div>
-								<select id="ords-msva" data-page="<?php echo $_GET['page']; ?>">
+								<select id="ords-msva" data-page="<?php echo (int)($_GET['page'] ?? 0); ?>">
 									<option value="">Seleccione opción masiva</option>
 									<option value="1">Cambiar estados / notificaciones</option>
 									<option value="3">Eliminar pedidos</option>
-									<option value="4" data-href="albaran.php?null=null" data-text="¿Realmente deseas imprimir los albaránes?">Imprimir albaránes</option>
 									<option value="5" data-href="packingslip.php?null=null" data-text="¿Realmente deseas imprimir las etiquetas?">Imprimir etiquetas</option>
 								</select>
 							</td>

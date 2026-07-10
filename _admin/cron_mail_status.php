@@ -43,6 +43,38 @@ try {
     }
 } catch (Throwable $e) { /* el chequeo nunca debe romper el cron */ }
 
+/**
+ * Tracking real del pedido desde las tablas de la web (SEUR / Correos Express /
+ * Correos), para rellenar el hueco "...número de seguimiento es:" del email de
+ * ENVIADO. QFac manda ese tracking VACÍO en los envíos por API (el label lo crea
+ * el watcher, no QFac). Devuelve un <a> clicable con el código, o '' si no hay
+ * envío activo. 2026-07-08. Ver memoria francobordo_qfacwin_status / francobordo_seur_api.
+ */
+function resolverTrackingWeb($oid) {
+    $oid = (int) $oid;
+    if ($oid <= 0) return '';
+    // (tabla, columna con el código de barras / localizador que ve el cliente)
+    $fuentes = array(
+        array('seur_shipments',    'ecb'),
+        array('cex_shipments',     'ecb'),
+        array('correos_shipments', 'package_code'),
+    );
+    foreach ($fuentes as $f) {
+        list($tabla, $colCod) = $f;
+        $res = tep_db_query("SELECT `" . $colCod . "` AS codigo, shipment_code, tracking_url FROM `" . $tabla . "` WHERE orders_id = " . $oid . " AND ok = 1 AND cancelled_at IS NULL AND tipo = 'envio' ORDER BY id DESC LIMIT 1");
+        if ($res && ($r = tep_db_fetch_array($res))) {
+            $codigo = trim((string) (($r['codigo'] !== '' && $r['codigo'] !== null) ? $r['codigo'] : $r['shipment_code']));
+            $url    = trim((string) $r['tracking_url']);
+            if ($codigo === '' && $url === '') continue;
+            if ($url !== '') {
+                return '<a href="' . htmlspecialchars($url, ENT_QUOTES) . '" target="_blank" style="color:#00aff0;font-weight:bold;">' . htmlspecialchars($codigo !== '' ? $codigo : 'Localiza tu envío', ENT_QUOTES) . '</a>';
+            }
+            return htmlspecialchars($codigo, ENT_QUOTES);
+        }
+    }
+    return '';
+}
+
 $orders_status_array = array();
 $orders_status_query = tep_db_query("select orders_status_id, orders_status_name from " . TABLE_ORDERS_STATUS . " where language_id = '" . (int) $languages_id . "'");
 
@@ -81,6 +113,19 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
             $date_added = strtotime($check_status['date_added']);
             $date = date('d/m/Y H:i:s', $date_added);
             $comments = $check_status['comments'];
+            // Rellena "número de seguimiento es:" con el tracking real de la web (QFac lo
+            // manda vacío en envíos por API). Se reescribe el hueco y se persiste abajo
+            // (para el email Y la ficha del cliente).
+            $comments_orig = $comments;
+            if (strpos($comments, 'seguimiento es:') !== false) {
+                $track = resolverTrackingWeb($oID);
+                if ($track !== '') {
+                    $comments = preg_replace_callback(
+                        '#(seguimiento es:\s*</p>\s*<p>)(.*?)(<br\s*/?>\s*</p>)#is',
+                        function ($m) use ($track) { return $m[1] . $track . $m[3]; },
+                        $comments, 1);
+                }
+            }
             $status = $check_status['orders_status'];
 
             /*echo '<p>E-mail: <strong>'.$check_status['customers_email_address'].'</strong>
@@ -162,7 +207,13 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
                 // 2026-06-25: el nombre del destinatario debe ser el del CLIENTE (antes iba orders_status_name = "Enviado", que ensucia el "To" y puede confundir al AFS de Trustpilot que lee ese header).
                 tep_mail($check_status['customers_firstname'], $check_status['customers_email_address'], EMAIL_TEXT_SUBJECT . ' (Nº de Pedido: ' . $oID . ')', $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS, false, $tp_bcc);
             }
-            $sql = 'UPDATE orders_status_history SET customer_notified = 1 WHERE orders_status_history_id = ' . $check_status['orders_status_history_id'];
+            // Persiste el comentario enriquecido con el tracking (si cambió) para que la
+            // ficha del cliente y el admin muestren también el número de seguimiento.
+            if (isset($comments_orig) && $comments !== $comments_orig) {
+                $sql = "UPDATE orders_status_history SET customer_notified = 1, comments = '" . tep_db_input($comments) . "' WHERE orders_status_history_id = " . (int) $check_status['orders_status_history_id'];
+            } else {
+                $sql = 'UPDATE orders_status_history SET customer_notified = 1 WHERE orders_status_history_id = ' . (int) $check_status['orders_status_history_id'];
+            }
             tep_db_query($sql);
             echo '<pre>' . $sql . '</pre>';
 

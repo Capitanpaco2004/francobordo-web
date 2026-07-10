@@ -39,12 +39,22 @@ if ($action === 'check' && isset($_GET['cID'])) {
     tep_redirect(tep_href_link('vies.php', 'msg=' . rawurlencode('Cliente ' . $cID . ': ' . $st . $extra)));
 }
 
+// #FB-VIES: la pagina solo gestiona empresas de la UE NO espanolas (unicas candidatas a reverse
+// charge; una empresa ES paga IVA nacional y una de fuera de la UE no valida en VIES). country_ids
+// UE del allowlist de la web MENOS Espana (195) y UK (222). Se mantienen visibles ademas los
+// clientes con VAT no-ES ya registrado en fb_vies_status aunque su direccion sea espanola.
+$fb_eu_no_es = '14,21,33,53,55,56,57,67,72,73,74,81,84,97,103,105,117,123,124,132,141,150,170,171,175,189,190,203';
+$fb_filtro_pais = "(ab.entry_country_id in ($fb_eu_no_es)
+                    or (s.country_code is not null and s.country_code not in ('ES','GB','XI','')))";
+
 if ($action === 'checkall') {
     $due = tep_db_query("select c.customers_id
                            from customers c
+                           left join address_book ab on ab.address_book_id = c.customers_default_address_id
                            left join " . fb_vies::T_STATUS . " s on s.customers_id = c.customers_id
                           where c.customers_group_id in (0, 1)
                             and trim(coalesce(c.entry_company_tax_id, '')) <> ''
+                            and " . $fb_filtro_pais . "
                             and (s.customers_id is null or s.status in ('unchecked','error') or s.next_recheck < now())
                           limit 25");
     $n = 0; $ok = 0;
@@ -58,7 +68,7 @@ if ($action === 'checkall') {
 
 if (isset($_GET['msg'])) $msg = (string) $_GET['msg'];
 
-/* ---------------- Datos: profesionales (grupo 1) ---------------- */
+/* ---------------- Datos: empresas UE no espanolas (G1 + G0 con empresa/VAT) ---------------- */
 $sql = "select c.customers_id, c.customers_firstname, c.customers_lastname, c.entry_company_tax_id,
                ab.entry_company, ab.entry_NIF, co.countries_iso_code_2 as iso, co.countries_name as country,
                s.status, s.valid, s.country_code, s.trader_name, s.request_identifier, s.last_checked, s.last_success, s.next_recheck, s.last_error
@@ -66,8 +76,12 @@ $sql = "select c.customers_id, c.customers_firstname, c.customers_lastname, c.en
           left join address_book ab on ab.address_book_id = c.customers_default_address_id
           left join countries co on co.countries_id = ab.entry_country_id
           left join " . fb_vies::T_STATUS . " s on s.customers_id = c.customers_id
-         where (c.customers_group_id = 1
-                or (c.customers_group_id = 0 and (trim(coalesce(c.entry_company_tax_id, '')) <> '' or trim(coalesce(ab.entry_company, '')) <> '')))
+         where c.customers_group_id in (0, 1)
+           and " . $fb_filtro_pais . "
+           and (c.customers_group_id = 1
+                or trim(coalesce(c.entry_company_tax_id, '')) <> ''
+                or trim(coalesce(ab.entry_company, '')) <> ''
+                or s.customers_id is not null)
          order by (s.valid = 1) desc, s.status is null desc, c.customers_lastname asc
          limit 500";
 $rows = array();
@@ -123,13 +137,13 @@ function fb_vies_badge($status, $valid)
 
 <div class="viesp">
   <h1>Validaci&oacute;n VIES (empresas)</h1>
-  <p class="crit"><strong>Profesionales (G1)</strong> y <strong>retail con empresa (G0)</strong>. Un VAT <strong>v&aacute;lido</strong> en VIES de otro pa&iacute;s UE (no ES/UK) concede autom&aacute;ticamente la <strong>inversi&oacute;n del sujeto pasivo (IVA 0%)</strong> en entregas intracomunitarias (UE excepto Espa&ntilde;a y Reino Unido). Si VIES no responde se conserva el &uacute;ltimo estado v&aacute;lido conocido.</p>
+  <p class="crit"><strong>Empresas de la UE no espa&ntilde;olas</strong> (Profesionales G1 y retail con empresa G0) &mdash; las &uacute;nicas candidatas al reverse charge. Un VAT <strong>v&aacute;lido</strong> en VIES concede autom&aacute;ticamente la <strong>inversi&oacute;n del sujeto pasivo (IVA 0%)</strong> en entregas intracomunitarias (UE excepto Espa&ntilde;a y Reino Unido). Si VIES no responde se conserva el &uacute;ltimo estado v&aacute;lido conocido. Las empresas espa&ntilde;olas no aparecen (IVA nacional 21%).</p>
 
   <?php if ($msg !== '') { ?><div class="msg"><?php echo htmlspecialchars($msg); ?></div><?php } ?>
 
   <div class="toolbar">
     <a class="btn" href="<?php echo tep_href_link('vies.php', 'action=checkall'); ?>">&#128260; Validar pendientes (m&aacute;x 25)</a>
-    &nbsp;&nbsp; <strong><?php echo count($rows); ?></strong> profesionales &middot;
+    &nbsp;&nbsp; <strong><?php echo count($rows); ?></strong> empresas UE &middot;
     <span class="rc"><?php echo $countValid; ?> v&aacute;lidos</span> &middot;
     <strong><?php echo $countPend; ?></strong> por comprobar
   </div>

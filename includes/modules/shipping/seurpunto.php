@@ -97,6 +97,34 @@ class seurpunto {
             $this->enabled = false;
             return array();
         }
+
+        // Categorías vetadas para punto (bultos LARGOS): checkbox
+        // "No permitir Punto de Recogida" en la categoría del admin;
+        // HEREDA a subcategorías. Compartido con cexpunto (misma columna).
+        $aPids = array();
+        foreach ((array) $cart->get_products() as $aProd) {
+            $nPid = (int) $aProd['id'];
+            if ($nPid > 0) $aPids[$nPid] = true;
+        }
+        if (count($aPids)) {
+            $aFlag = array(); $aTree = array();
+            $qCat = tep_db_query("select categories_id, parent_id, categories_no_paqpunto from " . TABLE_CATEGORIES);
+            while ($rCat = tep_db_fetch_array($qCat)) {
+                $aTree[(int) $rCat['categories_id']] = (int) $rCat['parent_id'];
+                if ((int) $rCat['categories_no_paqpunto'] === 1) $aFlag[(int) $rCat['categories_id']] = true;
+            }
+            if (count($aFlag)) {
+                $qP2c = tep_db_query("select distinct categories_id from " . TABLE_PRODUCTS_TO_CATEGORIES . " where products_id in (" . implode(',', array_keys($aPids)) . ")");
+                while ($rP2c = tep_db_fetch_array($qP2c)) {
+                    $nCid = (int) $rP2c['categories_id']; $nGuard = 0;
+                    while ($nCid > 0 && $nGuard++ < 25) {
+                        if (isset($aFlag[$nCid])) { $this->enabled = false; return array(); }
+                        $nCid = isset($aTree[$nCid]) ? $aTree[$nCid] : 0;
+                    }
+                }
+            }
+        }
+
         $zona = (strncmp($cp, '07', 2) === 0) ? 'BAL' : 'PEN';
         $base = self::costePorPeso($kg, $zona) * self::MARGEN * self::FUEL;   // coste sin IVA + margen 10% + fuel 16,54%
 

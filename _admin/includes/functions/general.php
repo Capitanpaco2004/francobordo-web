@@ -2937,21 +2937,20 @@ function tep_add_base_ref($string) {
 
 //BEGIN NEXT AND PREVIOUS ORDERS DISPLAY IN ADMIN
 
-function get_order_id($orderid, $mode = 'next') {
-	if ($mode == 'prev')
-		$op = '<';
-	else if ($mode == 'next')
-		$op = '>';
-	if ($op == '<' or $op == '>')
-		$nextprev_resource = tep_db_query("select orders_id from " . TABLE_ORDERS . " where orders_id $op '" . (int)$orderid . "' order by orders_id");
+// $extra_where: condiciones SQL adicionales ya saneadas (" and orders_status = 2"...)
+// para que la navegación respete los filtros del listado de pedidos
+function get_order_id($orderid, $mode = 'next', $extra_where = '') {
 	if ($mode == 'prev') {
-		while ($nextprev_values = tep_db_fetch_array($nextprev_resource)) {
-			$nextprev_value = $nextprev_values;
-		}
-	} else if ($mode == 'next')
-		$nextprev_value = tep_db_fetch_array($nextprev_resource);
-	if (!empty($nextprev_value['orders_id']))  // RLJ - added quoted values - PHP complains about unknown constants.
-		return $nextprev_value['orders_id']; // RLJ - added quoted values - PHP complains about unknown constants.
+		$op = '<';
+		$dir = 'desc';
+	} else {
+		$op = '>';
+		$dir = 'asc';
+	}
+	$nextprev_resource = tep_db_query("select orders_id from " . TABLE_ORDERS . " where orders_id $op '" . (int)$orderid . "'" . $extra_where . " order by orders_id $dir limit 1");
+	$nextprev_value = tep_db_fetch_array($nextprev_resource);
+	if (!empty($nextprev_value['orders_id']))
+		return $nextprev_value['orders_id'];
 	else
 		return false;
 }

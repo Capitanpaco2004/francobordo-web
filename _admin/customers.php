@@ -313,6 +313,24 @@ if( tep_not_null($action) )
 					if( strlen( $entry_postcode[$key] ) < ENTRY_POSTCODE_MIN_LENGTH )
 						$messageStack->addSession( 'mensaje', 'El código postal del cliente en la dirección #' . $key . ' no puede tener menos de ' . ENTRY_POSTCODE_MIN_LENGTH . ' caracteres.' );
 
+					// Comprobamos el formato del codigo postal (parche postcode-fix 2026-07-09): España = 5 dígitos con provincia 01-52;
+					// Portugal = CP7 normalizado a 1234-567; resto de países, sin '@'
+					$entry_postcode[$key] = trim( $entry_postcode[$key] );
+					if( (int)$entry_country_id[$key] == 195 )
+					{
+						if( !preg_match('/^(0[1-9]|[1-4][0-9]|5[0-2])[0-9]{3}$/', $entry_postcode[$key]) )
+							$messageStack->addSession( 'mensaje', 'El código postal de la dirección #' . $key . ' no es válido para España (5 dígitos, provincia 01-52).' );
+					}
+					else if( (int)$entry_country_id[$key] == 171 )
+					{
+						if( preg_match('/^([0-9]{4})\s*-?\s*([0-9]{3})$/', $entry_postcode[$key], $_cpm) )
+							$entry_postcode[$key] = $_cpm[1] . '-' . $_cpm[2];
+						else
+							$messageStack->addSession( 'mensaje', 'El código postal de la dirección #' . $key . ' no es válido para Portugal (7 dígitos, ej. 4400-123).' );
+					}
+					else if( strpos( $entry_postcode[$key], '@' ) !== false )
+						$messageStack->addSession( 'mensaje', 'El código postal de la dirección #' . $key . ' no puede contener "@".' );
+
 					// Comprobamos la ciudad
 					if( intval( $entry_city_id[$key] ) == 0 && $entry_city[$key] == '' )
 						$messageStack->addSession( 'mensaje', 'La ciudad del cliente en la dirección #' . $key . ' es obligatoria.' );

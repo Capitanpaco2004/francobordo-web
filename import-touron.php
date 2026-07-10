@@ -573,7 +573,7 @@ function calculateNewProductQuantityWeb($currentQuantity, $stock, $stockInternac
         } elseif ($stock <= 0 && $stockInternacional > 0) {
             return -800;
         } elseif ($stock <= 0 && $stockInternacional <= 0) {
-            return $excluido ? 0 : -900; // excluidos (MMEF/packs/neumaticas): 0 en vez de -900
+            return $excluido ? 0 : -800; // en feed pero sin stock nac+int -> -800 bajo pedido (el -900 queda solo para no-en-feed); excluidos (MMEF/packs/neumaticas): 0
         }
     }
     return $currentQuantity;
@@ -588,7 +588,7 @@ function calculateNewAttributeStockWeb($currentStock, $stock, $stockInternaciona
         } elseif ($stock <= 0 && $stockInternacional > 0) {
             return -800;
         } elseif ($stock <= 0 && $stockInternacional <= 0) {
-            return $excluido ? 0 : -900; // excluidos (MMEF/packs/neumaticas): 0 en vez de -900
+            return $excluido ? 0 : -800; // en feed pero sin stock nac+int -> -800 bajo pedido (el -900 queda solo para no-en-feed); excluidos (MMEF/packs/neumaticas): 0
         }
     }
     return $currentStock;

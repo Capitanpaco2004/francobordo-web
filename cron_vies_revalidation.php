@@ -21,10 +21,15 @@ require __DIR__ . '/includes/application_top.php';
 if (!class_exists('fb_vies')) { require_once DIR_FS_CATALOG . 'includes/classes/fb_vies.php'; }
 fb_vies::ensureTables();
 
-// Solo MANTENIMIENTO: re-valida filas de fb_vies_status ya existentes cuyo next_recheck vencio (no
-// descubre clientes nuevos; la validacion inicial la hace la pagina admin / el alta). Asi el cron nunca
-// dispara cientos de llamadas de golpe. Limite pequeño + pausa entre llamadas (gentil con VIES).
+// Dos fases, cada una con limite pequeño + pausa (gentil con VIES):
+//  1) MANTENIMIENTO: re-valida filas de fb_vies_status cuyo next_recheck vencio.
+//  2) DESCUBRIMIENTO: valida clientes de paises UE (no ES/UK) de grupos 0/1 con VAT/NIF y SIN fila en
+//     fb_vies_status (backstop de la validacion automatica del alta/edicion de cuenta; acotado por el
+//     mismo filtro de pais que _admin/vies.php, nunca dispara validaciones de clientes espanoles).
+$eu_no_es = '14,21,33,53,55,56,57,67,72,73,74,81,84,97,103,105,117,123,124,132,141,150,170,171,175,189,190,203';
 $limit = 25;
+
+$n = 0; $ok = 0; $err = 0;
 $due = tep_db_query("select s.customers_id
                        from " . fb_vies::T_STATUS . " s
                        join customers c on c.customers_id = s.customers_id
@@ -32,8 +37,6 @@ $due = tep_db_query("select s.customers_id
                         and (s.next_recheck is null or s.next_recheck < now())
                       order by s.next_recheck asc
                       limit " . (int) $limit);
-
-$n = 0; $ok = 0; $err = 0;
 while ($d = tep_db_fetch_array($due)) {
     $r  = fb_vies::validateCustomer((int) $d['customers_id'], 'cron');
     $n++;
@@ -43,6 +46,26 @@ while ($d = tep_db_fetch_array($due)) {
     usleep(250000); // 0,25s entre llamadas: no saturar VIES ni la IP del servidor
 }
 
-$line = date('Y-m-d H:i:s') . " fb_vies cron: procesados=$n validos=$ok errores_vies=$err";
+$d2 = 0; $ok2 = 0; $err2 = 0;
+$news = tep_db_query("select c.customers_id
+                        from customers c
+                        join address_book ab on ab.address_book_id = c.customers_default_address_id
+                        left join " . fb_vies::T_STATUS . " s on s.customers_id = c.customers_id
+                       where s.customers_id is null
+                         and c.customers_group_id in (0, 1)
+                         and ab.entry_country_id in (" . $eu_no_es . ")
+                         and (trim(coalesce(c.entry_company_tax_id, '')) <> '' or trim(coalesce(ab.entry_NIF, '')) <> '')
+                       order by c.customers_id desc
+                       limit " . (int) $limit);
+while ($d = tep_db_fetch_array($news)) {
+    $r  = fb_vies::validateCustomer((int) $d['customers_id'], 'cron-discovery');
+    $d2++;
+    $st = $r['applied_status'] ?? ($r['status'] ?? '');
+    if ($st === 'valid') $ok2++;
+    if (($r['status'] ?? '') === 'error') $err2++;
+    usleep(250000);
+}
+
+$line = date('Y-m-d H:i:s') . " fb_vies cron: mantenimiento=$n (validos=$ok err=$err) descubiertos=$d2 (validos=$ok2 err=$err2)";
 echo $line . $br;
 error_log($line . "\n");

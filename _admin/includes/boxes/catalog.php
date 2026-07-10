@@ -96,6 +96,12 @@
 			</div>
 		</div>
 		<div>
+			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Navico (Lowrance/Simrad/B&G) <i class="fa fa-angle-right"></i></a>
+			<div class="sbmn">
+				<?php echo tep_admin_files_boxes('Actualizador_precios_navico.php', '<i class="bullet"></i> Actualizador precios'); ?>
+			</div>
+		</div>
+		<div>
 			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Lankhorst <i class="fa fa-angle-right"></i></a>
 			<div class="sbmn">
 				<?php echo tep_admin_files_boxes('import-lankhorst-altas.php', '<i class="bullet"></i> Importador'); ?>

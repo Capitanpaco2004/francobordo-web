@@ -103,6 +103,34 @@ class cexpunto {
             $this->enabled = false;
             return array();
         }
+
+        // Categorías vetadas para punto (bultos LARGOS: remos, pasarelas, toldos...):
+        // checkbox "No permitir Paq Punto" en la categoría del admin; HEREDA a las
+        // subcategorías (se sube por el árbol). Si el carrito lleva algún producto
+        // de una categoría vetada, no se ofrece punto (el cliente ve solo domicilio).
+        $aPids = array();
+        foreach ((array) $cart->get_products() as $aProd) {
+            $nPid = (int) $aProd['id'];
+            if ($nPid > 0) $aPids[$nPid] = true;
+        }
+        if (count($aPids)) {
+            $aFlag = array(); $aTree = array();
+            $qCat = tep_db_query("select categories_id, parent_id, categories_no_paqpunto from " . TABLE_CATEGORIES);
+            while ($rCat = tep_db_fetch_array($qCat)) {
+                $aTree[(int) $rCat['categories_id']] = (int) $rCat['parent_id'];
+                if ((int) $rCat['categories_no_paqpunto'] === 1) $aFlag[(int) $rCat['categories_id']] = true;
+            }
+            if (count($aFlag)) {
+                $qP2c = tep_db_query("select distinct categories_id from " . TABLE_PRODUCTS_TO_CATEGORIES . " where products_id in (" . implode(',', array_keys($aPids)) . ")");
+                while ($rP2c = tep_db_fetch_array($qP2c)) {
+                    $nCid = (int) $rP2c['categories_id']; $nGuard = 0;
+                    while ($nCid > 0 && $nGuard++ < 25) {
+                        if (isset($aFlag[$nCid])) { $this->enabled = false; return array(); }
+                        $nCid = isset($aTree[$nCid]) ? $aTree[$nCid] : 0;
+                    }
+                }
+            }
+        }
         // El precio sigue al PUNTO elegido (a donde va realmente el paquete), no a la
         // dirección del cliente: si ya hay punto en sesión usamos SU CP para la zona.
         // checkout_shipping re-cotiza DESPUÉS de fijar el punto en sesión, así que el

@@ -564,6 +564,9 @@
                 $sort_order = tep_db_prepare_input( $_POST['sort_order'] );
                 $sql_data_array = array( 'sort_order' => (int)$sort_order );
 
+                // Bloqueo Paq Punto CEX (bulto largo): checkbox de la categoria (hereda a subcategorias)
+                $sql_data_array['categories_no_paqpunto'] = isset( $_POST['categories_no_paqpunto'] ) ? 1 : 0;
+
 				// Añadimos el grandparent ID
 				if( isset( $_GET['cPath'] ) )
 				{
@@ -4818,6 +4821,15 @@
 
 											// Ordenar la categoria
 											$contents[] = array('text' => '<br>' . TEXT_EDIT_SORT_ORDER . '<br>' . tep_draw_input_field('sort_order', $cInfo->sort_order, 'size="2"'));
+
+											// Bloquear Paq Punto (CEX): bultos largos; hereda a subcategorias
+											$bNoPaq = false;
+											if( $action == 'edit_category' )
+											{
+												$npq = tep_db_fetch_array( tep_db_query( "select categories_no_paqpunto from " . TABLE_CATEGORIES . " where categories_id = '" . (int)$cInfo->categories_id . "'" ) );
+												$bNoPaq = ( (int)( $npq['categories_no_paqpunto'] ?? 0 ) === 1 );
+											}
+											$contents[] = array('text' => '<br>' . tep_draw_checkbox_field('categories_no_paqpunto', '1', $bNoPaq) . ' <b>No permitir Punto de Recogida (Correos Express y SEUR)</b><br><i style="color:#666;">Bulto largo: los pedidos con productos de esta categor&iacute;a (o sus subcategor&iacute;as) no ofrecer&aacute;n puntos de recogida.</i>');
 
 											// Si estamos editando mostramos si queremos cambiar los estados de los productos
 											if( $action == 'edit_category' )

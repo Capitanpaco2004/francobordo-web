@@ -96,6 +96,8 @@
 					$sql_data_array['entry_company_tax_id'] = tep_db_prepare_input($_POST['company_tax_id']);
 			}
 
+			$fb_vies_revalidar = isset($sql_data_array['entry_company_tax_id']); // #FB-VIES: se guarda VAT nuevo
+
 			tep_db_perform( TABLE_CUSTOMERS, $sql_data_array, 'update', "customers_id = '" . (int)$customer_id . "'" );
 			tep_db_query( "update " . TABLE_CUSTOMERS_INFO . " set customers_info_date_account_last_modified = now() where customers_info_id = '" . (int)$customer_id . "'" );
 
@@ -107,6 +109,27 @@
 			$sql_data_array['entry_gender'] = $gender;
 
 			tep_db_perform( TABLE_ADDRESS_BOOK, $sql_data_array, 'update', "customers_id = '" . (int)$customer_id . "' and address_book_id = '" . (int)$customer_default_address_id . "'" );
+
+			// #FB-VIES: re-validacion AUTOMATICA en VIES al editar el perfil (solo clientes de paises UE
+			// distintos de Espana/UK). Se lanza si se acaba de guardar un VAT de empresa nuevo, o si el
+			// cliente aun no esta validado (asi corregir el NIF basta para quedar validado, sin admin).
+			// Un cliente ya valido NO re-llama a VIES en cada edicion (el cron mantiene la frescura).
+			// NUNCA bloquea el guardado.
+			try {
+				$fb_eu_no_es = array(14, 21, 33, 53, 55, 56, 57, 67, 72, 73, 74, 81, 84, 97, 103, 105, 117, 123, 124, 132, 141, 150, 170, 171, 175, 189, 190, 203);
+				global $customer_country_id;
+				if (in_array((int)$customer_country_id, $fb_eu_no_es, true)) {
+					if (!class_exists('fb_vies')) { require_once DIR_FS_CATALOG . 'includes/classes/fb_vies.php'; }
+					$fb_ya_valido = false;
+					if (!$fb_vies_revalidar) {
+						$fb_q = tep_db_query("select valid from fb_vies_status where customers_id = '" . (int)$customer_id . "' and valid = '1'");
+						$fb_ya_valido = tep_db_num_rows($fb_q) > 0;
+					}
+					if ($fb_vies_revalidar || !$fb_ya_valido) {
+						fb_vies::validateCustomer((int)$customer_id, 'account-edit');
+					}
+				}
+			} catch (\Throwable $fb_vies_e) { /* no romper el guardado */ }
 
 			// Autologon
 			if( tep_not_null($_COOKIE['email_address']) )

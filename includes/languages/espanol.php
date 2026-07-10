@@ -203,6 +203,7 @@ define('ENTRY_SUBURB_ERROR', '');
 define('ENTRY_SUBURB_TEXT', '');
 define('ENTRY_POST_CODE', 'Código Postal:');
 define('ENTRY_POST_CODE_ERROR', 'Su código postal debe tener al menos ' . ENTRY_POSTCODE_MIN_LENGTH . ' letras.');
+define('ENTRY_POST_CODE_FORMAT_ERROR', 'El código postal no parece válido para el país seleccionado. España: 5 dígitos (ej. 03700); Portugal: 7 dígitos (ej. 4400-123).');
 define('ENTRY_POST_CODE_TEXT', '*');
 define('ENTRY_CITY', 'Ciudad:');
 define('ENTRY_CITY_ERROR', 'Su ciudad debe tener al menos ' . ENTRY_CITY_MIN_LENGTH . ' letras.');

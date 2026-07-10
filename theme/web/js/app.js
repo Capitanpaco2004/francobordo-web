@@ -212,6 +212,19 @@ var appClass = function()
 				} else {
 					dmWrprPrco.children("s").remove();
 				}
+
+				// Color rosa de oferta (#fich.prdt-ofrt .prco): la variante en oferta debe verse
+				// como oferta tambien en el precio. Recordamos si la clase venia de serie
+				// (special de producto, server-side) para no quitarla nunca en ese caso.
+				var dmFich = $("#fich");
+				if (typeof dmFich.data("ofrt-base") === 'undefined') {
+					dmFich.data("ofrt-base", dmFich.hasClass("prdt-ofrt") ? 1 : 0);
+				}
+				if (sPriceLast !== '') {
+					dmFich.addClass("prdt-ofrt");
+				} else if (dmFich.data("ofrt-base") !== 1) {
+					dmFich.removeClass("prdt-ofrt");
+				}
             },
             changePriceSpecial: function(sPriceNew)
 			{

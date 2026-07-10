@@ -430,20 +430,63 @@ class Shipping
 
         // Si estamos enviando el ZONE ID por POST
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['zone_id'])) {
-            if ((int) $_POST['city_id'] == 0) {
+            // Formato de CP (parche postcode-fix 2026-07-09): España = 5 dígitos con provincia 01-52; resto de países, sin '@'
+            $_postcode = trim(tep_db_prepare_input(isset($_POST['postcode']) ? $_POST['postcode'] : ''));
+            $_country = (int) (isset($_POST['country']) ? $_POST['country'] : 0);
+            if ($_country == 0) {
+                $_arow = pharaonix_queryOne('SELECT entry_country_id FROM address_book WHERE address_book_id = "' . (int) $customer_default_address_id . '"')->records;
+                if (is_array($_arow) && isset($_arow['entry_country_id'])) {
+                    $_country = (int) $_arow['entry_country_id'];
+                }
+            }
+            $_cp_ok = true;
+            if ($_country == 195) {
+                $_cp_ok = (bool) preg_match('/^(0[1-9]|[1-4][0-9]|5[0-2])[0-9]{3}$/', $_postcode);
+            } elseif ($_country == 171) {
+                // Portugal: CP7 normalizado a 1234-567
+                if (preg_match('/^([0-9]{4})\s*-?\s*([0-9]{3})$/', $_postcode, $_cpm)) {
+                    $_postcode = $_cpm[1] . '-' . $_cpm[2];
+                } else {
+                    $_cp_ok = false;
+                }
+            } elseif ($_postcode == '' || strpos($_postcode, '@') !== false) {
+                $_cp_ok = false;
+            }
+            if (!$_cp_ok) {
+                // addSession (nuevo=true) y NO add_session: show('message_error') solo pinta mensajes con clave de string
+                $messageStack->addSession('message_error', defined('ENTRY_POST_CODE_FORMAT_ERROR') ? ENTRY_POST_CODE_FORMAT_ERROR : 'El código postal no parece válido para el país seleccionado. En España son 5 dígitos (ej. 03700).', 'error');
+                $this->redirect = tep_href_link(FILENAME_CHECKOUT_SELECT_ZONE);
+                return true;
+            }
+
+            if ((int) $_POST['city_id'] == 0 && trim(tep_db_prepare_input(isset($_POST['city']) ? $_POST['city'] : '')) != '') {
+                // cities no tiene columnas custom/id_customer (el insert legacy moria con SQL error); cp guarda CP5 ES / CP4 PT
                 tep_db_perform('cities', array(
                     'id_country' => (int) $_POST['country'],
                     'id_zone' => intval($_POST['zone_id']),
-                    'name' => tep_db_prepare_input($_POST['city']),
-                    'cp' => tep_db_prepare_input($_POST['postcode']),
-                    'custom' => 1,
-                    'id_customer' => $customer_id,
+                    'name' => trim(tep_db_prepare_input($_POST['city'])),
+                    'cp' => fb_cp_lookup_value($_postcode, $_country),
                 ));
                 $_POST['city_id'] = tep_db_insert_id();
             }
 
+            // Validamos y resolvemos city desde id (parche city-fix 2026-05-16, portado del checkout_select_zone.php legacy)
+            $_city_id = (int) $_POST['city_id'];
+            $_city_name = '';
+            if ($_city_id > 0) {
+                $_cq = tep_db_query('SELECT TRIM(LEFT(name,32)) AS name FROM cities WHERE id = ' . $_city_id . ' LIMIT 1');
+                if ($_crow = tep_db_fetch_array($_cq)) {
+                    $_city_name = $_crow['name'];
+                }
+            }
+            if ($_city_id == 0 || $_city_name == '') {
+                $messageStack->addSession('message_error', 'Selecciona una ciudad de la lista para continuar.', 'error');
+                $this->redirect = tep_href_link(FILENAME_CHECKOUT_SELECT_ZONE);
+                return true;
+            }
+
             // Actualizamos la ZONE ID
-            tep_db_query('UPDATE address_book SET entry_city_id = ' . (int) $_POST['city_id'] . ', entry_postcode = ' . $_POST['postcode'] . ', entry_zone_id = ' . (int) $_POST['zone_id'] . ' WHERE address_book_id = ' . $customer_default_address_id . ';');
+            tep_db_query('UPDATE address_book SET entry_city_id = ' . $_city_id . ', entry_city = "' . tep_db_input($_city_name) . '", entry_postcode = "' . tep_db_input($_postcode) . '", entry_zone_id = ' . (int) $_POST['zone_id'] . ' WHERE address_book_id = ' . (int) $customer_default_address_id . ';');
 
             // Redireccionamos
             $this->redirect = tep_href_link(FILENAME_CHECKOUT_SHIPPING);

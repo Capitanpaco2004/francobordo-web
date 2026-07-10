@@ -68,9 +68,11 @@
         tep_redirect(tep_href_link('kiala_orders.php', tep_get_all_get_params(array('action')) . 'action=edit'));
         break;
       case 'deleteconfirm':
-        $oID = tep_db_prepare_input($_GET['oID']);
+        $oID = (int)tep_db_prepare_input($_GET['oID']);
 
-        tep_remove_order($oID, $_POST['restock']);
+        // Reponer stock solo si se pidió: tep_remove_order() exige 'on' (mismo bug que orders.php).
+        $restock = ((($_POST['restock'] ?? '') === '1') || (($_POST['restock'] ?? '') === 'on')) ? 'on' : false;
+        tep_remove_order($oID, $restock);
 
         tep_redirect(tep_href_link('kiala_orders.php', tep_get_all_get_params(array('oID', 'action'))));
         break;

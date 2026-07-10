@@ -682,6 +682,19 @@ function tep_draw_button($title = null, $icon = null, $link = null, $priority = 
 	return $button;
 }
 
+// Normaliza un CP de formulario al valor de busqueda en cities.cp:
+// ES = 5 digitos (conservando el cero inicial); PT (171) = los 4 primeros digitos del CP7 (cities guarda CP4)
+if (!function_exists('fb_cp_lookup_value')) {
+	function fb_cp_lookup_value($sCp, $nCountry = 0)
+	{
+		$sCp = trim( (string)$sCp );
+		$sDigits = preg_replace( '/[^0-9]/', '', $sCp );
+		if( (int)$nCountry === 171 || ( (int)$nCountry === 0 && preg_match( '/^[0-9]{4}\s*-\s*[0-9]{3}$/', $sCp ) ) )
+			return substr( $sDigits, 0, 4 );
+		return substr( $sDigits, 0, 5 );
+	}
+}
+
 function ajax_get_cities_html($country = 0, $zone = false, $cp = false, $selected = true, $return = false) {
 	//$output = '<label for="city">'.ENTRY_CITY.'</label>';
 	$output = '';
@@ -690,10 +703,11 @@ function ajax_get_cities_html($country = 0, $zone = false, $cp = false, $selecte
 	$cities_array = [];
 	$sql          = false;
 	if ((int)$zone > 0)
-		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE id_zone = '" . (int)$zone . "' AND id_country = '" . $country . "' ORDER BY name";
+		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE id_zone = '" . (int)$zone . "' AND id_country = '" . (int)$country . "' ORDER BY name";
 
 	if ((int)$cp > 0)
-		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE cp = '" . $cp . "' AND id_country = '" . $country . "' ORDER BY name";
+		// postcode-fix 2026-07-09: normalizamos (PT busca por CP4) y escapamos
+		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE cp = '" . tep_db_input(fb_cp_lookup_value($cp, (int)$country)) . "' AND id_country = '" . (int)$country . "' ORDER BY name";
 
 
 	if ($sql != false) {

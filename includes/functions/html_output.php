@@ -467,10 +467,11 @@ function ajax_get_cities_html($country = 0, $zone = false, $cp = false, $selecte
 	$cities_array = [];
 	$sql          = false;
 	if ((int)$zone > 0)
-		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE id_zone = '" . (int)$zone . "' AND id_country = '" . $country . "' ORDER BY name";
+		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE id_zone = '" . (int)$zone . "' AND id_country = '" . (int)$country . "' ORDER BY name";
 
 	if ((int)$cp > 0)
-		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE cp = '" . $cp . "' AND id_country = '" . $country . "' ORDER BY name";
+		// postcode-fix 2026-07-09: normalizamos (PT busca por CP4) y escapamos
+		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE cp = '" . tep_db_input(fb_cp_lookup_value($cp, (int)$country)) . "' AND id_country = '" . (int)$country . "' ORDER BY name";
 
 	if ($sql != false) {
 		$zones_query    = tep_db_query($sql);
@@ -656,10 +657,11 @@ function ajax_get_cities_html2($country = 0, $zone = false, $cp = false, $select
 	$cities_array = [];
 	$sql          = false;
 	if ((int)$zone > 0)
-		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE id_zone = '" . (int)$zone . "' AND id_country = '" . $country . "' ORDER BY name";
+		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE id_zone = '" . (int)$zone . "' AND id_country = '" . (int)$country . "' ORDER BY name";
 
 	if ((int)$cp > 0)
-		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE cp = '" . $cp . "' AND id_country = '" . $country . "' ORDER BY name";
+		// postcode-fix 2026-07-09: normalizamos (PT busca por CP4) y escapamos
+		$sql = "SELECT id, name, cp, id_zone, id_country FROM cities WHERE cp = '" . tep_db_input(fb_cp_lookup_value($cp, (int)$country)) . "' AND id_country = '" . (int)$country . "' ORDER BY name";
 	if ((int)$selected <= 0) {
 		return tep_draw_input_field('city', $city_name);
 	}

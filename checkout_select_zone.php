@@ -46,8 +46,31 @@
 		// Actualizamos la ZONE ID
 			// Validamos y resolvemos city desde id (parche city-fix 2026-05-16)
 		$_city_id = (int)$_POST['city_id'];
-		$_postcode = tep_db_input(tep_db_prepare_input($_POST['postcode']));
+		$_postcode_raw = trim(tep_db_prepare_input($_POST['postcode']));
+		$_postcode = tep_db_input($_postcode_raw);
 		$_zid = (int)$_POST['zone_id'];
+			// Formato de CP (parche postcode-fix 2026-07-09): España = 5 dígitos con provincia 01-52;
+			// Portugal (171) = CP7 normalizado a 1234-567; resto de países, sin '@'
+		$_country = (int)(isset($_POST['country']) ? $_POST['country'] : 0);
+		$_cp_ok = true;
+		if( $_country == 195 )
+			$_cp_ok = (bool)preg_match('/^(0[1-9]|[1-4][0-9]|5[0-2])[0-9]{3}$/', $_postcode_raw);
+		else if( $_country == 171 )
+		{
+			if( preg_match('/^([0-9]{4})\s*-?\s*([0-9]{3})$/', $_postcode_raw, $_cpm) )
+			{
+				$_postcode_raw = $_cpm[1] . '-' . $_cpm[2];
+				$_postcode = tep_db_input($_postcode_raw);
+			}
+			else
+				$_cp_ok = false;
+		}
+		else if( $_postcode_raw == '' || strpos($_postcode_raw, '@') !== false )
+			$_cp_ok = false;
+		if( !$_cp_ok ) {
+			$messageStack->add_session( 'checkout_address', defined('ENTRY_POST_CODE_FORMAT_ERROR') ? ENTRY_POST_CODE_FORMAT_ERROR : 'El código postal no parece válido para el país seleccionado. En España son 5 dígitos (ej. 03700).', 'error' );
+			tep_redirect( tep_href_link( FILENAME_CHECKOUT_SELECT_ZONE, '', 'SSL' ) );
+		}
 		$_city_name = '';
 		if( $_city_id > 0 ) {
 			$_cq = tep_db_query( 'SELECT name FROM cities WHERE id = ' . $_city_id . ' LIMIT 1' );

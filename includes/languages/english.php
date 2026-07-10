@@ -189,6 +189,7 @@ define('ENTRY_SUBURB_ERROR', '');
 define('ENTRY_SUBURB_TEXT', '');
 define('ENTRY_POST_CODE', 'Post Code:');
 define('ENTRY_POST_CODE_ERROR', 'Your Post Code must contain a minimum of ' . ENTRY_POSTCODE_MIN_LENGTH . ' characters.');
+define('ENTRY_POST_CODE_FORMAT_ERROR', 'The post code does not look valid for the selected country. Spain: 5 digits (e.g. 03700); Portugal: 7 digits (e.g. 4400-123).');
 define('ENTRY_POST_CODE_TEXT', '*');
 define('ENTRY_CITY', 'City:');
 define('ENTRY_CITY_ERROR', 'Your City must contain a minimum of ' . ENTRY_CITY_MIN_LENGTH . ' characters.');

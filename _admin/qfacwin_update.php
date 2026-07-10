@@ -195,7 +195,7 @@ if ($procesarwartic){
 				// echo  "CACTUESTOC: ". $row["CACTUESTOC"] . " CACTUPREUS: ". $row["CACTUPREUS"] ." NESTOC: ". $row["NESTOC"]. $crlf ; 
 				 //modifiquem
 				 $strsql = "update " . $strnomdb . $strprefixtaules . "products  set " ;
-				 if ($intcltrac == 116) // francobordo
+				 if ( ($intcltrac == 116) and ((float)$row["NPCOM"] > 0) ) // francobordo (patch FB 2026-07: coste 0 de QFac NO pisa el de la web)
 						{   $strsql .=  " products_cost = " . $row["NPCOM"] . " , ";}
 						
 				 if ($nomespreus == "S") { 
@@ -433,7 +433,7 @@ while ($data = fgetcsv ($fp, 0, ";", '"', "\\")) {  // canviat  antic: while ($d
 						$strsql = "insert into " . $strnomdb . $strprefixtaules . "products_stock  set " ;
 						$strsql .=  " products_id = " .   $idproducte . " , ";			
 						$strsql .=  " products_stock_attributes = '" .  $stratributs . "' , ";
-					 if ($intcltrac == 116) // francobordo
+					 if ( ($intcltrac == 116) and ((float)$row["NPCOM"] > 0) ) // francobordo (patch FB 2026-07: coste 0 de QFac NO pisa el de la web)
 			   			 {   $strsql .=  " products_stock_cost = " . $row["NPCOM"] . " , ";}
 					$strsql .=  " products_stock_quantity = " .  $row["NSTOCAC"] ;
 					$result = mysqli_query( $link, $strsql)  or die ("INS products_stock " . mysqli_errno( $link ).": ".mysqli_error($link). $crlf .$strsql);
@@ -446,7 +446,7 @@ while ($data = fgetcsv ($fp, 0, ";", '"', "\\")) {  // canviat  antic: while ($d
 					$result = mysqli_query($link,  $strsql)  or die ("INS from products_stock  " . mysqli_errno( $link ).": ".mysqli_error($link). $crlf .$strsql);
 					//modifiquem les dades que pujen de QFACWIN
 							 $strsql  = "update " . $strnomdb . $strprefixtaules . "products_stock  set " ;
-					 if ($intcltrac == 116) // francobordo
+					 if ( ($intcltrac == 116) and ((float)$row["NPCOM"] > 0) ) // francobordo (patch FB 2026-07: coste 0 de QFac NO pisa el de la web)
 			   			 {   $strsql .=  " products_stock_cost = " . $row["NPCOM"] . " , ";}
     				 $strsql .=  " products_stock_quantity = " .  $row["NSTOCAC"] ;
 					 $strsql .=  " where products_stock_id = ".$idantig  ; 
@@ -457,7 +457,7 @@ while ($data = fgetcsv ($fp, 0, ";", '"', "\\")) {  // canviat  antic: while ($d
 				
 				//modifiquem les dades que pujen de QFACWIN
 				 $strsql  = "update " . $strnomdb . $strprefixtaules . "products_stock  set " ;
-					 if ($intcltrac == 116) // francobordo
+					 if ( ($intcltrac == 116) and ((float)$row["NPCOM"] > 0) ) // francobordo (patch FB 2026-07: coste 0 de QFac NO pisa el de la web)
 			   			 {   $strsql .=  " products_stock_cost = " . $row["NPCOM"] . " , ";}
     				 $strsql .=  " products_stock_quantity = " .  $row["NSTOCAC"] ;
 					// $strsql .=  " where products_stock_id = ".$idantig  ; 

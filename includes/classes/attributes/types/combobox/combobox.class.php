@@ -35,6 +35,25 @@ class option_combobox
 			$checkStock = (int)$row['check_stock'];
 		}
 
+		// Ofertas de VARIANTE del motor auto_specials: precargamos el delta ORIGINAL
+		// (snapshot) por options_values_id para poder pintar el precio "antes" tachado
+		// aunque el producto no tenga specials (una variante rebajada via delta es
+		// indistinguible de un precio normal sin esta info). cgid segun sesion SPPC
+		// (0=Retail, 1=Profesionales); Amazon/EBAY no llevan tracking -> sin tachado.
+		$aVariantOffers = array();
+		if ($products_id > 0) {
+			$nCgidSession = isset($_SESSION['sppc_customer_group_id']) ? (int)$_SESSION['sppc_customer_group_id'] : 0;
+			if ($nCgidSession === 0 || $nCgidSession === 1) {
+				$q = tep_db_query("SELECT options_values_id, ovp_orig, prefix_orig FROM auto_specials_active
+				                   WHERE products_id = " . (int)$products_id . "
+				                     AND customers_group_id = " . $nCgidSession . "
+				                     AND estado = 'active' AND options_values_id > 0 AND ovp_orig IS NOT NULL");
+				while ($row = tep_db_fetch_array($q)) {
+					$aVariantOffers[(int)$row['options_values_id']] = $row;
+				}
+			}
+		}
+
 		// Recorremos los atributos
 		while ($aDato = tep_db_fetch_array($aDatos)) {
 			// Precio (modificador escalado por el ratio de oferta)
@@ -46,10 +65,21 @@ class option_combobox
 				$sPriceText = $currencies->display_price($mod + $products_price, tep_get_tax_rate($nTaxId));
 			}
 
-			// Precio anterior (tachado) POR VARIANTE: precio COMPLETO de la variante (sin oferta), modificador
-			// SIN escalar sobre el precio completo. Solo si hay oferta (offer_ratio < 1); si no, vacío y el JS
-			// no muestra tachado. app.js (changePrice) lo lleva al <s>.
-			if ($offer_ratio < 1 && $full_price > 0) {
+			// Precio anterior (tachado) POR VARIANTE: precio COMPLETO de la variante sin ofertas.
+			// Dos fuentes, por prioridad:
+			//  1) Oferta de VARIANTE del motor auto_specials -> delta ORIGINAL del snapshot
+			//     (el delta actual ya esta rebajado; usarlo mostraria un "antes" falso).
+			//  2) Oferta de PRODUCTO (offer_ratio < 1) -> modificador actual SIN escalar.
+			// Vacio si no hay oferta; app.js (changePrice) lo lleva al <s>.
+			$nBaseFull = ($full_price > 0) ? $full_price : $products_price;
+			$nOvid = (int)$aDato['products_options_values_id'];
+			if (isset($aVariantOffers[$nOvid])) {
+				$modOrig = (float)$aVariantOffers[$nOvid]['ovp_orig'];
+				$nPrecioAntes = ($aVariantOffers[$nOvid]['prefix_orig'] == '-') ? ($nBaseFull - $modOrig) : ($nBaseFull + $modOrig);
+				// Sanity: solo tachar si el "antes" supera al precio efectivo actual
+				$nPrecioAhora = ($aDato['price_prefix'] == '-') ? ($products_price - $mod) : ($products_price + $mod);
+				$sPriceLast = ($nPrecioAntes > $nPrecioAhora + 0.005) ? $currencies->display_price($nPrecioAntes, tep_get_tax_rate($nTaxId)) : '';
+			} elseif ($offer_ratio < 1 && $full_price > 0) {
 				$modFull = (float)$aDato['options_values_price'];
 				if ($aDato['price_prefix'] == '-') {
 					$sPriceLast = $currencies->display_price($full_price - $modFull, tep_get_tax_rate($nTaxId));

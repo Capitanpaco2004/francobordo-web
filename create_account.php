@@ -187,6 +187,28 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
 
 		$messageStack->add('create_account', ENTRY_POST_CODE_ERROR);
 	}
+	// Formato de CP (parche postcode-fix 2026-07-09): España = 5 dígitos con provincia 01-52;
+	// Portugal (171) = CP7 normalizado a 1234-567; resto de países, sin '@'
+	$postcode = trim($postcode);
+	if ((int)$country == 195) {
+		if (!preg_match('/^(0[1-9]|[1-4][0-9]|5[0-2])[0-9]{3}$/', $postcode)) {
+			$error = true;
+
+			$messageStack->add('create_account', defined('ENTRY_POST_CODE_FORMAT_ERROR') ? ENTRY_POST_CODE_FORMAT_ERROR : 'El código postal no parece válido para el país seleccionado. En España son 5 dígitos (ej. 03700).');
+		}
+	} elseif ((int)$country == 171) {
+		if (preg_match('/^([0-9]{4})\s*-?\s*([0-9]{3})$/', $postcode, $_cpm)) {
+			$postcode = $_cpm[1] . '-' . $_cpm[2];
+		} else {
+			$error = true;
+
+			$messageStack->add('create_account', defined('ENTRY_POST_CODE_FORMAT_ERROR') ? ENTRY_POST_CODE_FORMAT_ERROR : 'El código postal no parece válido para el país seleccionado. En Portugal son 7 dígitos (ej. 4400-123).');
+		}
+	} elseif ($postcode == '' || strpos($postcode, '@') !== false) {
+		$error = true;
+
+		$messageStack->add('create_account', defined('ENTRY_POST_CODE_FORMAT_ERROR') ? ENTRY_POST_CODE_FORMAT_ERROR : 'El código postal no parece válido para el país seleccionado. En España son 5 dígitos (ej. 03700).');
+	}
 	if ($city_id == 0 && $city == '') {
 		$error = true;
 		$messageStack->add('create_account', ENTRY_CITY_ID_ERROR);
@@ -440,6 +462,20 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
 			}
 		}
 
+
+		// #FB-VIES: validacion AUTOMATICA del VAT en VIES al registrarse (solo paises UE distintos de
+		// Espana y UK: una empresa ES paga IVA nacional y fuera de la UE no se valida en VIES). Se hace
+		// ANTES del login para que el flag de sesion sppc_vies_reverse_charge quede fijado ya en esta
+		// peticion (0% inmediato si la empresa esta de alta en VIES). validateCustomer usa
+		// entry_company_tax_id con fallback al NIF de la direccion. NUNCA bloquea el alta (try/catch;
+		// si VIES esta caido queda 'unchecked' y el cron lo reintenta).
+		try {
+			$fb_eu_no_es = array(14, 21, 33, 53, 55, 56, 57, 67, 72, 73, 74, 81, 84, 97, 103, 105, 117, 123, 124, 132, 141, 150, 170, 171, 175, 189, 190, 203);
+			if (in_array((int)$country, $fb_eu_no_es, true)) {
+				if (!class_exists('fb_vies')) { require_once DIR_FS_CATALOG . 'includes/classes/fb_vies.php'; }
+				fb_vies::validateCustomer((int)$customer_id, 'signup');
+			}
+		} catch (\Throwable $fb_vies_e) { /* no romper el alta */ }
 
 		try {
 			$customerCore = Customer::createById((int)$customer_id);

@@ -60,9 +60,11 @@ if ($prod && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 $err = 'Variante no encontrada.';
             } else {
                 $sign = ($vr['price_prefix'] === '-') ? -1.0 : 1.0;
-                $pvp_var_net = (float)$prod['products_price'] + $sign * (float)$vr['options_values_price'];
+                // Precio WEB actual (con ratio de oferta de producto): el % se aplica sobre esto
+                $pvp_var_net = ((float)$prod['products_price'] + $sign * (float)$vr['options_values_price'])
+                               * as_product_offer_ratio($pID, 0);
 
-                // Retail: % sobre su propio precio actual; importe → neto desde c/IVA
+                // Retail: % sobre su precio web actual; importe → neto desde c/IVA
                 $target_net = null;
                 if ($in_retail !== null) {
                     [$v, $es_pct] = $in_retail;
@@ -159,6 +161,10 @@ if ($prod) {
     $tax_rate = $TAX_BY_CLASS[(int)$prod['products_tax_class_id']] ?? 21.0;
     $iva_mult = 1 + $tax_rate / 100;
     $cost = (float)$prod['products_cost'];
+    // Ratio de oferta de PRODUCTO (specials): el frontend lo aplica sobre el precio
+    // de cada variante. Los precios de esta pantalla lo incluyen (= precio web real).
+    $ratio0 = as_product_offer_ratio($pID, 0);
+    $ratio1 = as_product_offer_ratio($pID, 1);
 ?>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
     <h3 style="margin:0">Ofertas por variante — #<?=$pID?> <?=htmlspecialchars($prod['products_name'] ?? '')?></h3>
@@ -172,6 +178,14 @@ if ($prod) {
     <?php if ((int)$prod['products_status'] !== 1): ?><b style="color:#c00">OJO: producto no activo (status=<?=(int)$prod['products_status']?>).</b><?php endif; ?>
   </p>
 
+  <?php if ($ratio0 < 1 || $ratio1 < 1): ?>
+    <div class="avs-err" style="background:#fef3c7;color:#78350f">
+      ⚠ Este producto tiene <b>oferta de PRODUCTO activa</b>
+      (<?php if ($ratio0 < 1) echo 'Retail −' . number_format((1-$ratio0)*100, 1, ',', '.') . '%'; ?><?php if ($ratio0 < 1 && $ratio1 < 1) echo ' · '; ?><?php if ($ratio1 < 1) echo 'G1 −' . number_format((1-$ratio1)*100, 1, ',', '.') . '%'; ?>)
+      que la web aplica ENCIMA del precio de cada variante. Los precios de esta tabla ya la incluyen
+      (= precio web real), y el precio que teclees será el precio final que verá el cliente.
+    </div>
+  <?php endif; ?>
   <?php if ($msg): ?><div class="avs-msg"><?=htmlspecialchars($msg)?></div><?php endif; ?>
   <?php if ($err): ?><div class="avs-err"><?=htmlspecialchars($err)?></div><?php endif; ?>
 
@@ -194,21 +208,22 @@ if ($prod) {
     <?php foreach ($variantes as $v):
         $ovid = (int)$v['options_values_id'];
         $sign = ($v['price_prefix'] === '-') ? -1.0 : 1.0;
-        $pvp_net = (float)$prod['products_price'] + $sign * (float)$v['options_values_price'];
+        // Precio WEB real = (base ± delta) × ratio de la oferta de producto
+        $pvp_net = ((float)$prod['products_price'] + $sign * (float)$v['options_values_price']) * $ratio0;
         $pvp_iva = $pvp_net * $iva_mult;
         $margen = $pvp_net > 0 ? round(($pvp_net - $cost) / $pvp_net * 100, 1) : null;
         $mcls = $margen === null ? '' : ($margen < 0 ? 'avs-margin-neg' : ($margen < 10 ? 'avs-margin-low' : 'avs-margin-ok'));
         $stock = (int)($v['stock_raw'] ?? 0); if ($stock < 0 || $stock == 2000) $stock = 0;
-        // G1: base G1 (products_groups o specials g1) + delta g1 si existe
+        // G1 web: (base_grupo ± delta_g1) × ratio_g1
         $g1_price_iva = null;
         $gq = tep_db_query("SELECT customers_group_price FROM products_groups WHERE products_id={$pID} AND customers_group_id=1 LIMIT 1");
         if ($gr = tep_db_fetch_array($gq)) {
             $g1_base = (float)$gr['customers_group_price'];
             if ($v['ovp_g1'] !== null) {
                 $sg = ($v['pref_g1'] === '-') ? -1.0 : 1.0;
-                $g1_price_iva = ($g1_base + $sg * (float)$v['ovp_g1']) * $iva_mult;
+                $g1_price_iva = ($g1_base + $sg * (float)$v['ovp_g1']) * $ratio1 * $iva_mult;
             } else {
-                $g1_price_iva = ($g1_base + $sign * (float)$v['options_values_price']) * $iva_mult;
+                $g1_price_iva = ($g1_base + $sign * (float)$v['options_values_price']) * $ratio1 * $iva_mult;
             }
         }
         $activas = $ofertas_act[$ovid] ?? [];

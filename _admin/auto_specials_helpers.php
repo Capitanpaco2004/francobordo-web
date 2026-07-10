@@ -193,13 +193,18 @@ function as_apply_variant_offer(int $pid, int $ovid, $pvp_oferta_net, $floor, bo
     $pa_id = (int)$row['products_attributes_id'];
     $base  = (float)$row['products_price'];
     $sign0 = ($row['pref0'] === '-') ? -1.0 : 1.0;
-    $pvp_var = round($base + $sign0 * (float)$row['ovp0'], 4);
+    // El frontend escala el precio de variante con el ratio del specials de PRODUCTO:
+    // precio_web = (base ± delta) × ratio. Los targets que recibimos son precios WEB
+    // (lo que debe ver el cliente), así que el delta se calcula compensando el ratio.
+    $ratio0 = as_product_offer_ratio($pid, 0);
+    $pvp_var_full = round($base + $sign0 * (float)$row['ovp0'], 4);
+    $pvp_var = round($pvp_var_full * $ratio0, 4); // precio web actual
     if ($pvp_oferta_net === null && $pvp_g1_net === null)
         return [false, "#{$pid}:{$ovid}: indica precio Retail, precio G1 o ambos"];
     if ($pvp_oferta_net !== null) {
         $pvp_oferta_net = (float)$pvp_oferta_net;
         if ($pvp_oferta_net <= 0) return [false, "#{$pid}:{$ovid}: precio de oferta Retail invalido"];
-        if ($pvp_oferta_net >= $pvp_var) return [false, "#{$pid}:{$ovid}: la oferta Retail (" . number_format($pvp_oferta_net,4) . ") no mejora el precio actual (" . number_format($pvp_var,4) . ")"];
+        if ($pvp_oferta_net >= $pvp_var) return [false, "#{$pid}:{$ovid}: la oferta Retail (" . number_format($pvp_oferta_net,4) . ") no mejora el precio web actual (" . number_format($pvp_var,4) . ")"];
     }
 
     // Stock actual de la variante (informativo para el cierre por stock)
@@ -217,7 +222,8 @@ function as_apply_variant_offer(int $pid, int $ovid, $pvp_oferta_net, $floor, bo
 
     // cgid=0 → delta en products_attributes (solo si hay precio Retail)
     if ($pvp_oferta_net !== null) {
-        [$new_ovp, $new_prefix] = as_variant_delta_for_target($pvp_oferta_net, $base);
+        // Compensar ratio: para que el cliente vea T, el precio completo debe ser T/ratio
+        [$new_ovp, $new_prefix] = as_variant_delta_for_target(round($pvp_oferta_net / $ratio0, 4), $base);
         $ovp_orig0 = (float)$row['ovp0'];
         $prefix_orig0 = (string)$row['pref0'];
         tep_db_query("UPDATE products_attributes SET
@@ -258,15 +264,12 @@ function as_apply_variant_offer(int $pid, int $ovid, $pvp_oferta_net, $floor, bo
 
     if ($target_g1 !== null && $price_g1 !== null) {
         {
-            $qg = tep_db_query("SELECT specials_new_products_price FROM specials
-                                WHERE products_id={$pid} AND customers_group_id=1 AND status=1 LIMIT 1");
-            if ($r1 = tep_db_fetch_array($qg)) {
-                $base_g1 = (float)$r1['specials_new_products_price'];
-            } else {
-                $qg = tep_db_query("SELECT customers_group_price FROM products_groups WHERE products_id={$pid} AND customers_group_id=1 LIMIT 1");
-                $base_g1 = ($r1 = tep_db_fetch_array($qg)) ? (float)$r1['customers_group_price'] : $base;
-            }
-            [$new_ovp_g1, $new_prefix_g1] = as_variant_delta_for_target($target_g1, $base_g1);
+            // Base del delta G1 = precio de grupo COMPLETO (products_groups). El specials
+            // de producto G1 (si existe) actúa como ratio en el frontend, no como base.
+            $qg = tep_db_query("SELECT customers_group_price FROM products_groups WHERE products_id={$pid} AND customers_group_id=1 LIMIT 1");
+            $base_g1 = ($r1 = tep_db_fetch_array($qg)) ? (float)$r1['customers_group_price'] : $base;
+            $ratio1 = as_product_offer_ratio($pid, 1);
+            [$new_ovp_g1, $new_prefix_g1] = as_variant_delta_for_target(round($target_g1 / $ratio1, 4), $base_g1);
             $qg = tep_db_query("SELECT options_values_price, price_prefix FROM products_attributes_groups
                                 WHERE products_attributes_id={$pa_id} AND customers_group_id=1 LIMIT 1");
             $r1 = tep_db_fetch_array($qg);
@@ -351,48 +354,61 @@ function as_variant_delta_for_target(float $target_price, float $base_price): ar
 }
 
 /**
- * Precio final actual de la variante para cgid=0 (público):
- *   base = (specials cgid=0 si activo) || products_price
- *   delta = products_attributes (options_values_price, price_prefix)
+ * Ratio de oferta de PRODUCTO para (pid, cgid): specials_activo / precio_base.
+ * 1.0 si no hay specials. El frontend escala el precio de variante con este
+ * ratio: precio_web = (base ± delta) × ratio (fix "doble descuento" 2026-06-17,
+ * ver memoria precio-oferta-variante).
+ */
+function as_product_offer_ratio(int $pid, int $cgid): float {
+    if ($cgid === 0) {
+        $q = tep_db_query("SELECT products_price AS base FROM products WHERE products_id={$pid} LIMIT 1");
+    } else {
+        $q = tep_db_query("SELECT customers_group_price AS base FROM products_groups
+                           WHERE products_id={$pid} AND customers_group_id={$cgid} LIMIT 1");
+    }
+    $row = tep_db_fetch_array($q);
+    $base = $row ? (float)$row['base'] : 0.0;
+    if ($base <= 0) return 1.0;
+    $q = tep_db_query("SELECT specials_new_products_price FROM specials
+                       WHERE products_id={$pid} AND customers_group_id={$cgid} AND status=1 LIMIT 1");
+    $sp = tep_db_fetch_array($q);
+    if (!$sp || $sp['specials_new_products_price'] === null) return 1.0;
+    $r = (float)$sp['specials_new_products_price'] / $base;
+    return ($r > 0 && $r < 1) ? $r : 1.0;
+}
+
+/**
+ * Precio WEB actual de la variante para cgid=0 (lo que ve el cliente):
+ *   (products_price ± delta) × ratio_specials
  */
 function as_get_variant_g0_price(int $pa_id): ?float {
     $q = tep_db_query("
-        SELECT pa.products_id, pa.options_values_price, pa.price_prefix,
-               p.products_price,
-               (SELECT specials_new_products_price FROM specials s
-                WHERE s.products_id = pa.products_id AND s.customers_group_id=0 AND s.status=1
-                LIMIT 1) AS sp0
+        SELECT pa.products_id, pa.options_values_price, pa.price_prefix, p.products_price
         FROM products_attributes pa
         JOIN products p ON p.products_id = pa.products_id
         WHERE pa.products_attributes_id = {$pa_id} LIMIT 1");
     $row = tep_db_fetch_array($q);
     if (!$row) return null;
-    $base = $row['sp0'] !== null ? (float)$row['sp0'] : (float)$row['products_price'];
     $sign = ($row['price_prefix'] === '-') ? -1.0 : 1.0;
-    return round($base + $sign * (float)$row['options_values_price'], 4);
+    $full = (float)$row['products_price'] + $sign * (float)$row['options_values_price'];
+    return round($full * as_product_offer_ratio((int)$row['products_id'], 0), 4);
 }
 
 /**
- * Precio final actual de la variante para cgid=1 (Profesionales):
- *   base = (specials cgid=1) || products_groups (pid, 1) || products_price
- *   delta = products_attributes_groups (pa_id, 1) || products_attributes (fallback)
+ * Precio WEB actual de la variante para cgid=1 (Profesionales):
+ *   (base_grupo ± delta_g1) × ratio_specials_g1
+ * base_grupo = products_groups (pid,1); delta con fallback al de cgid=0.
  */
 function as_get_variant_g1_price(int $pa_id, int $pid): ?float {
-    $q = tep_db_query("SELECT specials_new_products_price FROM specials
-                       WHERE products_id={$pid} AND customers_group_id=1 AND status=1 LIMIT 1");
+    $q = tep_db_query("SELECT customers_group_price FROM products_groups
+                       WHERE products_id={$pid} AND customers_group_id=1 LIMIT 1");
     if ($row = tep_db_fetch_array($q)) {
-        $base = (float)$row['specials_new_products_price'];
+        $base = (float)$row['customers_group_price'];
     } else {
-        $q = tep_db_query("SELECT customers_group_price FROM products_groups
-                           WHERE products_id={$pid} AND customers_group_id=1 LIMIT 1");
-        if ($row = tep_db_fetch_array($q)) {
-            $base = (float)$row['customers_group_price'];
-        } else {
-            $q = tep_db_query("SELECT products_price FROM products WHERE products_id={$pid} LIMIT 1");
-            $row = tep_db_fetch_array($q);
-            if (!$row) return null;
-            $base = (float)$row['products_price'];
-        }
+        $q = tep_db_query("SELECT products_price FROM products WHERE products_id={$pid} LIMIT 1");
+        $row = tep_db_fetch_array($q);
+        if (!$row) return null;
+        $base = (float)$row['products_price'];
     }
     // delta G1 (con fallback a delta G0 si no hay fila para cgid=1)
     $q = tep_db_query("SELECT options_values_price, price_prefix
@@ -411,5 +427,5 @@ function as_get_variant_g1_price(int $pa_id, int $pid): ?float {
         $prefix = $row['price_prefix'];
     }
     $sign = ($prefix === '-') ? -1.0 : 1.0;
-    return round($base + $sign * $ovp, 4);
+    return round(($base + $sign * $ovp) * as_product_offer_ratio($pid, 1), 4);
 }

@@ -70,6 +70,7 @@ const LABEL_DICT = [
 	'ouverte' => ['abierta', 'open'], 'ouvert' => ['abierto', 'open'], 'fermée' => ['cerrada', 'closed'], 'fermé' => ['cerrado', 'closed'],
 	'claire' => ['clara', 'light'], 'clair' => ['claro', 'light'], 'foncée' => ['oscura', 'dark'], 'foncé' => ['oscuro', 'dark'],
 	'mate' => ['mate', 'matt'], 'mat' => ['mate', 'matt'], 'brillante' => ['brillante', 'gloss'], 'brillant' => ['brillante', 'gloss'],
+	'équipée' => ['equipada', 'equipped'], 'équipé' => ['equipado', 'equipped'], 'brute' => ['bruta', 'bare'], 'brut' => ['bruto', 'bare'],
 ];
 
 /** Traduce una etiqueta de variante con LABEL_DICT. $to: 0=ES, 1=EN. Palabras desconocidas se conservan. */
@@ -79,6 +80,32 @@ function vdmTranslateLabel($label, $to) {
 		$out = preg_replace('/(?<![\p{L}])' . preg_quote($fr, '/') . '(?![\p{L}])/iu', $tr[$to], $out);
 	}
 	return $out;
+}
+
+const LLM_LABEL_PROMPT_ES = 'Traduce al español de España esta etiqueta corta de variante de un producto náutico (viene en francés o inglés). Conserva códigos de modelo, referencias, números y unidades EXACTAMENTE igual. Responde SOLO con la traducción, sin comentarios.';
+const LLM_LABEL_PROMPT_EN = 'Translate this short variant label of a nautical product into English (source is French or Spanish). Keep model codes, references, numbers and units EXACTLY unchanged. Reply ONLY with the translation, no comments.';
+
+/** ¿La etiqueta contiene palabras "de texto" (≥4 letras) fuera de LABEL_DICT? → necesita LLM. */
+function vdmLabelNeedsLlm($label) {
+	if (!preg_match_all('/\p{L}{4,}/u', (string) $label, $m)) return false;
+	foreach ($m[0] as $w) {
+		if (!isset(LABEL_DICT[mb_strtolower($w, 'UTF-8')])) return true;
+	}
+	return false;
+}
+
+/** Etiqueta final por idioma: diccionario determinista + fallback LLM (cacheado por run)
+ *  cuando queda texto libre que el diccionario no cubre ("brut équipé"…). */
+function vdmTranslateLabelFull($label, $to, $useLlm) {
+	$dict = vdmTranslateLabel($label, $to);
+	if (!$useLlm || !vdmLabelNeedsLlm($label)) return $dict;
+	if (!isset($GLOBALS['vdmLabelLlmCache'])) $GLOBALS['vdmLabelLlmCache'] = [];
+	$key = $to . '|' . $label;
+	if (isset($GLOBALS['vdmLabelLlmCache'][$key])) return $GLOBALS['vdmLabelLlmCache'][$key];
+	$out = llmTranslate($label, 2, max(24, mb_strlen($label, 'UTF-8') * 3), $to === 0 ? LLM_LABEL_PROMPT_ES : LLM_LABEL_PROMPT_EN);
+	$res = $out !== '' ? $out : $dict;
+	$GLOBALS['vdmLabelLlmCache'][$key] = $res;
+	return $res;
 }
 
 // Marcas para las que NO se prefija el nombre del fabricante al título (UPPERCASE):
@@ -148,8 +175,96 @@ function vdmParseNum($v) {
 	return is_numeric($v) ? (float) $v : null;
 }
 
+/** Aplana tablas de especificaciones del feed a líneas "Etiqueta: valor".
+ *  El feed trae <table> con celdas separadoras vacías (<td><br></td>) y doble valor
+ *  métrico + imperial: nos quedamos con etiqueta + PRIMER valor no vacío (el métrico);
+ *  la conversión imperial se omite (usuario 2026-07-08: "Cilindrada: 70 cm³/t"). */
+function vdmFlattenSpecTables($html) {
+	return preg_replace_callback('#<table\b[^>]*>.*?</table>#is', function ($m) {
+		$out = [];
+		if (preg_match_all('#<tr\b[^>]*>(.*?)</tr>#is', $m[0], $trs)) {
+			foreach ($trs[1] as $tr) {
+				if (!preg_match_all('#<t[dh]\b[^>]*>(.*?)</t[dh]>#is', $tr, $tds)) continue;
+				$cells = [];
+				foreach ($tds[1] as $c) {
+					$c = strip_tags(preg_replace('#<\s*br\s*/?\s*>#i', ' ', $c));
+					$c = trim(preg_replace('/[\s\x{00A0}]+/u', ' ', html_entity_decode($c, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+					if ($c !== '') $cells[] = $c;
+				}
+				if (empty($cells)) continue;
+				$out[] = count($cells) === 1 ? $cells[0] : ($cells[0] . ': ' . $cells[1]);
+			}
+		}
+		return empty($out) ? '' : '<p>' . implode('<br>', $out) . '</p>';
+	}, $html);
+}
+
+/** Extrae pares Etiqueta⇒Valor (métrico = primer valor no vacío) de la PRIMERA <table> del HTML del feed. */
+function vdmExtractSpecs($html) {
+	$specs = [];
+	$html = (string) $html;
+	if ($html === '' || stripos($html, '<table') === false) return $specs;
+	if (!preg_match('#<table\b[^>]*>.*?</table>#is', $html, $tm)) return $specs;
+	if (!preg_match_all('#<tr\b[^>]*>(.*?)</tr>#is', $tm[0], $trs)) return $specs;
+	foreach ($trs[1] as $tr) {
+		if (!preg_match_all('#<t[dh]\b[^>]*>(.*?)</t[dh]>#is', $tr, $tds)) continue;
+		$cells = [];
+		foreach ($tds[1] as $c) {
+			$c = strip_tags(preg_replace('#<\s*br\s*/?\s*>#i', ' ', $c));
+			$c = trim(preg_replace('/[\s\x{00A0}]+/u', ' ', html_entity_decode($c, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+			if ($c !== '') $cells[] = $c;
+		}
+		if (count($cells) >= 2) $specs[$cells[0]] = $cells[1];
+	}
+	return $specs;
+}
+
+/** Tabla "Variantes y especificaciones" para la descripción de FAMILIAS (estilo tabla Osculati/Oceansouth).
+ *  Columnas: Referencia | Modelo | specs del feed (unión, máx 6) | Peso si difiere. Entre marcadores idempotentes. */
+function vdmBuildFamilySpecTable(array $items, array $labels, $langId, $useLlm) {
+	$isEs = ($langId === LANG_ID_ES);
+	$specsBySku = [];
+	$specCols = [];
+	foreach ($items as $sku => $it) {
+		$src = (!$isEs && $it['LONG_EN'] !== '') ? $it['LONG_EN'] : $it['LONG_FR'];
+		$sp = vdmExtractSpecs($src);
+		$specsBySku[$sku] = $sp;
+		foreach ($sp as $k => $v) if (!in_array($k, $specCols, true)) $specCols[] = $k;
+	}
+	$specCols = array_slice($specCols, 0, 6);
+	$weights = [];
+	foreach ($items as $it) $weights[(string) $it['_WEIGHT']] = true;
+	$withWeight = count($weights) > 1;
+	$L = $isEs ? ['ref' => 'Referencia', 'model' => 'Modelo', 'weight' => 'Peso (kg)']
+	           : ['ref' => 'Reference', 'model' => 'Model', 'weight' => 'Weight (kg)'];
+	$title = $isEs ? 'Variantes y especificaciones' : 'Variants and specifications';
+	$headTr = [];
+	foreach ($specCols as $k) $headTr[$k] = vdmTranslateLabelFull($k, $isEs ? 0 : 1, $useLlm);
+	$FONT  = 'font-family: tahoma, arial, helvetica, sans-serif; font-size: 10pt;';
+	$open  = '<table class="osc-spec-table" style="border-collapse: collapse; border: 1px solid rgb(206, 212, 217);" border="1" cellspacing="3" cellpadding="3"><tbody>';
+	$hCell = fn($t) => '<td style="background-color: #008cc6; text-align: center; padding: 2px;"><span style="' . $FONT . ' color: #ffffff;">' . htmlspecialchars($t) . '</span></td>';
+	$dCell = fn($t) => '<td style="text-align: center; padding: 2px;"><span style="' . $FONT . '">' . htmlspecialchars($t) . '</span></td>';
+	$html = '<br><br><!--VDM_SPECS_START--><p><strong>' . htmlspecialchars($title) . '</strong></p>' . $open . '<tr>';
+	$html .= $hCell($L['ref']) . $hCell($L['model']);
+	foreach ($specCols as $k) $html .= $hCell($headTr[$k]);
+	if ($withWeight) $html .= $hCell($L['weight']);
+	$html .= '</tr>';
+	$i = 0;
+	foreach ($items as $sku => $it) {
+		$i++;
+		$ref = $it['SUPCODE'] !== '' ? $it['SUPCODE'] : $sku;
+		$row = $dCell($ref) . $dCell($labels[$sku] ?? $sku);
+		foreach ($specCols as $k) $row .= $dCell($specsBySku[$sku][$k] ?? '—');
+		if ($withWeight) $row .= $dCell(rtrim(rtrim(number_format((float) $it['_WEIGHT'], 3, '.', ''), '0'), '.'));
+		$html .= '<tr' . ($i % 2 === 0 ? ' style="background-color: #e2f2f9;"' : '') . '>' . $row . '</tr>';
+	}
+	$html .= '</tbody></table><!--VDM_SPECS_END-->';
+	return $html;
+}
+
 function cleanHtmlAggressive($html) {
 	if ($html === null || $html === '') return '';
+	$html = vdmFlattenSpecTables($html);
 	$html = preg_replace('#<style\b[^>]*>.*?</style>#is', '', $html);
 	$html = preg_replace('#<script\b[^>]*>.*?</script>#is', '', $html);
 	$html = preg_replace('#<\s*br\s*/?\s*>#i', "\n", $html);
@@ -311,17 +426,17 @@ function llmLooksDegenerate($s) {
 	return false;
 }
 
-function llmTranslate($text, $maxRetries = 2, $maxOutChars = 0) {
+function llmTranslate($text, $maxRetries = 2, $maxOutChars = 0, $sysPrompt = null) {
 	if (trim((string) $text) === '') return '';
 	$payload = json_encode([
 		'model' => LLM_MODEL,
 		'messages' => [
-			['role' => 'system', 'content' => LLM_PROMPT],
+			['role' => 'system', 'content' => $sysPrompt !== null ? $sysPrompt : LLM_PROMPT],
 			['role' => 'user',   'content' => $text],
 		],
 		'temperature' => 0.2,
 		'repetition_penalty' => 1.15, // frena los bucles degenerados del NVFP4
-		'max_tokens' => 1500,
+		'max_tokens' => $sysPrompt !== null ? 200 : 1500, // etiquetas/cabeceras cortas vs descripciones
 		'chat_template_kwargs' => ['enable_thinking' => false],
 	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE); // nunca FALSE por bytes sueltos del feed
 	for ($i = 0; $i <= $maxRetries; $i++) {
@@ -778,7 +893,10 @@ if ($skipVariants) {
 	foreach ($candidates as $sku => $row) {
 		$p = $row['PARENT'];
 		if ($p === '') { $standalone[$sku] = $row; continue; }
-		$byParent[$p][$sku] = $row;
+		// REGLA (usuario 2026-07-08): las variantes deben COMPARTIR imagen — el Parent_id del
+		// feed agrupa SERIES (bombas distintas con specs/foto propias). Sub-agrupamos cada
+		// parent por Picture_1: misma imagen = candidato a familia; imagen distinta = aparte.
+		$byParent[$p . '#' . md5($row['PIC1'])][$sku] = $row;
 	}
 
 	$famVariant = $famSplit = 0;
@@ -870,7 +988,65 @@ foreach ($families as $parent => $items) {
 	$brandPrefix = vdmBrandPrefix($brand, $cheap['NAME_FR'] !== '' ? $cheap['NAME_FR'] : $cheap['NAME_EN']);
 	$catId = getOrCreateSubcategory($mysqli, $cheap['_UNIV_ES'], $cheap['_UNIV_EN'], NEW_CATEGORY_ID, $dryRun, $subcatCache, $subcatCreated);
 
-	list($nameEs, $descEs, $titleEn, $descEn) = vdmBuildTexts($cheap, $brandPrefix, $skipTranslation, $dryRun, $translateFail);
+	// Si el cuerpo del más barato era SOLO la tabla de specs del feed, se omite:
+	// la tabla de familia (abajo) ya recoge las specs de TODAS las variantes.
+	$cheapForText = $cheap;
+	if ($cheap['LONG_FR'] !== '') {
+		$strippedNoTable = trim(strip_tags(preg_replace('#<table\b[^>]*>.*?</table>#is', '', $cheap['LONG_FR'])));
+		if (mb_strlen($strippedNoTable, 'UTF-8') < 40) { $cheapForText['LONG_FR'] = ''; $cheapForText['LONG_EN'] = ''; }
+	}
+	list($nameEs, $descEs, $titleEn, $descEn) = vdmBuildTexts($cheapForText, $brandPrefix, $skipTranslation, $dryRun, $translateFail);
+
+	// Etiquetas de variante (ANTES del insert: la tabla de familia las usa en la descripción).
+	// Señales en orden; la primera con valores únicos y no vacíos gana.
+	$frTitlesAll = array_map(fn($it) => $it['NAME_FR'] !== '' ? $it['NAME_FR'] : $it['NAME_EN'], $items);
+	$enTitlesAll = array_map(fn($it) => $it['NAME_EN'] !== '' ? $it['NAME_EN'] : $it['NAME_FR'], $items);
+	// trims multibyte-safe ('–'/'·' con ltrim/rtrim byte a byte también corrompen UTF-8)
+	$mbTrim = fn($s) => preg_replace('/^[\s\-–·,;]+|[\s\-–·,;]+$/u', '', (string) $s);
+	$commonFr = $mbTrim(longestCommonPrefix($frTitlesAll));
+	$commonEn = $mbTrim(longestCommonPrefix($enTitlesAll));
+	$lcpStrip = function ($name, $common) use ($mbTrim) {
+		if ($common === '' || mb_strpos($name, $common) !== 0) return '';
+		$rest = $mbTrim(mb_substr($name, mb_strlen($common, 'UTF-8'), null, 'UTF-8'));
+		return (mb_strlen($rest, 'UTF-8') <= 64) ? $rest : '';
+	};
+	$labelCandidates = [];
+	foreach ($items as $sku => $it) {
+		$labelCandidates[$sku] = [
+			'lcp_fr'     => $lcpStrip($frTitlesAll[$sku], $commonFr),
+			'lcp_en'     => $lcpStrip($enTitlesAll[$sku], $commonEn),
+			'measure_fr' => vdmExtractMeasure($frTitlesAll[$sku]),
+			'measure_en' => vdmExtractMeasure($enTitlesAll[$sku]),
+		];
+	}
+	// Selección por idioma: ES parte de las señales FR (dict+LLM); EN prefiere las señales nativas EN.
+	$pickLabels = function (array $order) use ($labelCandidates) {
+		foreach ($order as $signal) {
+			$vals = array_map(fn($c) => $c[$signal], $labelCandidates);
+			$nonEmpty = array_filter($vals, fn($v) => $v !== '');
+			if (count($nonEmpty) === count($vals) && count(array_unique($nonEmpty)) === count($vals)) return $vals;
+		}
+		return [];
+	};
+	$baseFr = $pickLabels(['lcp_fr', 'lcp_en', 'measure_fr', 'measure_en']);
+	$baseEn = $pickLabels(['lcp_en', 'measure_en', 'lcp_fr', 'measure_fr']);
+	$useLlmLabels = !$skipTranslation && !$dryRun;
+	$labelsEs = [];
+	$labelsEn = [];
+	foreach ($items as $sku => $it) {
+		$bf = $baseFr[$sku] ?? '';
+		if ($bf === '') $bf = $sku;
+		$be = $baseEn[$sku] ?? '';
+		if ($be === '') $be = $bf;
+		$labelsEs[$sku] = mb_substr(vdmTranslateLabelFull($bf, 0, $useLlmLabels), 0, 64, 'UTF-8');
+		$labelsEn[$sku] = mb_substr(vdmTranslateLabelFull($be, 1, $useLlmLabels), 0, 64, 'UTF-8');
+	}
+
+	// Tabla "Variantes y especificaciones" al final de la descripción (solo familias)
+	if (!$dryRun) {
+		$descEs .= vdmBuildFamilySpecTable($items, $labelsEs, LANG_ID_ES, $useLlmLabels);
+		$descEn .= vdmBuildFamilySpecTable($items, $labelsEn, LANG_ID_EN, $useLlmLabels);
+	}
 
 	if ($dryRun) {
 		$nInserted++; $nFamiliesIns++;
@@ -878,7 +1054,7 @@ foreach ($families as $parent => $items) {
 			$namesAll = array_map(fn($r) => $r['NAME_FR'] !== '' ? $r['NAME_FR'] : $r['NAME_EN'], $items);
 			$lcp = longestCommonPrefix($namesAll);
 			logMsg(sprintf("  WOULD INSERT FAMILIA parent=%s (%d variantes) cheap=%s %.2f€ [lcp=%d] cat=%s name=\"%s\"",
-				$parent, count($items), $cheapestSku, $cheap['_COST'],
+				$cheap['PARENT'], count($items), $cheapestSku, $cheap['_COST'],
 				mb_strlen($lcp, 'UTF-8'), $cheap['_UNIV_ES'], mb_substr($nameEs, 0, 50, 'UTF-8')));
 		}
 		continue;
@@ -905,50 +1081,6 @@ foreach ($families as $parent => $items) {
 		if (!$mysqli->query("INSERT INTO products_description (products_id, language_id, products_name, products_description, products_viewed) VALUES ($pid, " . LANG_ID_EN . ", \"$qNameEn\", \"$qDescEn\", 0)")) throw new Exception("desc EN: " . $mysqli->error);
 		if (!$mysqli->query("INSERT INTO products_to_categories (products_id, categories_id) VALUES ($pid, " . ($catId > 0 ? $catId : NEW_CATEGORY_ID) . ")")) throw new Exception("p2c: " . $mysqli->error);
 		if (!$mysqli->query("INSERT INTO products_groups (customers_group_id, products_id, customers_group_price, products_qty_blocks, products_min_order_qty) VALUES (" . G1_GROUP_ID . ", $pid, " . number_format($cheap['_G1'], 4, '.', '') . ", 1, 1)")) throw new Exception("g1: " . $mysqli->error);
-
-		// Etiquetas de variante: señales en orden; la primera con valores únicos y no vacíos gana.
-		$frTitlesAll = array_map(fn($it) => $it['NAME_FR'] !== '' ? $it['NAME_FR'] : $it['NAME_EN'], $items);
-		$enTitlesAll = array_map(fn($it) => $it['NAME_EN'] !== '' ? $it['NAME_EN'] : $it['NAME_FR'], $items);
-		// trims multibyte-safe ('–'/'·' con ltrim/rtrim byte a byte también corrompen UTF-8)
-		$mbTrim = fn($s) => preg_replace('/^[\s\-–·,;]+|[\s\-–·,;]+$/u', '', (string) $s);
-		$commonFr = $mbTrim(longestCommonPrefix($frTitlesAll));
-		$commonEn = $mbTrim(longestCommonPrefix($enTitlesAll));
-		$lcpStrip = function ($name, $common) use ($mbTrim) {
-			if ($common === '' || mb_strpos($name, $common) !== 0) return '';
-			$rest = $mbTrim(mb_substr($name, mb_strlen($common, 'UTF-8'), null, 'UTF-8'));
-			return (mb_strlen($rest, 'UTF-8') <= 64) ? $rest : '';
-		};
-		$labelCandidates = [];
-		foreach ($items as $sku => $it) {
-			$labelCandidates[$sku] = [
-				'lcp_fr'     => $lcpStrip($frTitlesAll[$sku], $commonFr),
-				'lcp_en'     => $lcpStrip($enTitlesAll[$sku], $commonEn),
-				'measure_fr' => vdmExtractMeasure($frTitlesAll[$sku]),
-				'measure_en' => vdmExtractMeasure($enTitlesAll[$sku]),
-			];
-		}
-		// Selección por idioma: primera señal con valores únicos y no vacíos.
-		// ES parte de las señales FR (traducidas con LABEL_DICT); EN prefiere las señales nativas EN.
-		$pickLabels = function (array $order) use ($labelCandidates) {
-			foreach ($order as $signal) {
-				$vals = array_map(fn($c) => $c[$signal], $labelCandidates);
-				$nonEmpty = array_filter($vals, fn($v) => $v !== '');
-				if (count($nonEmpty) === count($vals) && count(array_unique($nonEmpty)) === count($vals)) return $vals;
-			}
-			return [];
-		};
-		$baseFr = $pickLabels(['lcp_fr', 'lcp_en', 'measure_fr', 'measure_en']);
-		$baseEn = $pickLabels(['lcp_en', 'measure_en', 'lcp_fr', 'measure_fr']);
-		$labelsEs = [];
-		$labelsEn = [];
-		foreach ($items as $sku => $it) {
-			$bf = $baseFr[$sku] ?? '';
-			if ($bf === '') $bf = $sku;
-			$be = $baseEn[$sku] ?? '';
-			if ($be === '') $be = $bf;
-			$labelsEs[$sku] = mb_substr(vdmTranslateLabel($bf, 0), 0, 64, 'UTF-8');
-			$labelsEn[$sku] = mb_substr(vdmTranslateLabel($be, 1), 0, 64, 'UTF-8');
-		}
 
 		$variantsCreated = 0;
 		$ovsUsados = []; // guardia anti-colisión de labels por producto (ver francobordo_pa_duplicates)
@@ -1002,11 +1134,11 @@ foreach ($families as $parent => $items) {
 		}
 
 		$nInserted++; $nFamiliesIns++;
-		logMsg(sprintf("OK FAMILIA parent=%s pid=%d cheap=%s [%d variantes] cat=%s price=%.2f cost=%.2f g1=%.2f", $parent, $pid, $cheapestSku, $variantsCreated, $cheap['_UNIV_ES'], $cheap['_PRICE'], $cheap['_COST'], $cheap['_G1']));
+		logMsg(sprintf("OK FAMILIA parent=%s pid=%d cheap=%s [%d variantes] cat=%s price=%.2f cost=%.2f g1=%.2f", $cheap['PARENT'], $pid, $cheapestSku, $variantsCreated, $cheap['_UNIV_ES'], $cheap['_PRICE'], $cheap['_COST'], $cheap['_G1']));
 	} catch (Exception $e) {
 		$mysqli->rollback();
 		$errors++;
-		logMsg("ERROR familia parent=$parent: " . $e->getMessage());
+		logMsg("ERROR familia parent=" . $cheap['PARENT'] . " ($parent): " . $e->getMessage());
 	}
 }
 
@@ -1095,8 +1227,9 @@ end_action:
 	<h2>Importador VDM / Alliance Marine (altas) — variantes por Parent_id</h2>
 	<p>
 		Descarga <code><?php echo VDM_SFTP_REMOTE; ?></code> del SFTP de Alliance Marine (Azure), agrupa SKUs por
-		<code>Parent_id</code> del feed (con heurística LCP para separar agrupaciones que no son variantes reales)
-		e inserta lo que no exista en BD bajo <strong>VDM Nuevos</strong> (cat <?php echo NEW_CATEGORY_ID; ?>) en
+		<code>Parent_id</code> del feed <strong>solo si comparten imagen</strong> (Picture_1 idéntica; el Parent_id del feed
+		agrupa series de productos distintos) + heurística LCP, e inserta lo que no exista en BD bajo
+		<strong>VDM Nuevos</strong> (cat <?php echo NEW_CATEGORY_ID; ?>) en
 		subcategorías de staging por <strong>Universo</strong> (Electricidad, Mecánica, Fondeo…), todo oculto (status 0/2).
 	</p>
 	<form method="get" style="background:#f5f5f5;padding:15px;border-radius:5px;">
@@ -1157,8 +1290,10 @@ end_action:
 		- G1 con tiers según margen real, piso <code>cost × <?php echo G1_FLOOR_FACTOR; ?></code>.<br>
 		- Solo <code>Product_status=Active</code> (End of life / Dead se saltan).<br>
 		- <code>products_model</code> = referencia del fabricante (supplier_item_code); <code>reference_prov</code> = SKU VDM (código de pedido).<br>
-		- Variantes en <code>products_attributes</code> con <code>options_id=<?php echo VARIANT_OPTION_ID; ?></code> (Modelo). Padre = SKU más barato. Familias sin EAN máster.<br>
-		- Etiqueta variante: resto del título tras prefijo común → medida → SKU. En ES y EN por separado (diccionario FR→ES/EN de colores/materiales/calificativos; lo no cubierto queda en francés y se edita a mano).<br>
+		- Variantes en <code>products_attributes</code> con <code>options_id=<?php echo VARIANT_OPTION_ID; ?></code> (Modelo). Padre = SKU más barato. Familias sin EAN máster. <strong>Solo se agrupan SKUs con la MISMA imagen</strong> (sub-grupos por Picture_1 dentro de cada Parent_id).<br>
+		- Tablas de especificaciones del feed → líneas "Etiqueta: valor" (valor métrico; conversión imperial omitida).<br>
+		- Etiqueta variante: resto del título tras prefijo común → medida → SKU. En ES y EN por separado: diccionario FR→ES/EN + <strong>fallback LLM</strong> (cacheado) para texto libre ("brut équipé"…). Con skip_translation queda el diccionario solo.<br>
+		- <strong>Familias: tabla "Variantes y especificaciones"</strong> al final de la descripción (Referencia | Modelo | specs del feed | Peso si difiere), estilo tabla Osculati, entre marcadores VDM_SPECS. Si el cuerpo era solo la tabla de specs del feed, se omite (la tabla de familia ya lo cubre).<br>
 		- Idiomas: ES traducido del FR (o EN) vía LLM; EN de las columnas _EN (fallback FR).<br>
 		- Imagen: principal + hasta <?php echo MAX_SUBIMAGES; ?> subimágenes (Picture_1-3 + additional_images).<br>
 		- EAN: Barcode normalizado (UPC-12→EAN-13); si no pasa checksum → interno prefijo <?php echo EAN_INTERNAL_PREFIX; ?>.<br>

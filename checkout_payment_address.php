@@ -103,6 +103,28 @@ if (isset($_POST['action']) && $_POST['action'] == 'getStates' && isset($_POST['
         $messageStack->add('checkout_address', ENTRY_POST_CODE_ERROR);
       }
 
+      // Formato de CP (parche postcode-fix 2026-07-09): España = 5 dígitos con provincia 01-52; resto de países, sin '@'
+      $postcode = trim($postcode);
+      if ((int)$country == 195) {
+        if (!preg_match('/^(0[1-9]|[1-4][0-9]|5[0-2])[0-9]{3}$/', $postcode)) {
+          $error = true;
+
+          $messageStack->add('checkout_address', defined('ENTRY_POST_CODE_FORMAT_ERROR') ? ENTRY_POST_CODE_FORMAT_ERROR : 'El código postal no parece válido para el país seleccionado. En España son 5 dígitos (ej. 03700).');
+        }
+      } elseif ((int)$country == 171) {
+        if (preg_match('/^([0-9]{4})\s*-?\s*([0-9]{3})$/', $postcode, $_cpm)) {
+          $postcode = $_cpm[1] . '-' . $_cpm[2];
+        } else {
+          $error = true;
+
+          $messageStack->add('checkout_address', defined('ENTRY_POST_CODE_FORMAT_ERROR') ? ENTRY_POST_CODE_FORMAT_ERROR : 'El código postal no parece válido para el país seleccionado. En Portugal son 7 dígitos (ej. 4400-123).');
+        }
+      } elseif ($postcode == '' || strpos($postcode, '@') !== false) {
+        $error = true;
+
+        $messageStack->add('checkout_address', defined('ENTRY_POST_CODE_FORMAT_ERROR') ? ENTRY_POST_CODE_FORMAT_ERROR : 'El código postal no parece válido para el país seleccionado. En España son 5 dígitos (ej. 03700).');
+      }
+
 	  if ($city_id == 0 && $city == '') {
   		$error = true;
   		$messageStack->add('checkout_address', ENTRY_CITY_ID_ERROR);
