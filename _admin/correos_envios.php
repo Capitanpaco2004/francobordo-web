@@ -110,6 +110,12 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
         $mref = $g('m_ref'); if ($mref === '') $mref = 'M-' . date('ymd-His') . '-' . substr(bin2hex(random_bytes(2)), 0, 4);
         $mdvalue = str_replace(',', '.', $g('m_dvalue')); $mddesc = $g('m_ddesc');
         $mmode = ($g('m_mode') === 'ofi') ? 'ofi' : 'dom';
+        // Pais destino ISO-3. Internacional (!= ESP) => Paq Estandar Internacional (PAAXI), SOLO domicilio.
+        $mcountry = strtoupper(preg_replace('/[^A-Za-z]/', '', $g('m_dcountry')));
+        if (strlen($mcountry) !== 3) $mcountry = 'ESP';
+        if ($mcountry === 'ROM') $mcountry = 'ROU';   // `countries` guarda el alfa-3 antiguo de Rumania
+        $mesES = ($mcountry === 'ESP');
+        if (!$mesES) $mmode = 'dom';   // no hay recogida en oficina de Correos fuera de Espana
         $err = ''; $dest = null;
         if ($mmode === 'ofi') {
             // Entrega en OFICINA: la direccion del destinatario ES la oficina; chosenOffice = su codigo.
@@ -132,11 +138,25 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
                 $dest = array('mode' => 'dom', 'dname' => $dname, 'dstreet' => $dstreet, 'dcp' => $dcp, 'dcity' => $dcity, 'dstate' => $dstate);
             }
         }
+        // Aduanas: islas espanolas (Canarias/Ceuta/Melilla, por CP) o destino fuera de la UE-27.
+        // Mismo criterio que correos_albaran.php, que ademas exige un solo bulto (la DUA/CN23 va
+        // completa en un paquete, asi que los bultos 2..N viajarian sin declaracion).
+        if ($err === '' && $dest) {
+            $ue27 = array('AUT','BEL','BGR','HRV','CYP','CZE','DNK','EST','FIN','FRA','DEU','GRC','HUN','IRL','ITA',
+                          'LVA','LTU','LUX','MLT','NLD','POL','PRT','ROU','SVK','SVN','ESP','SWE');
+            $cpd = preg_replace('/\D/', '', (string) $dest['dcp']);
+            $aduanas = $mesES ? in_array(substr($cpd, 0, 2), array('35', '38', '51', '52'), true)
+                              : !in_array($mcountry, $ue27, true);
+            if ($aduanas && ((float) $mdvalue <= 0 || $mddesc === ''))
+                $err = 'Destino con aduanas (' . htmlspecialchars($mesES ? $cpd : $mcountry) . '): el valor declarado y el contenido son obligatorios (declaracion DUA/CN23).';
+            elseif ($aduanas && $mbultos > 1)
+                $err = 'Destino con aduanas: usa un solo bulto (la declaracion DUA/CN23 debe ir completa en un paquete).';
+        }
         if ($err !== '') {
             $_SESSION['correos_flash'] = array('m' => $err, 'c' => 'danger');
         } else {
             $params = array_merge(array('token' => CORREOS_ALB_TOKEN, 'free' => '1', 'ref' => $mref,
-                'dcountry' => 'ESP', 'dphone' => $dphone, 'demail' => $demail,
+                'dcountry' => $mcountry, 'dphone' => $dphone, 'demail' => $demail,
                 'kilos' => $mkilos, 'bultos' => $mbultos, 'type' => 'ZPL'), $dest);
             if ($mdvalue !== '' && (float) $mdvalue > 0) $params['dvalue'] = $mdvalue;
             if ($mddesc !== '') $params['ddesc'] = $mddesc;
@@ -148,7 +168,7 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
             if (is_array($resp) && !empty($resp['ok']) && !empty($resp['shipmentCode'])) {
                 if (!empty($resp['zpl']))
                     tep_db_perform('correos_reprint_queue', array('shipment_id' => 0, 'orders_id' => 0, 'zpl' => $resp['zpl'], 'done' => 0, 'date_added' => 'now()'));
-                $donde = ($mmode === 'ofi') ? ' (entrega en oficina)' : '';
+                $donde = ($mmode === 'ofi') ? ' (entrega en oficina)' : ($mesES ? '' : ' (internacional ' . htmlspecialchars($mcountry) . ')');
                 $extra = empty($resp['zpl']) ? ' (sin ZPL: descarga el PDF / reimprime desde el listado).' : ' La etiqueta saldra por la impresora del almacen en ~1 min.';
                 $_SESSION['correos_flash'] = array('m' => 'Envio manual creado' . $donde . ': <strong>' . htmlspecialchars($resp['shipmentCode']) . '</strong> (ref ' . htmlspecialchars($mref) . ').' . $extra, 'c' => 'success');
             } else {
@@ -258,6 +278,11 @@ if ($action !== '' && $shipId > 0) {
                             } else {
                                 tep_db_query("UPDATE correos_shipments SET cancelled_at = now() WHERE id = " . $shipId);
                                 $params = array('oid' => $oidM, 'kilos' => $kilosM, 'bultos' => $bultosM, 'type' => 'BOTH');
+                                /* correos_albaran.php deduce el servicio del PEDIDO (fila espejo,
+                                 * shipping_module o titulo de envio) e IGNORA 'mode' cuando hay oid.
+                                 * Aqui solo se manda 'svc' cuando el operario FUERZA el servicio;
+                                 * 'mantener' no manda nada y deja que el endpoint lo deduzca (asi
+                                 * respeta los pedidos de modulos de oficina antiguos, sin fila espejo). */
                                 if ($modo === 'oficina') {
                                     tep_db_query('DELETE FROM correos_oficina_orders WHERE orders_id = ' . $oidM);
                                     tep_db_perform('correos_oficina_orders', array(
@@ -267,13 +292,10 @@ if ($action !== '' && $shipId > 0) {
                                         'postcode' => substr(preg_replace('/\D/', '', (string) ($_POST['ofi_cp'] ?? '')), 0, 10),
                                         'city' => substr((string) ($_POST['ofi_city'] ?? ''), 0, 80),
                                         'date_added' => 'now()'));
-                                    $params['mode'] = 'ofi';
+                                    $params['svc'] = 'ofi';
                                 } elseif ($modo === 'domicilio') {
                                     tep_db_query('DELETE FROM correos_oficina_orders WHERE orders_id = ' . $oidM);
-                                    $params['mode'] = 'dom';
-                                } else {
-                                    $qo = tep_db_query('SELECT office_id FROM correos_oficina_orders WHERE orders_id = ' . $oidM . ' LIMIT 1');
-                                    $params['mode'] = tep_db_num_rows($qo) ? 'ofi' : 'dom';
+                                    $params['svc'] = 'dom';   // fuerza domicilio aunque el modulo del pedido sea de oficina
                                 }
                                 list($resp, $cerr, ) = correosEnvEndpoint($params);
                                 $newCode = (is_array($resp) && !empty($resp['ok']) && empty($resp['dedup']) && !empty($resp['shipmentCode'])) ? $resp['shipmentCode'] : '';
@@ -319,7 +341,24 @@ if ($fEstado === 'anulado')  $where[] = "cancelled_at IS NOT NULL";
 if ($fEstado === 'encolado') $where[] = "cancel_requested_at IS NOT NULL AND cancelled_at IS NULL";
 if ($fBuscar !== '') {
     $b = tep_db_input($fBuscar);
-    $where[] = "(shipment_code LIKE '%$b%' OR ref LIKE '%$b%' OR orders_id = '" . (int) $fBuscar . "' OR id_rma = '" . (int) $fBuscar . "')";
+    // shipment_code (cod. envio, 16 dig.) y package_code (cod. localizacion, 23 dig., el de la
+    // etiqueta y el tracking) son DISTINTOS: hay que mirar los dos. Los bultos 2..N del multibulto
+    // solo guardan su package_code en response_json (el campo package_code = solo el 1er bulto).
+    $clauses = array(
+        "shipment_code LIKE '%$b%'",
+        "package_code LIKE '%$b%'",
+        "ref LIKE '%$b%'",
+    );
+    if (preg_match('/[A-Za-z]/', $fBuscar) && strlen($fBuscar) >= 8) {
+        $clauses[] = "response_json LIKE '%$b%'";   // codigo de un bulto secundario (multibulto)
+    }
+    // Solo si es un numero: pedido / RMA exactos. Con texto NO se aplica (evita que id_rma=0,
+    // comun a todos los envios, haga que la busqueda case con toda la tabla).
+    if (ctype_digit($fBuscar)) {
+        $clauses[] = "orders_id = " . (int) $fBuscar;
+        $clauses[] = "id_rma = " . (int) $fBuscar;
+    }
+    $where[] = '(' . implode(' OR ', $clauses) . ')';
 }
 $sql = 'SELECT * FROM correos_shipments WHERE ' . implode(' AND ', $where) . ' ORDER BY id DESC LIMIT 200';
 $rows = array();
@@ -374,7 +413,7 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
         <?php endforeach; ?>
       </select>
     </label>
-    <input type="text" name="q" value="<?php echo htmlspecialchars($fBuscar); ?>" placeholder="Buscar: pedido, RMA, ref o shipmentCode">
+    <input type="text" name="q" value="<?php echo htmlspecialchars($fBuscar); ?>" placeholder="Buscar: pedido, RMA, ref, cód. envío o localización">
     <button class="btn" type="submit">Filtrar</button>
     <a class="btn gris" href="?">Limpiar</a>
   </form>
@@ -394,11 +433,20 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
       <label>Tel&eacute;fono<input type="text" name="m_dphone"></label>
       <label>Peso (kg)<input type="text" name="m_kilos" value="1"></label>
       <label>Bultos<input type="number" name="m_bultos" value="1" min="1" max="10"></label>
+      <label style="grid-column:1/3">Pa&iacute;s destino
+        <select name="m_dcountry" id="mCountry">
+          <?php /* CASE: `countries` guarda 'ROM' (alfa-3 de Rumania anterior a 2002); Correos exige 'ROU'. */ ?>
+          <?php $qPais = tep_db_query("SELECT countries_name, CASE countries_iso_code_3 WHEN 'ROM' THEN 'ROU' ELSE countries_iso_code_3 END AS iso3 FROM countries WHERE countries_iso_code_3 <> '' ORDER BY countries_name"); ?>
+          <?php while ($rPais = tep_db_fetch_array($qPais)): ?>
+            <option value="<?php echo htmlspecialchars($rPais['iso3']); ?>" <?php echo $rPais['iso3'] === 'ESP' ? 'selected' : ''; ?>><?php echo htmlspecialchars($rPais['countries_name']); ?></option>
+          <?php endwhile; ?>
+        </select>
+      </label>
       <div id="mDomBox" style="grid-column:1/3;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px">
         <label>Direcci&oacute;n *<input type="text" name="m_dstreet"></label>
         <label>CP *<input type="text" name="m_dcp"></label>
         <label>Ciudad *<input type="text" name="m_dcity"></label>
-        <label>Provincia<input type="text" name="m_dstate"></label>
+        <label>Provincia / Estado<input type="text" name="m_dstate"></label>
       </div>
       <div id="mOfiBox" style="grid-column:1/3;display:none;padding:10px;background:#fff;border:1px solid #ddd;border-radius:4px">
         <div style="font-size:12px;color:#333;margin-bottom:6px">Oficina de Correos donde recoger&aacute; el destinatario (busca por CP de la zona):</div>
@@ -411,9 +459,10 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
         <input type="hidden" name="m_office_addr" id="mHOfiAddr"><input type="hidden" name="m_office_cp" id="mHOfiCp"><input type="hidden" name="m_office_city" id="mHOfiCity">
       </div>
       <label style="grid-column:1/3;">Referencia / concepto <span style="color:#999;font-weight:normal">(aparece en la columna Pedido/RMA del listado y es buscable; d&eacute;jalo vac&iacute;o para auto)</span><input type="text" name="m_ref" placeholder="p.ej. RMA proveedor 123, n&ordm; factura, pedido relacionado&hellip;"></label>
-      <label>Valor declarado &euro; <span style="color:#999">(Canarias/Ceuta/Melilla)</span><input type="text" name="m_dvalue" placeholder="p.ej. 1234.56"></label>
-      <label>Contenido <span style="color:#999">(solo islas)</span><input type="text" name="m_ddesc" placeholder="p.ej. recambios nauticos"></label>
-      <div style="grid-column:1/3;margin-top:2px;color:#777;font-size:11px;">Solo destino nacional (Espa&ntilde;a), Paq Est&aacute;ndar. Domicilio o recogida en oficina. Para Canarias/Ceuta/Melilla rellena <strong>valor y contenido</strong> (declaraci&oacute;n DUA obligatoria).</div>
+      <label>Valor declarado &euro; <span style="color:#999">(islas / fuera UE)</span><input type="text" name="m_dvalue" placeholder="p.ej. 1234.56"></label>
+      <label>Contenido <span style="color:#999">(islas / fuera UE)</span><input type="text" name="m_ddesc" placeholder="p.ej. recambios nauticos"></label>
+      <div id="mAvisoAduanas" style="grid-column:1/3;display:none;margin-top:2px;padding:6px 9px;background:#fff8e1;border:1px solid #ffe082;border-radius:4px;color:#7a5900;font-size:11px;">Destino <strong>con aduanas</strong> (Canarias/Ceuta/Melilla o fuera de la UE): el <strong>valor declarado y el contenido</strong> son obligatorios y el env&iacute;o debe ir en <strong>un solo bulto</strong> (la declaraci&oacute;n DUA/CN23 va completa en un paquete).</div>
+      <div style="grid-column:1/3;margin-top:2px;color:#777;font-size:11px;">Espa&ntilde;a: Paq Est&aacute;ndar, domicilio o recogida en oficina. Otros pa&iacute;ses: <strong>Paq Est&aacute;ndar Internacional</strong>, solo domicilio. Rellena <strong>valor y contenido</strong> para Canarias/Ceuta/Melilla y para destinos <strong>fuera de la UE</strong> (declaraci&oacute;n DUA/CN23 obligatoria).</div>
       <div style="grid-column:1/3;margin-top:4px;"><button class="btn verde" type="submit">Crear env&iacute;o y mandar etiqueta a la impresora</button></div>
     </form>
     <script>
@@ -429,6 +478,43 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
       }
       f.querySelectorAll('input[name="m_mode"]').forEach(function (r) { r.addEventListener('change', sync); });
       sync();
+      // Pais destino: internacional => solo domicilio; fuera de la UE-27 => avisa de aduanas.
+      var UE27 = ['AUT','BEL','BGR','HRV','CYP','CZE','DNK','EST','FIN','FRA','DEU','GRC','HUN','IRL','ITA',
+                  'LVA','LTU','LUX','MLT','NLD','POL','PRT','ROU','SVK','SVN','ESP','SWE'];
+      var cty = document.getElementById('mCountry');
+      var rOfi = f.querySelector('input[name="m_mode"][value="ofi"]');
+      var rDom = f.querySelector('input[name="m_mode"][value="dom"]');
+      var aviso = document.getElementById('mAvisoAduanas');
+      var ISLAS = ['35', '38', '51', '52'];
+      var elCp = f.querySelector('[name="m_dcp"]'), elBul = f.querySelector('[name="m_bultos"]');
+      var elVal = f.querySelector('[name="m_dvalue"]'), elDsc = f.querySelector('[name="m_ddesc"]');
+      // Mismo criterio que el endpoint: islas espanolas (por CP) o destino fuera de la UE-27.
+      function conAduanas(iso) {
+        if (iso !== 'ESP') return UE27.indexOf(iso) < 0;
+        var el = (mode() === 'ofi') ? document.getElementById('mHOfiCp') : elCp;
+        var cp = ((el && el.value) || '').replace(/\D/g, '');
+        return ISLAS.indexOf(cp.substring(0, 2)) >= 0;
+      }
+      function syncPais() {
+        var iso = cty ? cty.value : 'ESP', intl = (iso !== 'ESP');
+        if (rOfi) {
+          if (intl && rOfi.checked && rDom) rDom.checked = true;
+          rOfi.disabled = intl;
+          rOfi.parentNode.style.opacity = intl ? '.45' : '';
+          rOfi.parentNode.title = intl ? 'La recogida en oficina de Correos solo existe en Espana' : '';
+          sync();
+        }
+        var adu = conAduanas(iso);
+        if (aviso) aviso.style.display = adu ? '' : 'none';
+        // El endpoint rechaza multibulto con aduanas: la DUA/CN23 va completa en un bulto.
+        if (elBul) { elBul.max = adu ? 1 : 10; if (adu) elBul.value = 1; }
+        if (elVal) elVal.required = adu;
+        if (elDsc) elDsc.required = adu;
+      }
+      if (cty) cty.addEventListener('change', syncPais);
+      if (elCp) elCp.addEventListener('input', syncPais);
+      f.querySelectorAll('input[name="m_mode"]').forEach(function (r) { r.addEventListener('change', syncPais); });
+      syncPais();
       var btn = document.getElementById('mBtnBuscarOfi');
       btn.addEventListener('click', function () {
         var cp = (document.getElementById('mCpOfi').value || '').replace(/\D/g, '');

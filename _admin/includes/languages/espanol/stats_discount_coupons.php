@@ -20,4 +20,8 @@ define('TABLE_HEADING_DATE_PURCHASED', 'Fecha Compra');
 define('TABLE_HEADING_STATUS', 'Estado');
 
 define('TEXT_DISPLAY_SHIPPING_DISCOUNT', 'fuera env&iacute;o');
+
+define('TEXT_SEARCH_COUPON', 'Buscar cup&oacute;n:');
+define('BUTTON_SEARCH', 'Buscar');
+define('TEXT_SEARCH_FILTER', 'filtrando por &quot;%s&quot;');
 ?>

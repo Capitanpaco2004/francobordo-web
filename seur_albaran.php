@@ -41,6 +41,34 @@ $in = array_merge($_GET, $_POST);
 
 function out($arr) { echo json_encode($arr, JSON_UNESCAPED_UNICODE); exit; }
 
+/* País → ISO-2. Acepta ISO-2, nombre INGLÉS (tabla countries) o alias en ESPAÑOL:
+ * la tabla está en inglés, así que "Alemania" no resolvía y caía EN SILENCIO al
+ * default ES (caso 05-14812-48452, 2026-07-10: envío a Usingen DE salió como
+ * nacional 31/2 y SEUR daba el 400 críptico de cities). Devuelve '' si no reconoce. */
+function seurPaisIso($db, $cty) {
+    $cty = trim((string) $cty);
+    if ($cty === '') return '';
+    if (strlen($cty) === 2) return strtoupper($cty);
+    static $alias = array(
+        'espana'=>'ES','españa'=>'ES','alemania'=>'DE','francia'=>'FR','italia'=>'IT',
+        'portugal'=>'PT','reino unido'=>'GB','inglaterra'=>'GB','belgica'=>'BE','bélgica'=>'BE',
+        'holanda'=>'NL','paises bajos'=>'NL','países bajos'=>'NL','suiza'=>'CH','austria'=>'AT',
+        'irlanda'=>'IE','polonia'=>'PL','suecia'=>'SE','dinamarca'=>'DK','noruega'=>'NO',
+        'finlandia'=>'FI','grecia'=>'GR','chequia'=>'CZ','republica checa'=>'CZ','república checa'=>'CZ',
+        'luxemburgo'=>'LU','hungria'=>'HU','hungría'=>'HU','croacia'=>'HR','eslovaquia'=>'SK',
+        'eslovenia'=>'SI','rumania'=>'RO','rumanía'=>'RO','bulgaria'=>'BG','estonia'=>'EE',
+        'letonia'=>'LV','lituania'=>'LT','serbia'=>'RS','bosnia'=>'BA','marruecos'=>'MA',
+        'andorra'=>'AD','gibraltar'=>'GI','estados unidos'=>'US','mexico'=>'MX','méxico'=>'MX',
+    );
+    $k = function_exists('mb_strtolower') ? mb_strtolower($cty, 'UTF-8') : strtolower($cty);
+    if (isset($alias[$k])) return $alias[$k];
+    $st = $db->prepare("SELECT countries_iso_code_2 FROM countries WHERE countries_name=? LIMIT 1");
+    $st->bind_param('s', $cty);
+    $st->execute();
+    if ($row = $st->get_result()->fetch_assoc()) return strtoupper($row['countries_iso_code_2']);
+    return '';
+}
+
 if (($in['token'] ?? '') !== SEUR_ALB_TOKEN) {
     http_response_code(403);
     out(array('ok' => false, 'error' => 'forbidden'));
@@ -90,6 +118,12 @@ $regen  = (($in['regen'] ?? '') === '1');  // regeneración desde el panel: ref 
 
 $free    = (($in['free'] ?? '') === '1');   // ENVIO MANUAL sin pedido: ref propia, orders_id=0, sin dedup
 $freeRef = trim((string) ($in['ref'] ?? ''));
+
+/* Quién origina la operación (auditoría, 2026-07-10): el panel admin manda op=<login
+ * del admin conectado> en envíos manuales y regeneraciones; el watcher no lo manda
+ * y queda el valor histórico 'vstock-watcher'. Se guarda en seur_shipments.operator. */
+$operator = trim((string) ($in['op'] ?? ''));
+if ($operator === '' || strlen($operator) > 64) $operator = 'vstock-watcher';
 if (!$free && $oid <= 0) out(array('ok' => false, 'error' => 'oid requerido'));
 if ($free && $freeRef === '') out(array('ok' => false, 'error' => 'free=1 requiere ref'));
 
@@ -159,17 +193,10 @@ if ($manual || $free) {
     if (!$o) out(array('ok' => false, 'error' => "pedido $oid no encontrado en la web"));
 }
 
-/* País → ISO-2: orders.delivery_country guarda el NOMBRE; resolver contra countries. */
-$iso = 'ES';
-$cty = trim((string) $o['delivery_country']);
-if (strlen($cty) === 2) {
-    $iso = strtoupper($cty);
-} elseif ($cty !== '') {
-    $st = $db->prepare("SELECT countries_iso_code_2 FROM countries WHERE countries_name=? LIMIT 1");
-    $st->bind_param('s', $cty);
-    $st->execute();
-    if ($row = $st->get_result()->fetch_assoc()) $iso = strtoupper($row['countries_iso_code_2']);
-}
+/* País → ISO-2: orders.delivery_country guarda el NOMBRE; resolver con seurPaisIso
+ * (ISO-2 + inglés + alias castellanos). Sin resolver → ES (legacy QFac domésticos). */
+$iso = seurPaisIso($db, $o['delivery_country']);
+if ($iso === '') $iso = 'ES';
 
 $dest = array(
     'name'        => trim($o['delivery_name']) ?: trim($o['delivery_company']),
@@ -191,12 +218,8 @@ if (($v = trim((string) ($in['dcp']    ?? ''))) !== '')   $dest['postalCode'] = 
 if (($v = trim((string) ($in['dphone'] ?? ''))) !== '')   $dest['phone']      = $v;
 if (($v = trim((string) ($in['demail'] ?? ''))) !== '')   $dest['email']      = $v;
 if (($v = trim((string) ($in['dcountry'] ?? ''))) !== '') {
-    if (strlen($v) === 2) { $iso = strtoupper($v); }
-    else {
-        $stc = $db->prepare("SELECT countries_iso_code_2 FROM countries WHERE countries_name=? LIMIT 1");
-        $stc->bind_param('s', $v); $stc->execute();
-        if ($rowc = $stc->get_result()->fetch_assoc()) $iso = strtoupper($rowc['countries_iso_code_2']);
-    }
+    $isoV = seurPaisIso($db, $v);
+    if ($isoV !== '') { $iso = $isoV; }   // sin resolver: se mantiene el iso previo (no forzar ES)
     $dest['country'] = $iso;
 }
 
@@ -274,6 +297,30 @@ if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === '48') && $iso =
     $opts['observations'] .= ' / SEUR 24 (B2C)';
 }
 
+/* AUTO-SERVICIO por el pedido web (2026-07-10): el almacén expide TODO con la agencia
+ * única 'SEUR' de Vstock (sin svc) y el servicio sale del método que el CLIENTE eligió
+ * y pagó en el checkout (orders.shipping_module). Prioridades: punto (seur_pudo_orders,
+ * resuelto arriba) > svc explícito del watcher (agencia específica, si se reactivara) >
+ * este auto-mapeo > default por país (ES 31/2, resto 77/104). seurnacional solo mapea a
+ * 13:30 en pedidos desde 2026-06-11 (antes era el módulo genérico, no el 13:30). */
+if (!$free && !$manual && !isset($opts['service']) && !isset($dest['pickupCentreCode'])
+    && trim((string) ($in['svc'] ?? '')) === '' && $oid > 0) {
+    $qm = $db->prepare('SELECT shipping_module, date_purchased FROM orders WHERE orders_id = ?');
+    $qm->bind_param('i', $oid);
+    $qm->execute();
+    if ($rm = $qm->get_result()->fetch_assoc()) {
+        $mod = strtolower(trim((string) $rm['shipping_module']));
+        if (strpos($mod, 'seurdiez') === 0 && ($iso === 'ES' || $iso === 'PT')) {
+            $opts['service'] = '3';  $opts['product'] = '2';  $opts['observations'] .= ' / SEUR 10 (auto)';
+        } elseif (strpos($mod, 'seurnacional') === 0 && $iso === 'ES' && (string) $rm['date_purchased'] >= '2026-06-11') {
+            $opts['service'] = '9';  $opts['product'] = '2';  $opts['observations'] .= ' / SEUR 13:30 (auto)';
+        } elseif (strpos($mod, 'seursabado') === 0 && $iso === 'ES') {
+            $opts['service'] = '57'; $opts['product'] = '2';  $opts['observations'] .= ' / SEUR Sabado (auto)';
+        }
+        /* seur48 / seurpunto / seureuropack / resto: default por país (punto ya resuelto). */
+    }
+}
+
 /* SERVICIO/PRODUCTO explicito (envio manual O selector de "Anular y regenerar" del
  * panel, 2026-07-07): svccode/prodcode mandan sobre svc= y sobre el default por pais.
  * Si el servicio elegido NO es 2shop (producto 48), se quita el pickupCentreCode:
@@ -296,6 +343,24 @@ if ($regen) {
 }
 $ref = $opts['ref'];  // 'F{oid}'/'Q{oid}' (+ 'R{n}' si regen) — DEBE coincidir con SEUR (el cron rastrea por esta ref)
 $shipment = seur::envioDesdePedido($dest, $opts);
+
+/* GUARDA CP–PAÍS (2026-07-10, caso 05-14812-48452): con destino ES el CP tiene que
+ * ser un CP español válido (5 dígitos, provincia 01-52). Sin esto, un país mal
+ * resuelto o un CP basura ('MARIO@LMED') acaba en el 400 críptico de SEUR
+ * "Error trying to retrieve cities from API catalogue". */
+$cpChk = preg_replace('/\s+/', '', (string) ($dest['postalCode'] ?? ''));
+if (($dest['country'] ?? '') === 'ES' && !preg_match('/^(0[1-9]|[1-4][0-9]|5[0-2])[0-9]{3}$/', $cpChk)) {
+    $errCp = "CP '" . $cpChk . "' no es un codigo postal espanol valido: revisa el PAIS del destino (para internacional usa ISO-2, p.ej. DE = Alemania) o corrige el CP.";
+    if (!$dry) {
+        $st = $db->prepare("INSERT INTO seur_shipments (id_rma, orders_id, albaran_id, tipo, entorno, service_code, product_code,
+                              ref, kilos, http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
+                            VALUES (0,?,?,'envio',?,?,?,?,?,'0',?,0,?,'', ?, NOW())");
+        $reqJ = json_encode($shipment, JSON_UNESCAPED_UNICODE);
+        $st->bind_param('isssssdsss', $oid, $alb, $env, $shipment['serviceCode'], $shipment['productCode'], $ref, $kilos, $errCp, $reqJ, $operator);
+        $st->execute();
+    }
+    out(array('ok' => false, 'env' => $env, 'error' => $errCp, 'http' => 0));
+}
 
 if ($dry) out(array('ok' => true, 'dry' => true, 'env' => $env, 'payload' => $shipment));
 
@@ -320,12 +385,12 @@ if (!$res['ok'] && (!$code || $regen)) {
     $err = seur::primerError($res);
     $st = $db->prepare("INSERT INTO seur_shipments (id_rma, orders_id, albaran_id, tipo, entorno, service_code, product_code,
                           ref, kilos, http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                        VALUES (0,?,?,'envio',?,?,?,?,?,?,?,0,?,?, 'vstock-watcher', NOW())");
+                        VALUES (0,?,?,'envio',?,?,?,?,?,?,?,0,?,?, ?, NOW())");
     $http = (string) $res['http'];
     $req  = json_encode($reqShip, JSON_UNESCAPED_UNICODE);
     $raw = $res['raw'];
-    $st->bind_param('isssssdssss', $oid, $alb, $env, $shipment['serviceCode'], $shipment['productCode'],
-                    $ref, $kilos, $http, $err, $req, $raw);
+    $st->bind_param('isssssdsssss', $oid, $alb, $env, $shipment['serviceCode'], $shipment['productCode'],
+                    $ref, $kilos, $http, $err, $req, $raw, $operator);
     $st->execute();
     out(array('ok' => false, 'env' => $env, 'error' => $err, 'http' => $res['http']));
 }
@@ -382,15 +447,15 @@ $trackingUrl = 'https://www.seur.com/miseur/mis-envios?code=' . rawurlencode($ec
 $st = $db->prepare("INSERT INTO seur_shipments (id_rma, orders_id, albaran_id, tipo, entorno, shipment_code, ecb,
                       parcel_number, service_code, product_code, pudo_id, pudo_name, ref, kilos, label_format, label_path, label_zpl_path,
                       tracking_url, http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                    VALUES (0,?,?,'envio',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, '', 1, ?, ?, 'vstock-watcher', NOW())");
+                    VALUES (0,?,?,'envio',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, '', 1, ?, ?, ?, NOW())");
 $fmt  = ($zplPath && $pdfPath) ? 'both' : ($zplPath ? 'zpl' : 'pdf');
 $http = (string) $res['http'];
 $req  = json_encode($reqShip, JSON_UNESCAPED_UNICODE);
 $pudoIdDb   = ($pudoId !== '') ? $pudoId : null;
 $pudoNameDb = ($pudoName !== '') ? $pudoName : null;
-$st->bind_param('issssssssssdsssssss', $oid, $alb, $env, $code, $ecb, $pn,
+$st->bind_param('issssssssssdssssssss', $oid, $alb, $env, $code, $ecb, $pn,
                 $shipment['serviceCode'], $shipment['productCode'], $pudoIdDb, $pudoNameDb, $ref, $kilos,
-                $fmt, $pdfPath, $zplPath, $trackingUrl, $http, $req, $res['raw']);
+                $fmt, $pdfPath, $zplPath, $trackingUrl, $http, $req, $res['raw'], $operator);
 $st->execute();
 $newShipId = $db->insert_id;
 

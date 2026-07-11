@@ -80,10 +80,79 @@ function cexNote($id_rma, $texto) {
     ));
 }
 
+/**
+ * Estampa un "RMA Nº {id}" grande y legible sobre el PDF de etiqueta de CEX, para
+ * identificar el RMA de un vistazo cuando el paquete regresa al almacén.
+ *
+ * CEX ya imprime "REF: RMA00000123" pero en cuerpo pequeño; aquí lo sustituimos por un
+ * rótulo grande en el hueco de la derecha (entre la caja de PESO y COD. BULTO), SIN
+ * tocar el código de barras ni las direcciones. Overlay VECTORIAL vía Ghostscript (no
+ * rasteriza -> el barcode sigue escaneando). Fail-safe: si gs falla o no está, devuelve
+ * el PDF original tal cual (comportamiento previo). Ver memoria francobordo_correos_express_api.
+ */
+function cexStampRmaPdf($pdfBin, $id_rma) {
+    if (!is_string($pdfBin) || strncmp($pdfBin, '%PDF', 4) !== 0) return $pdfBin;
+    if (!function_exists('exec')) return $pdfBin;
+    $gs = is_executable('/usr/bin/gs') ? '/usr/bin/gs' : 'gs';
+
+    // Texto "RMA Nº {id}" y tamaño de fuente auto-ajustado al ancho del hueco (~168 pt).
+    $num  = (int) $id_rma;
+    $text = 'RMA N\272 ' . $num;                 // \272 = 'º' en ISOLatin1 (literal en el .ps)
+    $vis  = 7 + strlen((string) $num);           // "RMA Nº " = 7 chars visibles + dígitos
+    $fs   = (int) floor(168 / max(1, $vis) / 0.62);
+    if ($fs > 20) $fs = 20;
+    if ($fs < 9)  $fs = 9;
+
+    $tmp = function_exists('sys_get_temp_dir') ? sys_get_temp_dir() : '/tmp';
+    $in  = tempnam($tmp, 'cexin_');
+    $out = tempnam($tmp, 'cexout_');
+    $ps  = tempnam($tmp, 'cexps_');
+    if ($in === false || $out === false || $ps === false) { @unlink($in); @unlink($out); @unlink($ps); return $pdfBin; }
+
+    // Programa PostScript: reencoda Helvetica-Bold a ISOLatin1 (para la 'º') y engancha
+    // un /EndPage que, en cada página, tapa el REF con un rectángulo blanco y escribe el
+    // rótulo grande. numBultos>1 -> se estampa en todas las páginas (una por bulto).
+    $psSrc =
+        "/Helvetica-Bold findfont dup length dict copy begin\n" .
+        "  /Encoding ISOLatin1Encoding def\n" .
+        "currentdict end /HB-Lat exch definefont pop\n" .
+        "<<\n" .
+        "  /EndPage {\n" .
+        "    exch pop 0 eq\n" .
+        "    dup {\n" .
+        "      gsave\n" .
+        "        1 1 1 setrgbcolor\n" .
+        "        newpath 236 165 moveto 182 0 rlineto 0 34 rlineto -182 0 rlineto closepath fill\n" .
+        "        0 0 0 setrgbcolor\n" .
+        "        /HB-Lat " . $fs . " selectfont\n" .
+        "        246 174 moveto (" . $text . ") show\n" .
+        "      grestore\n" .
+        "    } if\n" .
+        "  } bind\n" .
+        ">> setpagedevice\n";
+
+    $result = $pdfBin;
+    if (file_put_contents($in, $pdfBin) !== false && file_put_contents($ps, $psSrc) !== false) {
+        $cmd = escapeshellarg($gs) . ' -q -dBATCH -dNOPAUSE -dSAFER -sDEVICE=pdfwrite'
+             . ' -sOutputFile=' . escapeshellarg($out) . ' ' . escapeshellarg($ps)
+             . ' -f ' . escapeshellarg($in) . ' 2>/dev/null';
+        $o = array(); $rc = 1; @exec($cmd, $o, $rc);
+        if ($rc === 0) {
+            $stamped = @file_get_contents($out);
+            if ($stamped !== false && strncmp($stamped, '%PDF', 4) === 0 && strlen($stamped) > 1000) {
+                $result = $stamped;
+            }
+        }
+    }
+    @unlink($in); @unlink($out); @unlink($ps);
+    return $result;
+}
+
 /** Guarda el PDF de etiqueta bajo images/rma/{id}/ con nombre aleatorio. Devuelve ruta relativa o null. */
 function cexSaveLabel($id_rma, $b64) {
     $pdf = base64_decode($b64, true);
     if ($pdf === false || strncmp($pdf, '%PDF', 4) !== 0) return null;
+    $pdf = cexStampRmaPdf($pdf, (int) $id_rma);   // rótulo "RMA Nº {id}" para identificar el retorno
     $dir = DIR_FS_CATALOG . 'images/rma/' . (int) $id_rma . '/';
     if (!is_dir($dir)) @mkdir($dir, 0755, true);
     $name = 'cex_label_' . (int) $id_rma . '_' . substr(md5($b64 . microtime(true)), 0, 10) . '.pdf';

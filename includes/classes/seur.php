@@ -500,9 +500,13 @@ class seur {
                 'address'     => $senderAddr,
             ),
             'receiver'       => array(   // destino = Francobordo
-                'name'        => self::FB_NOMBRE,
+                // El nº de RMA va PRIMERO en el NOMBRE y en el "Att:" para que salga GRANDE
+                // en el bloque de destinatario de la etiqueta (la ref RMA000000NN ya salía,
+                // pero en letra pequeña abajo) → identificación rápida del bulto al recibirlo.
+                // OJO: SEUR limita receiver.name a 50 caracteres (400 si se pasa) → substr.
+                'name'        => substr('RMA N. ' . (int) ($rma['id_rma'] ?? 0) . ' - ' . self::FB_NOMBRE, 0, 50),
                 'phone'       => self::FB_TLFNO,
-                'contactName' => self::FB_CONTACTO,
+                'contactName' => 'RMA N. ' . (int) ($rma['id_rma'] ?? 0),
                 'email'       => self::FB_EMAIL,
                 'address'     => array(
                     'streetName' => self::FB_DIR,

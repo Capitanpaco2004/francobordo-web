@@ -69,6 +69,15 @@ function seurModEligible($trk) {
 $action = $_POST['do'] ?? '';
 $shipId = (int) ($_POST['ship'] ?? 0);
 
+/** Identidad del admin conectado — para auditoría en seur_shipments.operator /
+ *  cancelled_by (mismo criterio que cexOperator() del módulo RMA). */
+function seurOperator() {
+    foreach (array('login_email_address', 'login_id', 'login_first_name') as $k) {
+        if (!empty($_SESSION[$k])) return substr((string) $_SESSION[$k], 0, 64);
+    }
+    return 'admin-desconocido';
+}
+
 /* === Envio manual SEUR (sin pedido): crea un envio libre y encola su etiqueta para la Zebra === */
 if (($_POST['do'] ?? '') === 'crear_manual') {
     if (!hash_equals($csrf, (string) ($_POST['csrf'] ?? ''))) {
@@ -87,7 +96,7 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
             $params = array('token' => SEUR_ALB_TOKEN, 'free' => '1', 'ref' => $mref,
                 'dname' => $dname, 'dstreet' => $dstreet, 'dcp' => $dcp, 'dcity' => $dcity, 'dstate' => $dstate,
                 'dcountry' => $dcountry, 'dphone' => $dphone, 'demail' => $demail,
-                'kilos' => $mkilos, 'bultos' => $mbultos, 'type' => 'ZPL');
+                'kilos' => $mkilos, 'bultos' => $mbultos, 'type' => 'ZPL', 'op' => seurOperator());
             if ($msvc !== '' && strpos($msvc, '/') !== false) { list($sc, $pc) = explode('/', $msvc, 2); $params['svccode'] = preg_replace('/\D/', '', $sc); $params['prodcode'] = preg_replace('/\D/', '', $pc); }
             $ch = curl_init('https://www.francobordo.com/seur_albaran.php');
             curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 90, CURLOPT_POST => 1, CURLOPT_POSTFIELDS => http_build_query($params)));
@@ -126,7 +135,7 @@ if ($action !== '' && $shipId > 0) {
                     $d = seur::payload($res);
                     $desc = (is_array($d) && !empty($d[0]['description'])) ? $d[0]['description'] : seur::primerError($res);
                     if ($res['ok'] || seurCancelSoft($desc)) {
-                        tep_db_perform('seur_shipments', array('cancelled_at' => 'now()'), 'update', 'id = ' . $shipId);
+                        tep_db_perform('seur_shipments', array('cancelled_at' => 'now()', 'cancelled_by' => seurOperator()), 'update', 'id = ' . $shipId);
                         $msg = 'Envío ' . htmlspecialchars($s['shipment_code']) . ' anulado en SEUR. ' . htmlspecialchars($desc);
                         $msgClass = 'success';
                     } else {
@@ -186,7 +195,7 @@ if ($action !== '' && $shipId > 0) {
                     $bultosM = max(1, (int) ($_POST['bultos'] ?? 1));
                     $modo    = $_POST['destino'] ?? 'mantener';
                     $esQfac  = ($oidM > 0 && $oidM < 10000000);
-                    $params  = array('oid' => $oidM, 'kilos' => $kilosM, 'bultos' => $bultosM, 'type' => 'BOTH', 'regen' => '1');
+                    $params  = array('oid' => $oidM, 'kilos' => $kilosM, 'bultos' => $bultosM, 'type' => 'BOTH', 'regen' => '1', 'op' => seurOperator());
 
                     if ($modo === 'punto') {
                         $pp      = preg_replace('/[^0-9A-Za-z]/', '', (string) ($_POST['pudo'] ?? ''));
@@ -263,7 +272,7 @@ if ($action !== '' && $shipId > 0) {
                             $msgClass = 'danger';
                             tep_db_query("SELECT RELEASE_LOCK('" . tep_db_input($lockName) . "')");
                         } else {
-                            tep_db_perform('seur_shipments', array('cancelled_at' => 'now()'), 'update', 'id = ' . $shipId);
+                            tep_db_perform('seur_shipments', array('cancelled_at' => 'now()', 'cancelled_by' => seurOperator()), 'update', 'id = ' . $shipId);
                             // 2) REGENERAR vía seur_albaran.php (POST, TLS verificado, regen=1 → ref nueva)
                             $params['token'] = SEUR_ALB_TOKEN;
                             $ch = curl_init('https://www.francobordo.com/seur_albaran.php');
@@ -418,7 +427,30 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
       <label>CP *<input type="text" name="m_dcp" required></label>
       <label>Ciudad *<input type="text" name="m_dcity" required></label>
       <label>Provincia<input type="text" name="m_dstate"></label>
-      <label>Pa&iacute;s * (ISO2 o nombre; ES = nacional, otro = internacional)<input type="text" name="m_dcountry" value="ES" required></label>
+      <label>Pa&iacute;s * (ES = nacional; otro = internacional autom&aacute;tico)
+        <select name="m_dcountry" required>
+          <optgroup label="Frecuentes">
+            <option value="ES" selected>Espa&ntilde;a</option>
+            <option value="PT">Portugal</option>
+            <option value="FR">Francia</option>
+            <option value="DE">Alemania</option>
+            <option value="IT">Italia</option>
+            <option value="GB">Reino Unido</option>
+            <option value="NL">Pa&iacute;ses Bajos</option>
+            <option value="BE">B&eacute;lgica</option>
+            <option value="CH">Suiza</option>
+            <option value="AT">Austria</option>
+          </optgroup>
+          <optgroup label="Todos">
+<?php
+$qPaisM = tep_db_query("select countries_iso_code_2 iso, countries_name nom from countries order by countries_name");
+while ($rPaisM = tep_db_fetch_array($qPaisM)) {
+    echo '            <option value="' . htmlspecialchars($rPaisM['iso']) . '">' . htmlspecialchars($rPaisM['nom']) . ' (' . htmlspecialchars($rPaisM['iso']) . ')</option>' . "\n";
+}
+?>
+          </optgroup>
+        </select>
+      </label>
       <label>Servicio SEUR<select name="m_service">
         <option value="">Autom&aacute;tico (por pa&iacute;s)</option>
         <option value="31/2">Nacional domicilio B2C (31/2)</option>

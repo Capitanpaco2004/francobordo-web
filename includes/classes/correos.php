@@ -452,7 +452,9 @@ class correos {
      * Construye el objeto "shipment" de una DEVOLUCIÓN (logística inversa):
      * remitente (sender) = cliente que devuelve ; destinatario (addressee) =
      * Francobordo. $opts: product, weightGrams, height/width/length (mm),
-     * province (cód. Anexo V del cliente).
+     * province (cód. Anexo V del cliente), packageContents (declaración DUA/CN23
+     * cuando el REMITENTE está en Canarias/Ceuta/Melilla; sin ella el preregistro
+     * PAAZE falla con 6069 "Las información de aduanas es obligatoria").
      */
     public static function devolucionDesdeRma(array $rma, array $opts = array()) {
         $w = (string) ($opts['weightGrams'] ?? '1000');   // 1 kg por defecto
@@ -484,6 +486,21 @@ class correos {
         );
         if (self::FB_NIF !== '') { $addressee['doiType'] = '10'; $addressee['doiNumber'] = self::FB_NIF; }
 
+        $package = array(
+            'packageId'          => '1',
+            'packageWeightGrams' => $w,
+            'packageHeight'      => (string) ($opts['height'] ?? '150'),  // mm
+            'packageWidth'       => (string) ($opts['width']  ?? '200'),  // mm
+            'packageLength'      => (string) ($opts['length'] ?? '300'),  // mm
+        );
+        /* ADUANAS (Canarias/Ceuta/Melilla): la declaración va COMPLETA en el único bulto.
+         * Las devoluciones PAAZE/PAAZV son siempre de 1 bulto (Anexo I: máx bultos = 1),
+         * así que no hay conflicto multibulto. El bloque lo construye el llamador (el
+         * módulo RMA, que tiene acceso a la BD del pedido) y lo pasa en opts. */
+        if (!empty($opts['packageContents']) && is_array($opts['packageContents'])) {
+            $package['packageContents'] = $opts['packageContents'];
+        }
+
         return array(
             'product'        => (string) ($opts['product'] ?? self::PROD_RETORNO),
             'deliveryMethod' => self::DELIVERY_DEVOLUCION,
@@ -493,15 +510,17 @@ class correos {
             'packagesNumber' => '1',
             'totalWeight'    => $w,
             'shipmentReference1' => 'RMA' . str_pad((string) ($rma['id_rma'] ?? ''), 8, '0', STR_PAD_LEFT),
+            /* Nº de RMA visible en la etiqueta, para que el almacén lo identifique al recibir.
+             * OJO: el esquema de POST /delivery NO tiene 'observations' (ese campo es de la
+             * variante /delivery/package y Correos lo IGNORA aquí en silencio — comprobado
+             * 2026-07-10 con etiqueta real). Los campos que existen: 'shipmentNotes' (100c,
+             * candidato al recuadro Observaciones) y 'dispatchReference' (30c, candidato al
+             * "Ref.:"). "Does not apply to all products" según el OAS: verificar en el PDF. */
+            'shipmentNotes'     => 'RMA ' . (int) ($rma['id_rma'] ?? 0),
+            'dispatchReference' => 'RMA ' . (int) ($rma['id_rma'] ?? 0),
             'sender'         => $sender,
             'addressee'      => $addressee,
-            'packages'       => array(array(
-                'packageId'          => '1',
-                'packageWeightGrams' => $w,
-                'packageHeight'      => (string) ($opts['height'] ?? '150'),  // mm
-                'packageWidth'       => (string) ($opts['width']  ?? '200'),  // mm
-                'packageLength'      => (string) ($opts['length'] ?? '300'),  // mm
-            )),
+            'packages'       => array($package),
         );
     }
 

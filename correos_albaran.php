@@ -66,22 +66,67 @@ $alb    = trim((string) ($in['albaran'] ?? ''));
 $type   = strtoupper(trim((string) ($in['type'] ?? 'BOTH')));
 if (!in_array($type, array('ZPL', 'PDF', 'BOTH'), true)) $type = 'BOTH';
 $dry    = (($in['dry'] ?? '') === '1');
-$mode   = strtolower(trim((string) ($in['mode'] ?? 'dom')));
+/* El SERVICIO se resuelve DESPUES de cargar el pedido (bloque "SERVICIO", mas abajo).
+ * 'mode'  = legacy: solo lo usan los envios manuales del panel (free=1, sin pedido).
+ * 'svc'   = override explicito del panel admin ('dom'|'ofi'); el watcher NO manda servicio. */
+$modeIn = strtolower(trim((string) ($in['mode'] ?? '')));
+$svcIn  = strtolower(trim((string) ($in['svc'] ?? '')));
+$mode   = 'dom';
 $oficina = trim((string) ($in['oficina'] ?? ''));
 $manual = (($in['manual'] ?? '') === '1');   // pedido QFac-nativo (26xxxxx): direccion en params, no en 'orders'
 $free    = (($in['free'] ?? '') === '1');     // ENVIO MANUAL sin pedido: ref propia, orders_id=0, dedup por ref
 $freeRef = trim((string) ($in['ref'] ?? ''));
 $operator = $free ? 'admin-manual' : 'vstock-watcher';
-$deliveryMethod = ($mode === 'ofi') ? 'OFUAOF' : 'DOUAOF';  // COR Oficina vs COR Domicilio
 
 if (!$free && $oid <= 0) out(array('ok' => false, 'error' => 'oid requerido'));
 if ($free && $freeRef === '') out(array('ok' => false, 'error' => 'free=1 requiere ref'));
-// mode=ofi: si no llega 'oficina', se resuelve más abajo (correos_oficina_orders
-// = oficina elegida por el cliente en el checkout) o, en su defecto, auto por CP de destino.
+// La oficina concreta: parametro 'oficina' > la que eligio el cliente (correos_oficina_orders)
+// > la mas cercana al CP de destino (localizador publico).
 
 /* =========================================================================
  * Helpers
  * ========================================================================= */
+
+/* Oficina que el cliente eligio en el checkout ('correosoficina' escribe la fila). '' si no hay. */
+function correosOficinaElegida($db, $oid) {
+    $st = $db->prepare("SELECT office_id FROM correos_oficina_orders WHERE orders_id=? LIMIT 1");
+    if (!$st) return '';
+    $st->bind_param('i', $oid);
+    $st->execute();
+    $res = $st->get_result();
+    $row = $res ? $res->fetch_assoc() : null;
+    if ($res) $res->free();
+    $st->close();
+    return $row ? trim((string) $row['office_id']) : '';
+}
+
+/* Titulo del envio del pedido (orders_total.ot_shipping). '' si no hay. */
+function correosTituloEnvio($db, $oid) {
+    $st = $db->prepare("SELECT title FROM orders_total WHERE orders_id=? AND class='ot_shipping' LIMIT 1");
+    if (!$st) return '';
+    $st->bind_param('i', $oid);
+    $st->execute();
+    $res = $st->get_result();
+    $row = $res ? $res->fetch_assoc() : null;
+    if ($res) $res->free();
+    $st->close();
+    return $row ? (string) $row['title'] : '';
+}
+
+/* Es un pedido web de RECOGIDA EN OFICINA? Tres senales, de mas a menos fiable:
+ *   a) fila en correos_oficina_orders  -> el cliente eligio una oficina concreta;
+ *   b) orders.shipping_module de un modulo de oficina;
+ *   c) el titulo del envio dice "oficina"/"post office" (red de seguridad para pedidos
+ *      antiguos cuyo modulo ya no existe o tiene el nombre cambiado).
+ * Los nombres de los modulos ENGANAN: 'correosint' es OFICINA nacional; 'correoscert', DOMICILIO. */
+function correosPedidoEsOficina($db, $oid, array $o, array $modulos) {
+    if (correosOficinaElegida($db, $oid) !== '') return true;
+    $mod  = strtolower(trim((string) ($o['shipping_module'] ?? '')));
+    $pref = (strpos($mod, '_') !== false) ? substr($mod, 0, strpos($mod, '_')) : $mod;
+    if ($pref !== '' && in_array($pref, $modulos, true)) return true;
+    $t = correosTituloEnvio($db, $oid);
+    return ($t !== '' && preg_match('/oficina|post office/i', $t) && !preg_match('/express/i', $t));
+}
 
 /** Quita secuencias UTF-8 de 4 bytes (emoji…) para que el INSERT no falle en
  *  columnas utf8 de 3 bytes bajo el modo STRICT de MySQL/MariaDB. */
@@ -246,7 +291,7 @@ if ($manual || $free) {
 } else {
     $st = $db->prepare("SELECT orders_id, delivery_name, delivery_company, delivery_street_address, delivery_suburb,
                                delivery_city, delivery_postcode, delivery_state, delivery_country,
-                               customers_telephone, customers_email_address
+                               customers_telephone, customers_email_address, shipping_module
                         FROM orders WHERE orders_id=?");
     $st->bind_param('i', $oid);
     $st->execute();
@@ -254,20 +299,98 @@ if ($manual || $free) {
     if (!$o) out(array('ok' => false, 'error' => "pedido $oid no encontrado en la web"));
 }
 
-/* País → ISO-3 (Correos exige alfa-3: ESP...). orders.delivery_country guarda el NOMBRE. */
-$iso3 = 'ESP';
-$cty = trim((string) $o['delivery_country']);
-if ($cty !== '' && strlen($cty) > 3) {
-    $st = $db->prepare("SELECT countries_iso_code_3 FROM countries WHERE countries_name=? LIMIT 1");
-    $st->bind_param('s', $cty);
+/* País → ISO-3 (Correos exige alfa-3: ESP...). orders.delivery_country guarda el NOMBRE;
+ * QFac/manual pueden mandar ya el alfa-3 ('ITA') o el alfa-2 ('IT'). Sin país => nacional.
+ * NUNCA se adivina: un país que no resuelve ABORTA. Con el 'ESP' por defecto de antes, un
+ * nombre no reconocido creaba una etiqueta NACIONAL con dirección extranjera (ya facturada). */
+/* Normaliza un nombre de pais: mayusculas, sin acentos ni separadores. 'Países Bajos' => 'PAISESBAJOS' */
+function fb_norm_pais($s) {
+    $s = mb_strtoupper(trim((string) $s), 'UTF-8');
+    $s = strtr($s, array('Á'=>'A','À'=>'A','Ä'=>'A','Â'=>'A','Ã'=>'A','É'=>'E','È'=>'E','Ë'=>'E','Ê'=>'E',
+                         'Í'=>'I','Ì'=>'I','Ï'=>'I','Î'=>'I','Ó'=>'O','Ò'=>'O','Ö'=>'O','Ô'=>'O','Õ'=>'O',
+                         'Ú'=>'U','Ù'=>'U','Ü'=>'U','Û'=>'U','Ñ'=>'N','Ç'=>'C'));
+    return preg_replace('/[^A-Z]/', '', $s);
+}
+/* Una sola fila; cierra el stmt (mezclar prepare() vivo con query() da 'Commands out of sync'). */
+function fb_pais_col($db, $sql, $val) {
+    $st = $db->prepare($sql);
+    if (!$st) return '';
+    $st->bind_param('s', $val);
     $st->execute();
-    if ($row = $st->get_result()->fetch_assoc()) $iso3 = strtoupper($row['countries_iso_code_3']);
-} elseif (strlen($cty) === 3) {
-    $iso3 = strtoupper($cty);
+    $res = $st->get_result();
+    $row = $res ? $res->fetch_row() : null;
+    if ($res) $res->free();
+    $st->close();
+    return $row ? (string) $row[0] : '';
 }
-if ($iso3 !== 'ESP') {
-    out(array('ok' => false, 'error' => "pedido $oid con destino $iso3: el envío Correos por API solo cubre nacional (ESP) de momento"));
+/* `countries` arrastra alfa-3 anteriores a 2002; Correos exige el vigente. Antiguo => vigente. */
+$ISO3_LEGACY = array('ROM' => 'ROU');
+/* Existe este alfa-3 vigente en `countries`? Acepta tambien su equivalente antiguo. */
+function fb_iso3_existe($db, $iso3, $legacy) {
+    $sql = "SELECT countries_iso_code_3 FROM countries WHERE countries_iso_code_3=? LIMIT 1";
+    if (fb_pais_col($db, $sql, $iso3) !== '') return true;
+    $viejo = array_search($iso3, $legacy, true);   // 'ROU' => 'ROM'
+    return $viejo !== false && fb_pais_col($db, $sql, $viejo) !== '';
 }
+/* Alias castellano -> ISO-3 para los nombres que QFac escribe a mano (PCL_PAIS) y que no estan
+ * en `countries`. Clave = nombre normalizado. Solo se consulta si fallan ISO-3/ISO-2/nombre. */
+$PAIS_ALIAS = array(
+    'ESPANA'=>'ESP','ESPAA'=>'ESP','ALEMANIA'=>'DEU','ITALIA'=>'ITA','FRANCIA'=>'FRA','PORTUGAL'=>'PRT',
+    'REINOUNIDO'=>'GBR','GRANBRETANA'=>'GBR','INGLATERRA'=>'GBR','UK'=>'GBR',
+    'PAISESBAJOS'=>'NLD','HOLANDA'=>'NLD','BELGICA'=>'BEL','IRLANDA'=>'IRL','FINLANDIA'=>'FIN',
+    'CROACIA'=>'HRV','ESLOVENIA'=>'SVN','ESLOVAQUIA'=>'SVK','LUXEMBURGO'=>'LUX','HUNGRIA'=>'HUN',
+    'RUMANIA'=>'ROU','SUECIA'=>'SWE','POLONIA'=>'POL','LITUANIA'=>'LTU','LETONIA'=>'LVA',
+    'ESTONIA'=>'EST','DINAMARCA'=>'DNK','GRECIA'=>'GRC','CHIPRE'=>'CYP','BULGARIA'=>'BGR','MALTA'=>'MLT',
+    'REPUBLICACHECA'=>'CZE','CHEQUIA'=>'CZE','AUSTRIA'=>'AUT','ANDORRA'=>'AND','MONACO'=>'MCO',
+    'SUIZA'=>'CHE','NORUEGA'=>'NOR','ISLANDIA'=>'ISL','TURQUIA'=>'TUR','UCRANIA'=>'UKR','RUSIA'=>'RUS',
+    'SERBIA'=>'SRB','BOSNIAYHERZEGOVINA'=>'BIH','ALBANIA'=>'ALB','MACEDONIA'=>'MKD','MONTENEGRO'=>'MNE',
+    'ESTADOSUNIDOS'=>'USA','EEUU'=>'USA','CANADA'=>'CAN','MEXICO'=>'MEX','BRASIL'=>'BRA','PERU'=>'PER',
+    'PANAMA'=>'PAN','REPUBLICADOMINICANA'=>'DOM','COLOMBIA'=>'COL','ARGENTINA'=>'ARG','CHILE'=>'CHL',
+    'SUDAFRICA'=>'ZAF','MARRUECOS'=>'MAR','TANZANIA'=>'TZA','MAURICIO'=>'MUS','CABOVERDE'=>'CPV',
+    'MALDIVAS'=>'MDV','REPUBLICOFMALDIVES'=>'MDV','JAPON'=>'JPN','CHINA'=>'CHN','AUSTRALIA'=>'AUS',
+    'NUEVAZELANDA'=>'NZL','EMIRATOSARABESUNIDOS'=>'ARE','ARABIASAUDI'=>'SAU','EGIPTO'=>'EGY',
+    'TUNEZ'=>'TUN','ARGELIA'=>'DZA','ISRAEL'=>'ISR','INDIA'=>'IND','TAILANDIA'=>'THA',
+);
+
+$cty  = trim((string) $o['delivery_country']);
+$iso3 = '';
+if ($cty === '') {
+    $iso3 = 'ESP';                                       // sin pais => nacional
+} elseif (preg_match('/^[A-Za-z]{3}$/', $cty)) {
+    $up = strtoupper($cty);
+    if (isset($ISO3_LEGACY[$up])) $up = $ISO3_LEGACY[$up];     // entrada con alfa-3 antiguo ('ROM')
+    if (fb_iso3_existe($db, $up, $ISO3_LEGACY)) $iso3 = $up;
+} elseif (preg_match('/^[A-Za-z]{2}$/', $cty)) {
+    $iso3 = strtoupper(fb_pais_col($db, "SELECT countries_iso_code_3 FROM countries WHERE countries_iso_code_2=? LIMIT 1", $cty));
+} else {
+    $iso3 = strtoupper(fb_pais_col($db, "SELECT countries_iso_code_3 FROM countries WHERE countries_name=? LIMIT 1", $cty));
+}
+if ($iso3 === '' && $cty !== '') {
+    $norm = fb_norm_pais($cty);
+    if ($norm !== '') {
+        // Nombre de la tienda comparado en normalizado (tolera mayusculas/acentos: 'ITALY', 'ESPAÑA').
+        if ($res = $db->query("SELECT countries_name, countries_iso_code_3 FROM countries WHERE countries_iso_code_3 <> ''")) {
+            while ($row = $res->fetch_assoc()) {
+                if (fb_norm_pais($row['countries_name']) === $norm) { $iso3 = strtoupper($row['countries_iso_code_3']); break; }
+            }
+            $res->free();
+        }
+        // Alias en castellano (QFac). Se valida contra `countries` para no colar un ISO-3 inventado.
+        if ($iso3 === '' && isset($PAIS_ALIAS[$norm])) {
+            $cand = $PAIS_ALIAS[$norm];
+            if (fb_iso3_existe($db, $cand, $ISO3_LEGACY)) $iso3 = $cand;
+        }
+    }
+}
+if (isset($ISO3_LEGACY[$iso3])) $iso3 = $ISO3_LEGACY[$iso3];   // 'ROM' (tabla) => 'ROU' (Correos)
+if (!preg_match('/^[A-Z]{3}$/', $iso3)) {
+    out(array('ok' => false, 'error' => "pedido $oid: pais destino no reconocido ('$cty'); usa el nombre exacto de la tienda o el codigo ISO (ESP, DEU, IT...)"));
+}
+/* Nacional vs INTERNACIONAL. Internacional = Paq Estandar Internacional (PAAXI, S0410 del Anexo I),
+ * SOLO entrega a domicilio (DOUAOF): no hay recogida en oficina fuera de Espana. */
+$esES     = ($iso3 === 'ESP');
+$producto = $esES ? 'PAFXB' : 'PAAXI';
+if (!$esES) $oficina = '';   // internacional: solo domicilio (se fija en el bloque SERVICIO)
 
 /* Nombre/contacto de destino con fallback simétrico (M8) */
 $destName = trim((string) $o['delivery_name']);
@@ -276,28 +399,59 @@ if ($destName === '') out(array('ok' => false, 'error' => "pedido $oid sin nombr
 
 $cp   = trim($o['delivery_postcode']);
 $prov = preg_match('/^\d{5}$/', $cp) ? substr($cp, 0, 2) : '';
+if (!$esES) $prov = '';   // provincia = codigo Anexo V espanol; no aplica a destinos internacionales
 $gramos = (int) round($kilos * 1000);
 $ref = $free ? $freeRef : (($manual ? 'Q' : 'F') . $oid);   // free=ref propia, Q{oid}=QFac, F{oid}=web
 
-/* mode=ofi (COR Oficina): resolver el código de oficina destino (chosenOffice). */
-if ($mode === 'ofi' && $oficina === '') {
-    // 1) pedido web: la oficina que eligió el cliente en el checkout
-    if (!$manual) {
-        $stOfi = $db->prepare("SELECT office_id FROM correos_oficina_orders WHERE orders_id=? LIMIT 1");
-        $stOfi->bind_param('i', $oid);
-        $stOfi->execute();
-        if ($rowOfi = $stOfi->get_result()->fetch_assoc()) $oficina = trim((string) $rowOfi['office_id']);
-    }
-    // 2) fallback: oficina más cercana al CP de destino (localizador público)
-    if ($oficina === '' && preg_match('/^\d{5}$/', $cp)) {
-        require_once __DIR__ . '/includes/modules/shipping/correosoficina.php';
-        $aOfis = correosoficina::oficinas($cp, trim((string) $o['delivery_city']), 1);
-        if (!empty($aOfis[0]['id'])) $oficina = (string) $aOfis[0]['id'];
-    }
+/* =========================================================================
+ * SERVICIO: domicilio (DOUAOF) vs recogida en oficina (OFUAOF).
+ * Lo decide el PEDIDO, no la agencia que el operario elige en el PDA de Vstock
+ * (mismo criterio que cex_albaran.php con cex_pudo_orders). Por eso el 'mode' que
+ * mandaba el watcher se IGNORA en cuanto hay pedido: la agencia ya no decide nada.
+ * ========================================================================= */
+$OFICINA_MODULES = array('correosoficina', 'correos', 'correosint',
+                         'correospaespbal', 'correospaespceutamel', 'correosmad');
+$ofiExplicita = false;   // la oficina la pidio un humano (panel), no se dedujo del pedido
+$svcDegradado = '';
+if (!$esES) {
+    $mode = 'dom'; $oficina = '';                            // internacional: solo domicilio
+} elseif ($oficina !== '') {
+    $mode = 'ofi'; $ofiExplicita = true;                     // oficina explicita (panel)
+} elseif ($svcIn === 'ofi' || $svcIn === 'dom') {
+    $mode = $svcIn; $ofiExplicita = ($svcIn === 'ofi');      // override explicito del panel admin
+} elseif ($free) {
+    $mode = ($modeIn === 'ofi') ? 'ofi' : 'dom';             // envio manual sin pedido: manda el operario
+    $ofiExplicita = ($mode === 'ofi');
+} elseif (!$manual && $oid > 0) {
+    $mode = correosPedidoEsOficina($db, $oid, $o, $OFICINA_MODULES) ? 'ofi' : 'dom';
+} else {
+    $mode = 'dom';                                           // QFac-nativo: no hay pedido web que consultar
+}
+
+/* Que oficina: la que eligio el cliente y, si el pedido es de un modulo antiguo sin
+ * selector (o el panel pidio oficina sin darla), la mas cercana al CP de destino. */
+if ($mode === 'ofi' && $oficina === '' && !$free && !$manual && $oid > 0) {
+    $oficina = correosOficinaElegida($db, $oid);
+}
+if ($mode === 'ofi' && $oficina === '' && preg_match('/^\d{5}$/', $cp)) {
+    require_once __DIR__ . '/includes/modules/shipping/correosoficina.php';
+    $aOfis = correosoficina::oficinas($cp, trim((string) $o['delivery_city']), 1);
+    if (!empty($aOfis[0]['id'])) $oficina = (string) $aOfis[0]['id'];
 }
 if ($mode === 'ofi' && $oficina === '') {
-    out(array('ok' => false, 'error' => "mode=ofi: no se pudo determinar la oficina del pedido $oid (ni parametro, ni correos_oficina_orders, ni auto por CP $cp)"));
+    if ($ofiExplicita) {
+        // Alguien pidio oficina a proposito: no se cambia el servicio a su espalda.
+        out(array('ok' => false, 'error' => "servicio=oficina: no se pudo determinar la oficina del pedido $oid (ni parametro, ni correos_oficina_orders, ni auto por CP $cp)"));
+    }
+    /* Servicio DEDUCIDO del pedido (modulo/titulo antiguos, sin oficina elegida) y el
+     * localizador no da ninguna para el CP. Abortar dejaria el albaran atascado hasta el
+     * GIVEUP del watcher y ya no existe la valvula de elegir la otra agencia en el PDA.
+     * Se etiqueta a DOMICILIO (el paquete llega igual) y se avisa en la respuesta. */
+    $mode = 'dom';
+    $svcDegradado = "pedido $oid: es de recogida en oficina pero no hay oficina resoluble para el CP $cp; se etiqueta a DOMICILIO";
+    error_log('correos_albaran: ' . $svcDegradado);
 }
+$deliveryMethod = ($mode === 'ofi') ? 'OFUAOF' : 'DOUAOF';   // servicio deducido del pedido
 
 /* Bultos: peso repartido; el último absorbe el resto para que la suma == total (M4) */
 $packages = array();
@@ -314,14 +468,25 @@ $totalWeight = array_sum(array_map(function ($p) { return (int) $p['packageWeigh
 /* ADUANAS: Canarias (35/38), Ceuta (51), Melilla (52) exigen packageContents (DUA) o el
  * preregistro falla con 6069. Construimos los items (customsData) de los productos del pedido. */
 $prov2 = ($prov !== '') ? $prov : substr($cp, 0, 2);
-if (in_array($prov2, array('35', '38', '51', '52'), true)) {
+/* Aduanas: territorios espanoles fuera de la union aduanera (Canarias 35/38, Ceuta 51, Melilla 52)
+ * O destino internacional FUERA de la UE-27 (Suiza, Reino Unido, EE.UU...). Intra-UE no lleva aduanas. */
+$UE27_ISO3 = array('AUT','BEL','BGR','HRV','CYP','CZE','DNK','EST','FIN','FRA','DEU','GRC','HUN','IRL','ITA',
+                   'LVA','LTU','LUX','MLT','NLD','POL','PRT','ROU','SVK','SVN','ESP','SWE');
+$necesitaAduanas = $esES ? in_array($prov2, array('35', '38', '51', '52'), true)
+                         : !in_array($iso3, $UE27_ISO3, true);
+if ($necesitaAduanas) {
+    /* La declaracion se adjunta al bulto 0 (packageContents): con varios bultos, los 2..N viajarian
+     * SIN declaracion. Se corta antes de crear la etiqueta, que ya seria facturable. Aplica a todas
+     * las rutas (pedido web, free y manual), no solo a free como hasta ahora. */
+    if ($bultos > 1) {
+        out(array('ok' => false, 'error' => "destino con aduanas ($iso3 $cp): usa un solo bulto (la declaracion DUA/CN23 debe ir completa en un paquete)"));
+    }
     if ($manual) {
         out(array('ok' => false, 'error' => "destino aduanas ($cp) en pedido QFac-nativo $oid: requiere declaracion de aduanas con valor de mercancia (no disponible en modo manual); etiquetar a mano"));
     }
     $items = array(); $totVal = 0.0;
     if ($free) {
         // Envio manual sin pedido: declaracion DUA con el valor + contenido del formulario.
-        if ($bultos > 1) out(array('ok' => false, 'error' => "free=1 a aduanas ($cp): usa un solo bulto (el contenido DUA debe declararse completo en un paquete)"));
         $rawDval = trim((string) ($in['dvalue'] ?? ''));
         if (!preg_match('/^\d{1,9}([.,]\d{1,2})?$/', $rawDval)) out(array('ok' => false, 'error' => "destino aduanas ($cp): 'dvalue' invalido; usa formato 1234.56 (sin separador de miles)"));
         $val = round((float) str_replace(',', '.', $rawDval), 2);
@@ -331,7 +496,11 @@ if (in_array($prov2, array('35', '38', '51', '52'), true)) {
         $items[] = array('quantity' => '1', 'description' => $dsc, 'netWeight' => (string) max(1, $gramos), 'netValue' => number_format($val, 2, '.', ''), 'tariffNumber' => correos::TARIFA_ADUANA_DEF);
         $totVal = $val;
     } else {
-    $rp = $db->query("SELECT products_name, products_quantity, products_price, final_price, products_weight FROM orders_products WHERE orders_id=" . (int) $oid);
+    /* El peso viene del maestro `products` (orders_products NO tiene products_weight; la
+     * query antigua fallaba en silencio y SIEMPRE se declaraba el item generico de respaldo). */
+    $rp = $db->query("SELECT op.products_name, op.products_quantity, op.products_price, op.final_price, p.products_weight
+                      FROM orders_products op LEFT JOIN products p ON p.products_id = op.products_id
+                      WHERE op.orders_id=" . (int) $oid);
     while ($rp && ($p = $rp->fetch_assoc())) {
         $qty  = max(1, (int) $p['products_quantity']);
         $unit = ((float) $p['products_price'] > 0) ? (float) $p['products_price'] : (float) $p['final_price'];
@@ -351,6 +520,16 @@ if (in_array($prov2, array('35', '38', '51', '52'), true)) {
         $totVal = $tot;
     }
     }   // fin else (no free)
+    /* 6015 "El peso de los articulos es mayor que el peso total del envio": el neto declarado
+     * no puede superar el peso del envio (el watcher declara 1 kg por defecto y los items
+     * llevan peso real x cantidad). Si la suma se pasa, se reescala a prorrata. */
+    $sumNw = 0;
+    foreach ($items as $it) $sumNw += (int) $it['netWeight'];
+    if ($sumNw > $gramos) {
+        foreach ($items as $k => $it) {
+            $items[$k]['netWeight'] = (string) max(1, (int) floor(((int) $it['netWeight']) * $gramos / $sumNw));
+        }
+    }
     // packageContents es por paquete; declaramos todo el contenido en el primer bulto.
     $packages[0]['packageContents'] = array(
         'shipmentType'            => '2',   // Mercancias
@@ -369,7 +548,7 @@ $addressee = array(
     'locality'      => trim($o['delivery_city']),
     'cp'            => $cp,
     'province'      => $prov,
-    'country'       => 'ESP',
+    'country'       => $iso3,
     'contactPerson' => $destName,
     'contactPhone'  => trim((string) $o['customers_telephone']),
     'email'         => trim((string) $o['customers_email_address']),
@@ -378,7 +557,7 @@ $addressee = array(
 if ($mode === 'ofi') $addressee['chosenOffice'] = $oficina;
 
 $shipment = array(
-    'product'        => 'PAFXB',          // Paq Estándar
+    'product'        => $producto,        // PAFXB nacional / PAAXI internacional (Paq Estandar Int.)
     'deliveryMethod' => $deliveryMethod,  // dom=DOUAOF / ofi=OFUAOF (param mode)
     'contractNumber' => correos::CONTRACT,
     'clientNumber'   => correos::CLIENT_NUMBER,
@@ -411,7 +590,9 @@ if ($dry) {
     foreach (array('name', 'company', 'address', 'contactPerson', 'contactPhone', 'email') as $k) {
         if (!empty($safe['addressee'][$k])) $safe['addressee'][$k] = '***';
     }
-    out(array('ok' => true, 'dry' => true, 'payload' => $safe));
+    out(array('ok' => true, 'dry' => true, 'servicio' => ($mode === 'ofi' ? 'oficina' : 'domicilio'),
+              'oficina' => ($mode === 'ofi' ? $oficina : null),
+              'aviso' => ($svcDegradado !== '' ? $svcDegradado : null), 'payload' => $safe));
 }
 
 /* ---- Preregistro ---- */
@@ -434,7 +615,7 @@ if ($code === '' || !$pkgCodes) {
     $err = correos::primerError($pre);
     $st = $db->prepare("INSERT INTO correos_shipments (id_rma, orders_id, albaran_id, tipo, entorno, producto, ref, kilos,
                           http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                        VALUES (0,?,?,'envio','pro','PAFXB',?,?,?,?,0,?,?, '" . $operator . "', NOW())");
+                        VALUES (0,?,?,'envio','pro','" . $producto . "',?,?,?,?,0,?,?, '" . $operator . "', NOW())");
     $http   = (string) $pre['http'];
     $req    = correos_no4b(json_encode($reqShip, JSON_UNESCAPED_UNICODE));
     $errCut = correos_no4b(mb_substr((string) $err, 0, 480));
@@ -454,7 +635,7 @@ $raw  = correos_no4b((string) $pre['raw']);
 $pkg0 = $pkgCodes[0];
 $ins = $db->prepare("INSERT INTO correos_shipments (id_rma, orders_id, albaran_id, tipo, entorno, shipment_code, package_code,
                        producto, ref, kilos, tracking_url, http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                     VALUES (0,?,?,'envio','pro',?,?,'PAFXB',?,?,?,?,'',0,?,?, '" . $operator . "', NOW())");
+                     VALUES (0,?,?,'envio','pro',?,?,'" . $producto . "',?,?,?,?,'',0,?,?, '" . $operator . "', NOW())");
 $ins->bind_param('issssdssss', $oid, $alb, $code, $pkg0, $ref, $kilos, $trackingUrl, $http, $req, $raw);
 if (!$ins->execute()) {
     error_log('correos_albaran oid=' . $oid . ' INSERT temprano fallo: ' . $db->error . ' shipmentCode=' . $code);
@@ -482,6 +663,8 @@ out(array(
     'ok' => true, 'dedup' => false,
     'shipmentCode' => $code, 'packageCodes' => $pkgCodes,
     'tracking_url' => $trackingUrl,
+    'servicio' => ($mode === 'ofi' ? 'oficina' : 'domicilio'),
+    'aviso'    => ($svcDegradado !== '' ? $svcDegradado : null),
     'zpl'     => in_array($type, array('ZPL', 'BOTH'), true) ? $zpl : null,
     'pdf_b64' => in_array($type, array('PDF', 'BOTH'), true) && $pdfBin !== null ? base64_encode($pdfBin) : null,
 ));

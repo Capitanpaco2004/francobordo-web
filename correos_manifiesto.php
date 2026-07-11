@@ -1,17 +1,26 @@
 <?php
 /**
- * Manifiesto / Relación de entrega CORREOS (PDF del día) — para el PC del almacén.
+ * Manifiesto / Relación de entrega CORREOS — para el PC del almacén.
  *
  * Correos NO tiene endpoint de manifiesto en su API (a diferencia de SEUR), así que
- * el documento se construye localmente a partir de correos_shipments (tipo 'envio',
- * ok=1, no anulados, del día). Es la relación de envíos que se entrega al repartidor.
+ * el documento se construye localmente a partir de correos_shipments.
  *
- * GET /correos_manifiesto.php?token=...&date=YYYY-MM-DD
- *   token  (obligatorio)
- *   date   opcional, def. hoy (Europe/Madrid)
+ * MODELO "PENDIENTES" (2026-07-10): por defecto el manifiesto incluye TODOS los envíos
+ * preparados (etiqueta OK, no anulados) que NO han salido en ningún manifiesto anterior
+ * (correos_shipments.manifested_at IS NULL), y los marca al emitirlo. Así lo preparado
+ * DESPUÉS de la recogida sale en el manifiesto siguiente, en vez de perderse. El modelo
+ * antiguo miraba una ventana de hoy+fin de semana y el estado del TRACKING, de modo que
+ * un envío con el tracking atascado contaminaba la lista día tras día.
+ *
+ * GET /correos_manifiesto.php?token=...
+ *   (sin parámetros)   -> PDF con lo pendiente + marca manifested_at (emisión real)
+ *   preview=1          -> el mismo PDF SIN marcar (comprobación, rotulado BORRADOR)
+ *   reprint_last=1     -> reimprime el ÚLTIMO manifiesto emitido (sin re-marcar)
+ *   date=YYYY-MM-DD    -> reimpresión de los envíos registrados ese día (legado, no marca)
  *
  * Respuesta: PDF (attachment) o JSON {ok:false,error} si no hay envíos/fallo.
- * Patrón: seur_manifiesto.php (pero generación local, no por API).
+ * Patrón: seur_manifiesto.php. El relay del .112 (correos_manifest_server.py) solo
+ * reenvía 'date', así que la llamada sin parámetros del almacén = emisión real.
  * Ver memoria francobordo_correos_api.
  */
 error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED);
@@ -46,46 +55,47 @@ $db = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE)
 if ($db->connect_errno) { error_log('correos_manifiesto db: ' . $db->connect_error); out_json(array('ok' => false, 'error' => 'db no disponible')); }
 $db->set_charset('utf8mb4');
 
-/* Envíos del día (entorno pro), no anulados, con etiqueta efectiva */
-/* Por defecto (sin date=) el manifiesto = TODO LO PENDIENTE de entregar al repartidor:
- * envíos registrados/PRE-ADMISIÓN aún SIN recoger (últimos 7 días) → incluye los del
- * fin de semana (el repartidor no pasa sáb/dom). Con date=YYYY-MM-DD: solo ese día
- * (reimpresión puntual). Generación LOCAL, así filtramos los ya recogidos con precisión. */
+/* ---- MODOS ----
+ * date=YYYY-MM-DD : los envíos registrados ese día (reimpresión puntual, NO marca).
+ * reprint_last=1  : el último lote emitido (MAX(manifested_at)), NO re-marca.
+ * preview=1       : lo pendiente, SIN marcar (rotulado BORRADOR).
+ * por defecto     : lo pendiente (manifested_at IS NULL) y lo MARCA al emitir. */
 $explicitDay = (isset($in['date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', trim((string) $in['date'])) && $dt && $dt->format('Y-m-d') === trim((string) $in['date'])) ? $date : '';
+/* Si piden un dia concreto y la fecha no es real (2026-13-40), NO caer al modo por defecto:
+ * emitiria y MARCARIA el lote pendiente sin que nadie lo pidiera. */
+if (trim((string) ($in['date'] ?? '')) !== '' && $explicitDay === '') {
+    out_json(array('ok' => false, 'error' => 'Fecha invalida (' . htmlspecialchars(substr(trim((string) $in['date']), 0, 20)) . '). Usa date=YYYY-MM-DD.'));
+}
+$preview     = (($in['preview'] ?? '') === '1');
+$reprintLast = (($in['reprint_last'] ?? '') === '1');
+$mMax        = '';
+
+$SEL = "SELECT id, orders_id, albaran_id, shipment_code, package_code, producto, ref, kilos,
+               tracking_url, request_json, date_added
+        FROM correos_shipments
+        WHERE tipo='envio' AND ok=1 AND entorno='pro' AND cancelled_at IS NULL";
+
 if ($explicitDay !== '') {
-    $st = $db->prepare("SELECT id, orders_id, albaran_id, shipment_code, package_code, producto, ref, kilos,
-                               tracking_url, request_json, date_added
-                        FROM correos_shipments
-                        WHERE tipo='envio' AND ok=1 AND entorno='pro' AND cancelled_at IS NULL
-                          AND DATE(date_added)=?
-                        ORDER BY id ASC");
+    $st = $db->prepare($SEL . " AND DATE(date_added)=? ORDER BY id ASC");
     if (!$st) { error_log('correos_manifiesto prepare: ' . $db->error); out_json(array('ok' => false, 'error' => 'consulta no disponible')); }
     $st->bind_param('s', $explicitDay);
-} else {
-    // por defecto: HOY + dias no laborables inmediatamente anteriores (fin de semana),
-    // y SOLO lo pendiente (sin recoger: sin tracking o PRE-ADMISION/prerregistrado).
-    // El rango por finde evita que un envio atascado reaparezca cada dia.
-    $mFrom = date('Y-m-d'); $probe = strtotime($mFrom);
-    for ($i = 0; $i < 3; $i++) {
-        $prevTs = strtotime('-1 day', $probe);
-        if ((int) date('N', $prevTs) >= 6) { $mFrom = date('Y-m-d', $prevTs); $probe = $prevTs; }
-        else break;
-    }
-    $st = $db->prepare("SELECT s.id, s.orders_id, s.albaran_id, s.shipment_code, s.package_code, s.producto, s.ref, s.kilos,
-                               s.tracking_url, s.request_json, s.date_added
-                        FROM correos_shipments s
-                        LEFT JOIN correos_tracking t ON t.referencia = s.ref
-                        WHERE s.tipo='envio' AND s.ok=1 AND s.entorno='pro' AND s.cancelled_at IS NULL
-                          AND DATE(s.date_added) >= ?
-                          AND (t.referencia IS NULL OR t.estado_desc LIKE '%ADMISI%' OR t.estado_desc LIKE '%rerregistr%')
-                        ORDER BY s.id ASC");
+} elseif ($reprintLast) {
+    $q = $db->query("SELECT MAX(manifested_at) m FROM correos_shipments WHERE manifested_at IS NOT NULL");
+    if ($q && ($row = $q->fetch_assoc())) $mMax = (string) ($row['m'] ?? '');
+    if ($mMax === '') out_json(array('ok' => false, 'error' => 'No hay ningun manifiesto emitido todavia.'));
+    $st = $db->prepare($SEL . " AND manifested_at = ? ORDER BY id ASC");
     if (!$st) { error_log('correos_manifiesto prepare: ' . $db->error); out_json(array('ok' => false, 'error' => 'consulta no disponible')); }
-    $st->bind_param('s', $mFrom);
+    $st->bind_param('s', $mMax);
+} else {
+    // Pendiente = preparado y no salido en ningun manifiesto anterior. Sin ventanas de
+    // fecha ni dependencia del tracking: determinista y no pierde nada.
+    $st = $db->prepare($SEL . " AND manifested_at IS NULL ORDER BY id ASC");
+    if (!$st) { error_log('correos_manifiesto prepare: ' . $db->error); out_json(array('ok' => false, 'error' => 'consulta no disponible')); }
 }
 $st->execute();
 $res = $st->get_result();
 
-$rows = array();
+$rows = array(); $ids = array();
 $totBultos = 0; $totKg = 0.0;
 while ($r = $res->fetch_assoc()) {
     // Datos de entrega: del request_json (sirve para pedidos web Y QFac-nativos).
@@ -104,6 +114,7 @@ while ($r = $res->fetch_assoc()) {
     if ($bultos < 1) $bultos = 1;
     $totBultos += $bultos;
     $totKg += $peso;
+    $ids[] = (int) $r['id'];
     $rows[] = array(
         'ref'     => (string) $r['ref'],
         'oid'     => (string) $r['orders_id'],
@@ -118,8 +129,15 @@ while ($r = $res->fetch_assoc()) {
 }
 
 if (!$rows) {
-    out_json(array('ok' => false, 'error' => ($explicitDay !== '' ? 'Sin envios Correos registrados el ' . $explicitDay . '.' : 'Sin envios Correos pendientes de entregar.')));
+    if ($explicitDay !== '') $err = 'Sin envios Correos registrados el ' . $explicitDay . '.';
+    elseif ($reprintLast)    $err = 'El ultimo manifiesto no tiene envios (?).';
+    else                     $err = 'Sin envios Correos pendientes de manifiesto (todo lo preparado ya salio en manifiestos anteriores).';
+    out_json(array('ok' => false, 'error' => $err));
 }
+
+/* Nº de manifiesto = timestamp de emisión (o el del lote reimpreso). */
+$manifiestoTs  = $reprintLast ? $mMax : date('Y-m-d H:i:s');
+$esEmisionReal = ($explicitDay === '' && !$preview && !$reprintLast);
 
 /* ---- PDF con TCPDF ---- */
 require_once 'includes/vendor/tecnickcom/tcpdf/tcpdf.php';
@@ -127,14 +145,17 @@ require_once 'includes/vendor/tecnickcom/tcpdf/tcpdf.php';
 class CorreosManifest extends TCPDF {
     public $fechaManifiesto = '';
     public $totEnvios = 0;
+    public $esReimpresion = false;
+    public $esPreview = false;
+    public $lineaExtra = '';
     public function Header() {
         $this->SetFont('helvetica', 'B', 13);
         $this->SetTextColor(0, 51, 153);
-        $this->Cell(0, 7, 'RELACIÓN DE ENTREGA · CORREOS', 0, 1, 'L');
+        $this->Cell(0, 7, 'RELACIÓN DE ENTREGA · CORREOS' . ($this->esReimpresion ? ' (REIMPRESIÓN)' : '') . ($this->esPreview ? ' (BORRADOR — no emitido)' : ''), 0, 1, 'L');
         $this->SetFont('helvetica', '', 8);
         $this->SetTextColor(0, 0, 0);
         $this->Cell(0, 4, 'FRANCOBORDO S.L. · NIF B82574690 · Contrato Correos 54002749 · Cliente 80123054', 0, 1, 'L');
-        $this->Cell(0, 4, 'Fecha: ' . $this->fechaManifiesto . '   ·   Envíos: ' . $this->totEnvios, 0, 1, 'L');
+        $this->Cell(0, 4, $this->lineaExtra, 0, 1, 'L');
         $this->Ln(1);
         $this->SetDrawColor(0, 51, 153);
         $this->SetLineWidth(0.3);
@@ -145,17 +166,22 @@ class CorreosManifest extends TCPDF {
         $this->SetY(-12);
         $this->SetFont('helvetica', '', 7);
         $this->SetTextColor(120, 120, 120);
-        $this->Cell(0, 4, 'Generado ' . date('Y-m-d H:i') . ' · Francobordo', 0, 0, 'L');
+        $this->Cell(0, 4, 'Generado ' . date('Y-m-d H:i') . ' · Francobordo · Reimprimir este lote: ?reprint_last=1', 0, 0, 'L');
         $this->Cell(0, 4, 'Página ' . $this->getAliasNumPage() . '/' . $this->getAliasNbPages(), 0, 0, 'R');
     }
 }
 
 $pdf = new CorreosManifest('L', 'mm', 'A4', true, 'UTF-8', false);
-$pdf->fechaManifiesto = $date;
+$pdf->fechaManifiesto = ($explicitDay !== '') ? $explicitDay : $manifiestoTs;
 $pdf->totEnvios = count($rows);
+$pdf->esReimpresion = ($reprintLast || $explicitDay !== '');
+$pdf->esPreview = $preview;
+$pdf->lineaExtra = ($explicitDay !== '')
+    ? 'Envíos registrados el ' . $explicitDay . '   ·   Envíos: ' . count($rows)
+    : 'Manifiesto Nº ' . $manifiestoTs . '   ·   Envíos: ' . count($rows) . '   ·   Incluye todo lo preparado no entregado en manifiestos anteriores';
 $pdf->SetCreator('Francobordo');
 $pdf->SetAuthor('Francobordo S.L.');
-$pdf->SetTitle('Manifiesto Correos ' . $date);
+$pdf->SetTitle('Manifiesto Correos ' . $pdf->fechaManifiesto);
 $pdf->SetMargins(10, 26, 10);
 $pdf->SetHeaderMargin(6);
 $pdf->SetFooterMargin(10);
@@ -210,8 +236,17 @@ $pdf->MultiCell(130, 22, "\nRecibido por (Correos):\n\n\nNombre, firma y fecha",
 
 $bin = $pdf->Output('', 'S');
 
+/* Marcar como manifestados SOLO en emisión real (ni preview, ni reimpresión, ni date=),
+ * y SOLO tras generar el PDF con éxito. */
+if ($esEmisionReal && count($ids)) {
+    $db->query("UPDATE correos_shipments SET manifested_at = '" . $db->real_escape_string($manifiestoTs) . "'
+                WHERE id IN (" . implode(',', array_map('intval', $ids)) . ") AND manifested_at IS NULL");
+}
+
+/* El nombre del PDF del modo por defecto NO cambia: el bat del almacén depende de él. */
+$fnDate = ($explicitDay !== '') ? $explicitDay : ($reprintLast ? substr($mMax, 0, 10) : $date);
 header('Content-Type: application/pdf');
-header('Content-Disposition: attachment; filename="Manifiesto_Correos_' . $date . '.pdf"');
+header('Content-Disposition: attachment; filename="Manifiesto_Correos_' . $fnDate . ($preview ? '_BORRADOR' : '') . '.pdf"');
 header('Content-Length: ' . strlen($bin));
 header('Cache-Control: private, no-store');
 echo $bin;

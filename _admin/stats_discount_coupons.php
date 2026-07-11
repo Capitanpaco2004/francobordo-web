@@ -1,5 +1,10 @@
 <?php
   require('includes/application_top.php');
+
+  $page = (isset($_GET['page']) && is_scalar($_GET['page']) && (int)$_GET['page'] > 0) ? (int)$_GET['page'] : 1;
+  $cID = (isset($_GET['cID']) && is_string($_GET['cID'])) ? $_GET['cID'] : '';
+  $search = (isset($_GET['search']) && is_string($_GET['search'])) ? trim($_GET['search']) : '';
+
   include( THEME . '/html/header.php' );
 ?>
 <table border="0" width="100%" cellspacing="0" cellpadding="2">
@@ -9,12 +14,20 @@
             <td class="pageHeading">
             	<?php echo HEADING_TITLE; ?>
             	<?php
-								if( isset( $_GET['cID'] ) && tep_not_null( $_GET['cID'] ) ) {
-									if( isset( $_GET['custID'] ) && tep_not_null( $_GET['custID'] ) ) echo '<br>'.sprintf( HEADING_ORDERS_LIST, tep_customers_name($_GET['custID']), $_GET['cID'] );
-									else echo '<br>'.sprintf( HEADING_CUSTOMERS_LIST, $_GET['cID'] );
-								} else echo '<br>'.HEADING_COUPONS_LIST;
+								if( tep_not_null( $cID ) ) {
+									if( isset( $_GET['custID'] ) && tep_not_null( $_GET['custID'] ) ) echo '<br>'.sprintf( HEADING_ORDERS_LIST, tep_customers_name((int)$_GET['custID']), htmlspecialchars($cID) );
+									else echo '<br>'.sprintf( HEADING_CUSTOMERS_LIST, htmlspecialchars($cID) );
+								} else {
+									echo '<br>'.HEADING_COUPONS_LIST;
+									if ($search !== '') echo ' &mdash; '.sprintf( TEXT_SEARCH_FILTER, htmlspecialchars($search) ).' &nbsp;<a href="'.tep_href_link(FILENAME_STATS_DISCOUNT_COUPONS).'" class="smallText">'.TEXT_SHOW_ALL.'</a>';
+								}
             	?>
             </td>
+<?php if( !tep_not_null( $cID ) ) { ?>
+            <td class="pageHeading" align="right" valign="bottom">
+              <?php echo tep_draw_form('coupon_search', FILENAME_STATS_DISCOUNT_COUPONS, '', 'get'); ?><span class="smallText"><?php echo TEXT_SEARCH_COUPON; ?></span> <?php echo tep_draw_input_field('search', $search, 'size="25"'); ?> <input type="submit" value="<?php echo BUTTON_SEARCH; ?>"><?php echo tep_hide_session_id(); ?></form>
+            </td>
+<?php } ?>
           </tr>
         </table></td>
       </tr>
@@ -23,8 +36,8 @@
           <tr>
             <td valign="top"><table border="0" width="100%" cellspacing="0" cellpadding="2">
 <?php
-  if (isset($_GET['page']) && ($_GET['page'] > 1)) $rows = $_GET['page'] * MAX_DISPLAY_SEARCH_RESULTS - MAX_DISPLAY_SEARCH_RESULTS;
-  if( isset( $_GET['cID'] ) && $_GET['cID'] !== '' ) {
+  if ($page > 1) $rows = $page * MAX_DISPLAY_SEARCH_RESULTS - MAX_DISPLAY_SEARCH_RESULTS;
+  if( $cID !== '' ) {
   	if( isset( $_GET['custID'] ) && (int)$_GET['custID'] !== 0 ) {
 ?>
               <tr class="dataTableHeadingRow">
@@ -35,8 +48,8 @@
                 <td class="dataTableHeadingContent" align="right"><?php echo TABLE_HEADING_STATUS; ?></td>
               </tr>
 <?php
-	    $coupons_query_raw = "select o.orders_id, o.customers_name, o.date_purchased, s.orders_status_name, ot.text as order_total from " . TABLE_ORDERS . " o inner join discount_coupons_to_orders dcto on dcto.orders_id = o.orders_id left join " . TABLE_ORDERS_TOTAL . " ot on (o.orders_id = ot.orders_id), " . TABLE_ORDERS_STATUS . " s where o.customers_id = '" . (int)$_GET['custID'] . "' and o.orders_status = s.orders_status_id and s.language_id = '" . (int)$languages_id . "' and ot.class = 'ot_total' and dcto.coupons_id='".$_GET['cID']."' order by orders_id DESC";
-		  $coupons_split = new splitPageResults($_GET['page'], MAX_DISPLAY_SEARCH_RESULTS, $coupons_query_raw, $coupons_query_numrows);
+	    $coupons_query_raw = "select o.orders_id, o.customers_name, o.date_purchased, s.orders_status_name, ot.text as order_total from " . TABLE_ORDERS . " o inner join discount_coupons_to_orders dcto on dcto.orders_id = o.orders_id left join " . TABLE_ORDERS_TOTAL . " ot on (o.orders_id = ot.orders_id), " . TABLE_ORDERS_STATUS . " s where o.customers_id = '" . (int)$_GET['custID'] . "' and o.orders_status = s.orders_status_id and s.language_id = '" . (int)$languages_id . "' and ot.class = 'ot_total' and dcto.coupons_id='" . tep_db_input($cID) . "' order by orders_id DESC";
+		  $coupons_split = new splitPageResults($page, MAX_DISPLAY_SEARCH_RESULTS, $coupons_query_raw, $coupons_query_numrows);
 
 		  $rows = 0;
 		  $coupons_query = tep_db_query($coupons_query_raw);
@@ -49,7 +62,7 @@
               <tr class="dataTableRow" onMouseOver="rowOverEffect(this)" onMouseOut="rowOutEffect(this)" onClick="document.location.href='<?php echo tep_href_link(FILENAME_ORDERS, 'action=edit&oID=' . $coupons['orders_id']); ?>'">
                 <td class="dataTableContent"><?php echo '<a href="' . tep_href_link(FILENAME_ORDERS, 'action=edit&oID=' . $coupons['orders_id'] . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.gif', ICON_PREVIEW) . '</a>&nbsp;' . $coupons['customers_name']; ?></td>
                 <td class="dataTableContent" align="right"><?php echo strip_tags($coupons['order_total']); ?></td>
-                <td class="dataTableContent" align="right"><?php echo strip_tags($order_discount['order_total']); ?></td>
+                <td class="dataTableContent" align="right"><?php echo ($order_discount ? strip_tags($order_discount['order_total']) : ''); ?></td>
                 <td class="dataTableContent" align="center"><?php echo tep_datetime_short($coupons['date_purchased']); ?></td>
                 <td class="dataTableContent" align="right"><?php echo $coupons['orders_status_name']; ?></td>
               </tr>
@@ -64,17 +77,17 @@
                 <td class="dataTableHeadingContent" align="center"><?php echo TABLE_HEADING_USE_STILL_AVAIL; ?></td>
               </tr>
 <?php
-	    $coupons_query_raw = "select o.customers_name, o.customers_id, dc.coupons_max_use, COUNT(dcto.coupons_id) AS coupons_use_count from discount_coupons AS dc left join discount_coupons_to_orders AS dcto ON dc.coupons_id = dcto.coupons_id left join orders as o on dcto.orders_id=o.orders_id where dc.coupons_id='".$_GET['cID']."' group by dc.coupons_id, o.customers_id order by coupons_use_count desc, dc.coupons_id asc";
-		  $coupons_split = new splitPageResults($_GET['page'], MAX_DISPLAY_SEARCH_RESULTS, $coupons_query_raw, $coupons_query_numrows);
+	    $coupons_query_raw = "select o.customers_name, o.customers_id, dc.coupons_max_use, COUNT(dcto.coupons_id) AS coupons_use_count from discount_coupons AS dc left join discount_coupons_to_orders AS dcto ON dc.coupons_id = dcto.coupons_id left join orders as o on dcto.orders_id=o.orders_id where dc.coupons_id='" . tep_db_input($cID) . "' group by dc.coupons_id, o.customers_id order by coupons_use_count desc, dc.coupons_id asc";
+		  $coupons_split = new splitPageResults($page, MAX_DISPLAY_SEARCH_RESULTS, $coupons_query_raw, $coupons_query_numrows);
 
 		  $rows = 0;
 		  $coupons_query = tep_db_query($coupons_query_raw);
 		  while ($coupons = tep_db_fetch_array($coupons_query)) {
 		    $rows++;
 ?>
-              <tr class="dataTableRow" onMouseOver="rowOverEffect(this)" onMouseOut="rowOutEffect(this)" onClick="document.location.href='<?php echo tep_href_link(FILENAME_STATS_DISCOUNT_COUPONS, 'custID='.$coupons['customers_id'].'&cID='.$cID.'&origin=' . FILENAME_STATS_DISCOUNT_COUPONS . '?page=' . $_GET['page'], 'NONSSL'); ?>'">
+              <tr class="dataTableRow" onMouseOver="rowOverEffect(this)" onMouseOut="rowOutEffect(this)" onClick="document.location.href='<?php echo tep_href_link(FILENAME_STATS_DISCOUNT_COUPONS, 'custID='.$coupons['customers_id'].'&cID='.rawurlencode($cID).'&origin=' . FILENAME_STATS_DISCOUNT_COUPONS . '?page=' . $page, 'NONSSL'); ?>'">
                 <td class="dataTableContent"><?php echo $rows; ?>.</td>
-                <td class="dataTableContent"><?php echo '<a href="'.tep_href_link(FILENAME_ORDERS, 'cID='.$coupons['customers_id'].'&action=edit&origin=' . FILENAME_STATS_DISCOUNT_COUPONS . '?page=' . $_GET['page'], 'NONSSL') . '">'.$coupons['customers_name'].'</a>'; ?></td>
+                <td class="dataTableContent"><?php echo '<a href="'.tep_href_link(FILENAME_ORDERS, 'cID='.$coupons['customers_id'].'&action=edit&origin=' . FILENAME_STATS_DISCOUNT_COUPONS . '?page=' . $page, 'NONSSL') . '">'.$coupons['customers_name'].'</a>'; ?></td>
                 <td class="dataTableContent" align="center"><?php echo ( $coupons['coupons_max_use'] == 0 ? 'unlimited' : $coupons['coupons_max_use'] ); ?></td>
                 <td class="dataTableContent" align="center"><?php echo $coupons['coupons_use_count']; ?>&nbsp;</td>
                 <td class="dataTableContent" align="center"><?php echo ( $coupons['coupons_max_use'] == 0 ? 'unlimited' : ( $coupons['coupons_max_use'] - $coupons['coupons_use_count'] ) ); ?></td>
@@ -94,17 +107,22 @@
                 <td class="dataTableHeadingContent" align="center"><?php echo TABLE_HEADING_NUM_STILL_AVAIL; ?></td>
               </tr>
 <?php
-	  $coupons_query_raw = "select dc.*, COUNT(dcto.coupons_id) AS coupons_use_count from ".TABLE_DISCOUNT_COUPONS." AS dc left join ".TABLE_DISCOUNT_COUPONS_TO_ORDERS." AS dcto ON dc.coupons_id = dcto.coupons_id group by dc.coupons_id order by coupons_use_count desc, dc.coupons_id asc";
-	  $coupons_split = new splitPageResults($_GET['page'], MAX_DISPLAY_SEARCH_RESULTS, $coupons_query_raw, $coupons_query_numrows);
+	  $where_sql = '';
+	  if ($search !== '') {
+	  	$search_safe = tep_db_input($search);
+	  	$where_sql = " where (dc.coupons_id like '%" . $search_safe . "%' or dc.coupons_description like '%" . $search_safe . "%')";
+	  }
+	  $coupons_query_raw = "select dc.*, COUNT(dcto.coupons_id) AS coupons_use_count from ".TABLE_DISCOUNT_COUPONS." AS dc left join ".TABLE_DISCOUNT_COUPONS_TO_ORDERS." AS dcto ON dc.coupons_id = dcto.coupons_id" . $where_sql . " group by dc.coupons_id order by coupons_use_count desc, dc.coupons_id asc";
+	  $coupons_split = new splitPageResults($page, MAX_DISPLAY_SEARCH_RESULTS, $coupons_query_raw, $coupons_query_numrows, "select count(*) as total from ".TABLE_DISCOUNT_COUPONS." AS dc" . $where_sql);
 
 	  $rows = 0;
 	  $coupons_query = tep_db_query($coupons_query_raw);
 	  while ($coupons = tep_db_fetch_array($coupons_query)) {
 	    $rows++;
 ?>
-              <tr class="dataTableRow" onMouseOver="rowOverEffect(this)" onMouseOut="rowOutEffect(this)" <?php echo ( $coupons['coupons_use_count'] == 0 ? '' : 'onclick="document.location.href=\''.tep_href_link(FILENAME_STATS_DISCOUNT_COUPONS, 'cID='.$coupons['coupons_id'].'&origin=' . FILENAME_STATS_DISCOUNT_COUPONS . '?page=' . $_GET['page'], 'NONSSL').'\'"' ); ?>>
+              <tr class="dataTableRow" onMouseOver="rowOverEffect(this)" onMouseOut="rowOutEffect(this)" <?php echo ( $coupons['coupons_use_count'] == 0 ? '' : 'onclick="document.location.href=\''.tep_href_link(FILENAME_STATS_DISCOUNT_COUPONS, 'cID='.rawurlencode($coupons['coupons_id']).'&origin=' . FILENAME_STATS_DISCOUNT_COUPONS . '?page=' . $page, 'NONSSL').'\'"' ); ?>>
                 <td class="dataTableContent"><?php echo $rows; ?>.</td>
-                <td class="dataTableContent"><?php echo ( $coupons['coupons_use_count'] == 0 ? $coupons['coupons_id'] : '<a href="'.tep_href_link(FILENAME_DISCOUNT_COUPONS, 'cID='.$coupons['coupons_id'].'&action=edit&origin=' . FILENAME_STATS_DISCOUNT_COUPONS . '?page=' . $_GET['page'], 'NONSSL') . '">'.$coupons['coupons_id'].'</a>' ); ?></td>
+                <td class="dataTableContent"><?php echo ( $coupons['coupons_use_count'] == 0 ? htmlspecialchars($coupons['coupons_id']) : '<a href="'.tep_href_link(FILENAME_DISCOUNT_COUPONS, 'cID='.rawurlencode($coupons['coupons_id']).'&action=edit&origin=' . FILENAME_STATS_DISCOUNT_COUPONS . '?page=' . $page, 'NONSSL') . '">'.htmlspecialchars($coupons['coupons_id']).'</a>' ); ?></td>
                 <td class="dataTableContent">
 <?php 
     switch( $coupons['coupons_discount_type'] ) {
@@ -133,8 +151,8 @@
           <tr>
             <td colspan="3"><table border="0" width="100%" cellspacing="0" cellpadding="2">
               <tr>
-                <td class="smallText" valign="top"><?php echo $coupons_split->display_count($coupons_query_numrows, MAX_DISPLAY_SEARCH_RESULTS, $_GET['page'], TEXT_DISPLAY_NUMBER_OF_PRODUCTS); ?></td>
-                <td class="smallText" align="right"><?php echo $coupons_split->display_links($coupons_query_numrows, MAX_DISPLAY_SEARCH_RESULTS, MAX_DISPLAY_PAGE_LINKS, $_GET['page']); ?>&nbsp;</td>
+                <td class="smallText" valign="top"><?php echo $coupons_split->display_count($coupons_query_numrows, MAX_DISPLAY_SEARCH_RESULTS, $page, TEXT_DISPLAY_NUMBER_OF_PRODUCTS); ?></td>
+                <td class="smallText" align="right"><?php echo $coupons_split->display_links($coupons_query_numrows, MAX_DISPLAY_SEARCH_RESULTS, MAX_DISPLAY_PAGE_LINKS, $page, tep_get_all_get_params(array('page'))); ?>&nbsp;</td>
               </tr>
             </table></td>
           </tr>

@@ -56,7 +56,7 @@ class cexpunto {
     const TARIFA_EXTRA_KG = array('PEN'=>0.264, 'BAL'=>0.880);  // €/kg por encima del último tramo (×1,10)
     // Tope de peso del producto Paq Punto (punto de conveniencia). 20 kg (decisión
     // usuario 2026-06-25, igual que SEUR Punto). La tarifa llega a 30; confirmar con CEX.
-    const MAX_KG = 20;
+    const MAX_KG = 30;
 
     /** Coste CEX Paq Punto (sin IVA) según peso (kg) y zona ('BAL' Baleares / 'PEN' resto). */
     public static function costePorPeso($kg, $zona) {
