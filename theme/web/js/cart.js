@@ -291,6 +291,28 @@ var cartBuyClass;
 				var nFormCheckStock = parseInt( dmFormCheck.attr("data-check-stock"), 10 ) || 0;
 				if( nFormCheckStock === 0 )
 				{
+
+					// Control de stock POR VARIANTE: si la variante seleccionada tiene flag
+					// propio (mapa #array_option_checkstock emitido por option.class.php),
+					// NO ofrecemos el modal "7-10 dias" y dejamos el submit normal: el
+					// servidor capa la cantidad al stock real, igual que con el check_stock
+					// del producto principal.
+					var bVariantCheck = false;
+					var dmMapCS = $("#array_option_checkstock");
+					if( dmMapCS.length > 0 && dmMapCS.text().trim() !== "" && dmMapCS.text().trim() !== "[]" )
+					{
+						try {
+							var aMapCS = JSON.parse( dmMapCS.text() );
+							var aKeyCS = [];
+							dmFormCheck.find("select[data-oid]").each(function(){
+								var vCS = $(this).val();
+								var oidCS = $(this).data("oid");
+								if( vCS && oidCS ) aKeyCS.push( oidCS + "-" + vCS );
+							});
+							if( aKeyCS.length > 0 && aMapCS.hasOwnProperty( aKeyCS.join(",") ) )
+								bVariantCheck = true;
+						} catch(eCS) {}
+					}
 					// Cantidad pedida
 					var nReqQty = parseInt( dmFormCheck.find("input.cart_quantity").val(), 10 ) || 0;
 					// Stock disponible (variante o producto)
@@ -316,7 +338,7 @@ var cartBuyClass;
 						} catch(e) {}
 					}
 
-					if( nReqQty > nAvailStock && nAvailStock > 0 && typeof window.showStockConfirm === "function" )
+					if( !bVariantCheck && nReqQty > nAvailStock && nAvailStock > 0 && typeof window.showStockConfirm === "function" )
 					{
 						// Componemos nombre de producto + variante seleccionada (p.ej. "...Oval - 200mm")
 						var sProductName = dmFormCheck.attr("data-product-name") || "";

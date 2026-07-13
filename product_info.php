@@ -66,6 +66,13 @@ if (isAjax()) {
                             WHERE products_id = "' . $sGetProductsId . '";');
 			$aCheck = tep_db_fetch_array($aCheck);
 
+
+			// Control de stock POR VARIANTE (OR con el global): si la variante pedida
+			// tiene flag propio, respondemos como si el producto tuviera el check activo
+			// (la clase del boton, el texto de plazo y el JSON 'check' lo heredan).
+			if (!(int)$aCheck['check_stock'])
+				$aCheck['check_stock'] = fb_variant_check_stock($sGetProductsId, array($oid => $value), 0);
+
 			// Calculamos stock real del atributo
 			$nStock = stock_en_atributos($oid, $value, $sGetProductsId);
 			$sClass = trim(claseBotonComprar($nStock, $aCheck['check_stock']));

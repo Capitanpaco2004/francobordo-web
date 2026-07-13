@@ -245,6 +245,9 @@
 						$aCheck = tep_db_query( 'SELECT check_stock FROM products WHERE products_id = "' . $sGetProductsId . '";' );
 						$aCheck = tep_db_fetch_array( $aCheck );
 
+						// Control de stock POR VARIANTE (OR con el global)
+						if (!(int)$aCheck['check_stock'] && function_exists('fb_variant_check_stock'))
+							$aCheck['check_stock'] = fb_variant_check_stock($sGetProductsId, array((int)($attr['oid'] ?? 0) => (int)($products_options_array['products_options_values_id'] ?? 0)), 0);
 						$nStock = stock_en_atributos($attr['oid'], $products_options_array['products_options_values_id'], (int)$sGetProductsId );
 						$sClass = claseBotonComprar( $nStock, $aCheck['check_stock'] );
 

@@ -41,6 +41,9 @@ class attributeManagerInstant extends attributeManager {
 		$this->registerPageAction('removeStockOptionValueFromProduct','removeStockOptionValueFromProduct');
 		$this->registerPageAction('addStockToProduct','addStockToProduct');
         $this->registerPageAction('updateProductStockQuantity','updateProductStockQuantity');
+
+        // Control de stock POR VARIANTE (products_attributes.check_stock)
+        $this->registerPageAction('updateVariantCheckStock','updateVariantCheckStock');
 		// QT Pro Plugin
 		$this->registerPageAction('update','update');
 		
@@ -507,6 +510,26 @@ class attributeManagerInstant extends attributeManager {
 		amDB::perform(TABLE_PRODUCTS_STOCK,$data, 'update',"products_stock_id='$products_stock_id'");
 
         $this->repairStock();
+	}
+
+
+	/**
+	 * Control de stock POR VARIANTE: fija products_attributes.check_stock (0/1)
+	 * para la(s) pareja(s) oid-ovid de la fila de products_stock indicada.
+	 * Semantica OR con products.check_stock (global). Ver tambien _admin/stock.php.
+	 */
+	function updateVariantCheckStock($get) {
+		$this->getAndPrepare('products_stock_id', $get, $products_stock_id);
+		$this->getAndPrepare('variantCheckStock', $get, $variantCheckStock);
+		$flag = ((int)$variantCheckStock == 1) ? 1 : 0;
+		$q = amDB::query("select products_id, products_stock_attributes from " . TABLE_PRODUCTS_STOCK . " where products_stock_id='" . (int)$products_stock_id . "'");
+		if ($rec = amDB::fetchArray($q)) {
+			foreach (explode(',', $rec['products_stock_attributes']) as $pair) {
+				if (preg_match('/^(\d+)-(\d+)$/', trim($pair), $m)) {
+					amDB::query("update " . TABLE_PRODUCTS_ATTRIBUTES . " set check_stock=" . $flag . " where products_id='" . (int)$rec['products_id'] . "' and options_id='" . (int)$m[1] . "' and options_values_id='" . (int)$m[2] . "'");
+				}
+			}
+		}
 	}
 // End QT Pro Plugin
 

@@ -848,6 +848,12 @@ function attributes_price($products_id) {
 				$aStock = tep_db_query('SELECT products_quantity, check_stock FROM ' . TABLE_PRODUCTS . ' WHERE products_id = "' . $products_id . '";');
 				$aStock = tep_db_fetch_array($aStock);
 
+
+				// Control de stock POR VARIANTE (OR con el global): si la variante elegida
+				// tiene flag propio, capamos la cantidad igual que con el check global activo.
+				if (!(int)$aStock['check_stock'] && is_array($attributes) && count($attributes) > 0 && function_exists('fb_variant_check_stock'))
+					$aStock['check_stock'] = fb_variant_check_stock($products_id, $attributes, 0);
+
 				// Si SI tenemos atributos
 				if (is_array($attributes) && count($attributes) > 0) {
 					// Variables

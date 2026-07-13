@@ -159,6 +159,11 @@ if(isset($_POST['quantity']) && $_POST['quantity'] != '' && isset($_POST['produc
 		$aStock = tep_db_query( 'SELECT products_quantity, check_stock FROM ' . TABLE_PRODUCTS . ' WHERE products_id = "' . $products[$i]['id'] . '";' );
 		$aStock = tep_db_fetch_array( $aStock );
 
+
+		// Control de stock POR VARIANTE (OR con el global)
+		if (!(int)$aStock['check_stock'] && isset($products[$i]['attributes']) && is_array($products[$i]['attributes']) && function_exists('fb_variant_check_stock'))
+			$aStock['check_stock'] = fb_variant_check_stock($products[$i]['id'], $products[$i]['attributes'], 0);
+
 		// Si NO queremos controlar el stock
 		if( $aStock['check_stock'] == 0 )
 		{

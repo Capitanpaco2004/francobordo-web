@@ -1042,7 +1042,8 @@
 												 'manufacturers_id' => tep_db_prepare_input($_POST['manufacturers_id']),
 												 'products_ship_free' => tep_db_prepare_input($_POST['products_ship_free']),
 												 'amazon_status' => tep_db_prepare_input($_POST['amazon_status']),
-												 'products_liquidacion' => (isset($_POST['products_liquidacion']) && $_POST['products_liquidacion'] == 1 ? 1 : 0));
+												 'products_liquidacion' => (isset($_POST['products_liquidacion']) && $_POST['products_liquidacion'] == 1 ? 1 : 0),
+												 'products_fabricacion' => (isset($_POST['products_fabricacion']) && $_POST['products_fabricacion'] == '1' ? 1 : 0));
 
 		//++++ QT Pro: Begin Added code
 			if($product_investigation['has_tracked_options'] or $product_investigation['stock_entries_count'] > 0){
@@ -1061,6 +1062,14 @@
 						{
 							unlink( '../manuals/' . $_POST['products_pdfupload_anterior'] );
 							$sql_data_array['products_pdfupload'] = tep_db_prepare_input( $_POST['none'] );
+						}
+
+						// FABRICACION: capturamos el flag ANTERIOR antes de escribir en products
+						// (para detectar la transicion 1->0 al desmarcar y poner stock a 0 SOLO entonces)
+						$nFabOld = 0;
+						if ($action == 'update_product' && isset($products_id)) {
+							$qFabOld = tep_db_query("select products_fabricacion from products where products_id = " . (int)$products_id);
+							if ($rFabOld = tep_db_fetch_array($qFabOld)) $nFabOld = (int)$rFabOld['products_fabricacion'];
 						}
 
 						if( $action == 'insert_product' )
@@ -1159,6 +1168,31 @@
 						 * Guardamos caracterisiticas de ebay si las tuviera.
 						 * @author Daniel Lucia <daniel.lucia@denox.es>
 						 */
+
+						 // ============================================================
+						 // FABRICACION (2026-07-13): productos que fabricamos nosotros
+						 // -> SIEMPRE con stock: sentinela 2000 en el producto y en TODAS
+						 // sus variantes (crea las filas de products_stock que falten).
+						 // Al DESMARCAR (transicion 1->0) el stock pasa a 0.
+						 // El front ya trata 2000 como stock_ok con entrega en el dia
+						 // (delivery_estimate::classifyStock).
+						 // ============================================================
+						 $nFabNew = (isset($_POST['products_fabricacion']) && $_POST['products_fabricacion'] == '1') ? 1 : 0;
+						 if ($nFabNew == 1) {
+						 	tep_db_query("update products set products_quantity = 2000 where products_id = " . (int)$products_id);
+						 	tep_db_query("update products_stock set products_stock_quantity = 2000 where products_id = " . (int)$products_id);
+						 	// Variantes sin fila de stock: nacen a 2000 (mismo shape que el FORWARD de sync_products_stock.php)
+						 	tep_db_query("insert into products_stock (products_id, products_stock_attributes, products_stock_quantity, products_stock_cost)"
+						 		. " select pa.products_id, concat(pa.options_id, '-', pa.options_values_id), 2000, 0.0000"
+						 		. " from products_attributes pa"
+						 		. " left join products_stock ps on (ps.products_id = pa.products_id and ps.products_stock_attributes = concat(pa.options_id, '-', pa.options_values_id))"
+						 		. " where pa.products_id = " . (int)$products_id . " and ps.products_stock_id is null"
+						 		. " group by pa.products_id, pa.options_id, pa.options_values_id");
+						 } elseif ($nFabOld == 1) {
+						 	// Transicion 1->0 (desmarcado): stock a 0 en producto y variantes
+						 	tep_db_query("update products set products_quantity = 0 where products_id = " . (int)$products_id);
+						 	tep_db_query("update products_stock set products_stock_quantity = 0 where products_id = " . (int)$products_id);
+						 }
 
 						 if (!empty($_POST['ebay_features'])) {
 							tep_db_query('DELETE FROM ebay_features_products WHERE id_product = '. $products_id);
@@ -2200,6 +2234,7 @@
                                     'manufacturers_id' => '',
 									'amazon_status' => '',
 									'products_liquidacion' => '',
+									'products_fabricacion' => '',
 									'products_ship_free' => '',
 									'categoria_ebay' => ''
 								);
@@ -2208,7 +2243,7 @@
 
                 if( isset( $_GET['pID'] ) && empty( $_POST ) )
                 {
-                    $product_query = tep_db_query("select p.categoria_ebay, pd.products_name, pd.products_seo_url, pd.products_description, p.products_fileupload, p.products_pdfupload, pd.products_url, p.products_id, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_model, p.shipping_methods, p.payment_methods, p.products_youtube, p.products_image, p.products_subimages, p.products_price, p.products_cost, p.products_qty_blocks, p.products_min_order_qty, p.products_hide_from_groups, p.products_weight, p.ISBN, p.products_date_added, p.products_last_modified, date_format(p.products_date_available, '%Y-%m-%d') as products_date_available, p.products_status, p.products_tax_class_id, p.product_ean, p.reference_prov, p.manufacturers_id, p.amazon_status, p.products_liquidacion, p.products_ship_free, p.products_bundle, p.sold_in_bundle_only  from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd where p.products_id = '" . (int)$_GET['pID'] . "' and p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "'");
+                    $product_query = tep_db_query("select p.categoria_ebay, pd.products_name, pd.products_seo_url, pd.products_description, p.products_fileupload, p.products_pdfupload, pd.products_url, p.products_id, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_model, p.shipping_methods, p.payment_methods, p.products_youtube, p.products_image, p.products_subimages, p.products_price, p.products_cost, p.products_qty_blocks, p.products_min_order_qty, p.products_hide_from_groups, p.products_weight, p.ISBN, p.products_date_added, p.products_last_modified, date_format(p.products_date_available, '%Y-%m-%d') as products_date_available, p.products_status, p.products_tax_class_id, p.product_ean, p.reference_prov, p.manufacturers_id, p.amazon_status, p.products_liquidacion, p.products_fabricacion, p.products_ship_free, p.products_bundle, p.sold_in_bundle_only  from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd where p.products_id = '" . (int)$_GET['pID'] . "' and p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "'");
                     $product = tep_db_fetch_array($product_query);
 
                     $pInfo->addProperties($product);
@@ -2620,6 +2655,8 @@
 										                <div class="grid2 check"><?php echo tep_draw_checkbox_field('exclude_feedmachine', '1', $pInfo->exclude_feedmachine, $pInfo->exclude_feedmachine); ?></div>
 														<div class="grid1"><label>Amazon</div>
 														<div class="grid1 check"><?php echo tep_draw_checkbox_field('amazon_status', '1', $pInfo->amazon_status, $pInfo->amazon_status); ?></div>
+														<div class="grid1"><label title="Producto que fabricamos nosotros: siempre con stock (2000, entrega en el día). Al desmarcar, stock a 0.">Fabricación:</label></div>
+														<div class="grid2 check"><?php echo tep_draw_checkbox_field('products_fabricacion', '1', $pInfo->products_fabricacion, $pInfo->products_fabricacion); ?></div>
 														<div class="clear"></div>
 									                </div>
 									                <div class="formRow">

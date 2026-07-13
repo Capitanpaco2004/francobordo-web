@@ -112,6 +112,11 @@
 			if( $sHtml != '' )
 			{
 				$sHtml .= '<div id="array_option_stock" style="display: none;">' . json_encode($aStock) . '</div>';
+
+				// Control de stock POR VARIANTE: mapa "oid-ovid" => 1 de variantes con flag propio
+				// (products_attributes.check_stock). Lo usa cart.js para NO ofrecer el modal
+				// "7-10 dias" en variantes controladas (paridad con check_stock de producto).
+				$sHtml .= '<div id="array_option_checkstock" style="display: none;">' . json_encode( function_exists('fb_variant_check_map') ? fb_variant_check_map($nProductsId) : array() ) . '</div>';
 				$sHtml .= '<div id="array_option_action" style="display: none;">' . json_encode($aAcciones) . '</div>';
 			}
 

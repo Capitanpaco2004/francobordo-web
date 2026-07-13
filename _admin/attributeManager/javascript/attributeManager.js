@@ -229,6 +229,16 @@ function amUpdateProductStockQuantity(products_stock_id) {
 	return false;
 }
 
+
+// Control de stock POR VARIANTE: guarda products_attributes.check_stock al marcar
+// el checkbox de la fila de stock del QT PRO (no permitir comprar sin stock,
+// SOLO esa variante; OR con el check_stock global de la ficha).
+function amUpdateVariantCheckStock(products_stock_id) {
+	var el = document.getElementById('productStockCheck_'+products_stock_id);
+	amSendRequest('amAction=updateVariantCheckStock&products_stock_id='+products_stock_id+'&variantCheckStock='+((el && el.checked) ? 1 : 0));
+	return false;
+}
+
 var check = [];
 function checkBox(id) {
 

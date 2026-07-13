@@ -596,6 +596,11 @@ $q=tep_db_query($sql="select products_name, products_options_name as _option, pr
 			</td>
 		</tr>
 <?php
+    // Control de stock POR VARIANTE: mapa "oid-ovid" => flag products_attributes.check_stock
+    $amVariantCheck = array();
+    $qvc = tep_db_query("select options_id, options_values_id, check_stock from " . TABLE_PRODUCTS_ATTRIBUTES . " where products_id='" . (int)$products_id . "'");
+    while ($rvc = tep_db_fetch_array($qvc))
+      $amVariantCheck[(int)$rvc['options_id'] . '-' . (int)$rvc['options_values_id']] = (int)$rvc['check_stock'];
     $q=tep_db_query("select * from " . TABLE_PRODUCTS_STOCK . " where products_id='" . $products_id . "' order by products_stock_attributes");
     while($rec=tep_db_fetch_array($q)) {
       $val_array=explode(",",$rec['products_stock_attributes']);
@@ -630,6 +635,18 @@ $q=tep_db_query($sql="select products_name, products_options_name as _option, pr
       }
 ?>      
 			<td align="right">
+				<?php
+					// Control de stock POR VARIANTE: checkbox por fila (solo combinaciones de 1 par oid-ovid)
+					$amKeyCS = '';
+					if (preg_match('/^(\d+)-(\d+)$/', trim($rec['products_stock_attributes']), $mcs))
+						$amKeyCS = (int)$mcs[1] . '-' . (int)$mcs[2];
+					if ($amKeyCS != '') {
+				?>
+				<label style="margin-right:14px; white-space:nowrap; cursor:pointer;" title="No permitir comprar esta variante sin stock (igual que el check &quot;Controlar stock&quot; de la ficha pero SOLO para esta variante)">
+					<input type="checkbox" id="productStockCheck_<?php echo $rec['products_stock_id']; ?>"<?php echo (!empty($amVariantCheck[$amKeyCS]) ? ' checked' : ''); ?> onclick="amUpdateVariantCheckStock('<?php echo $rec['products_stock_id']; ?>');" style="vertical-align:middle;">
+					Ctrl. stock
+				</label>
+				<?php } ?>
 				<span style="margin-right:41px;">
 				<?php echo tep_draw_input_field("productStockQuantity_" . $rec['products_stock_id'], $rec['products_stock_quantity'], ' style="margin:3px 0px 3px 0px;" id="productStockQuantity_'.$rec['products_stock_id'].'" size="4" onChange="return amUpdateProductStockQuantity(\''.$rec['products_stock_id'].'\');"'); ?>
 				</span>

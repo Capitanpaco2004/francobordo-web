@@ -438,6 +438,11 @@
 					$aStock = tep_db_query( 'SELECT products_quantity, check_stock FROM ' . TABLE_PRODUCTS . ' WHERE products_id = "' . $order->products[$i]['id'] . '";' );
 					$aStock = tep_db_fetch_array( $aStock );
 
+
+					// Control de stock POR VARIANTE (OR con el global)
+					if (!(int)$aStock['check_stock'] && isset($order->products[$i]['attributes']) && is_array($order->products[$i]['attributes']) && function_exists('fb_variant_check_stock'))
+						$aStock['check_stock'] = fb_variant_check_stock($order->products[$i]['id'], $order->products[$i]['attributes'], 0);
+
 					// Si NO queremos controlar el stock
 					if( $aStock['check_stock'] == 0 )
 					{
@@ -721,6 +726,11 @@ if(MATC_AT_CHECKOUT != 'false'){
 			{
 				$aCheck = tep_db_query( 'SELECT check_stock FROM products WHERE products_id = "' . $nID . '";' );
 				$aCheck = tep_db_fetch_array( $aCheck );
+
+
+				// Control de stock POR VARIANTE (OR con el global)
+				if (!(int)$aCheck['check_stock'] && function_exists('fb_variant_check_stock'))
+					$aCheck['check_stock'] = fb_variant_check_stock($nID, $aMatch[2] . '-' . $aMatch[4], 0);
 
 				$nStock = stock_en_atributos( $aMatch[2], $aMatch[4], $nID );
 				$sClass = claseBotonComprar( $nStock, $aCheck['check_stock'] );

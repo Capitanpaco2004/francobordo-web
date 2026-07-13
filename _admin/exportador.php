@@ -189,7 +189,7 @@ while ($row = tep_db_fetch_array($act)) {
 
 					$patrib_3 = round((precio_amazon($row['products_id']) + precio_atributo_amazon($row_2['products_attributes_id']))*$mult_iva,2);
 					$patrib_4 = round((precio_ebay($row['products_id']) + precio_atributo_ebay($row_2['products_attributes_id']))*$mult_iva,2);
-					fwrite ($ficheroabierto,'A'.$s.$row['tax_rate'].$s.$row_2['products_attributes_id'].$s.$row_2['reference'].$s.$row_2['reference_prov'].$s.mb_convert_encoding($row['products_name'] ?? '', 'ISO-8859-1', 'UTF-8').povname($row_2['options_values_id']).$s.$patrib.$s.$of_retail.$s.$patrib_2.$s.$of_g1.$s.$patrib_3.$s.''.$s.$patrib_4.$s.''.$s.stock_en_atributos($row_2['products_options_id'],$row_2['options_values_id'],$row['products_id']).$s.''.$s.$row_2['products_attributes_ean'].$s.round(coste_en_atributos($row_2['products_options_id'],$row_2['options_values_id'],$row['products_id'])*$mult_iva,2).$s.''.$s.''.$s.''.$s.''.$s.''.$s.''.$s.''.$s.''.$s.''.$s.$dias_of.$s.$repetir_of.$f);
+					fwrite ($ficheroabierto,'A'.$s.$row['tax_rate'].$s.$row_2['products_attributes_id'].$s.$row_2['reference'].$s.$row_2['reference_prov'].$s.mb_convert_encoding($row['products_name'] ?? '', 'ISO-8859-1', 'UTF-8').povname($row_2['options_values_id']).$s.$patrib.$s.$of_retail.$s.$patrib_2.$s.$of_g1.$s.$patrib_3.$s.''.$s.$patrib_4.$s.''.$s.stock_en_atributos($row_2['products_options_id'],$row_2['options_values_id'],$row['products_id']).$s.''.$s.$row_2['products_attributes_ean'].$s.round(coste_en_atributos($row_2['products_options_id'],$row_2['options_values_id'],$row['products_id'])*$mult_iva,2).$s.''.$s.''.$s.''.$s.''.$s.(int)$row_2['check_stock'].$s.''.$s.''.$s.''.$s.''.$s.$dias_of.$s.$repetir_of.$f);
 				}
 			}
 		}

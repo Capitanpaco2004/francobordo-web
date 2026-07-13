@@ -2774,6 +2774,71 @@ function stock_en_atributos($opcion, $valor, $pID)
     return $val;
 }
 
+
+// -------------------------------------------------------------------------
+// Control de stock POR VARIANTE (2026-07-08).
+// products_attributes.check_stock (0/1) anade control de stock a UNA variante
+// (se marca en _admin/stock.php, boton "Stock" de la ficha). Semantica OR:
+// si products.check_stock (global, ficha de producto) esta activo se controlan
+// TODAS las variantes, como siempre; si esta apagado, solo las variantes con
+// flag propio a 1.
+// -------------------------------------------------------------------------
+function fb_variant_check_map($products_id)
+{
+    static $cache = array();
+    $pid = (int)tep_get_prid($products_id);
+    if (!isset($cache[$pid])) {
+        $map = array();
+        $q = tep_db_query("select options_id, options_values_id from " . TABLE_PRODUCTS_ATTRIBUTES . " where products_id = " . $pid . " and check_stock = 1");
+        while ($r = tep_db_fetch_array($q)) {
+            $map[(int)$r['options_id'] . '-' . (int)$r['options_values_id']] = 1;
+        }
+        $cache[$pid] = $map;
+    }
+    return $cache[$pid];
+}
+
+// Flag de control de stock EFECTIVO para una variante concreta.
+// $attr: array(oid => ovid), array de arrays con option_id/value_id (formato
+//        $order->products[n]['attributes']) o string "oid-ovid[,oid-ovid]".
+// $product_check_stock: el flag global si ya lo tienes leido (ahorra 1 query);
+//        null = consultarlo aqui.
+function fb_variant_check_stock($products_id, $attr, $product_check_stock = null)
+{
+    $pid = (int)tep_get_prid($products_id);
+    if ($product_check_stock === null) {
+        $q = tep_db_query("select check_stock from " . TABLE_PRODUCTS . " where products_id = " . $pid);
+        $r = tep_db_fetch_array($q);
+        $product_check_stock = (int)($r['check_stock'] ?? 0);
+    }
+    if ((int)$product_check_stock == 1) return 1;
+
+    $map = fb_variant_check_map($pid);
+    if (count($map) == 0) return 0;
+
+    $pairs = array();
+    if (is_array($attr)) {
+        foreach ($attr as $o => $v) {
+            if (is_array($v)) {
+                if (isset($v['option_id']) && isset($v['value_id']))
+                    $pairs[] = (int)$v['option_id'] . '-' . (int)$v['value_id'];
+            } else {
+                $pairs[] = (int)$o . '-' . (int)$v;
+            }
+        }
+    } elseif (is_string($attr) && $attr !== '') {
+        foreach (explode(',', $attr) as $par) {
+            $x = explode('-', trim($par));
+            if (count($x) == 2) $pairs[] = (int)$x[0] . '-' . (int)$x[1];
+        }
+    }
+
+    foreach ($pairs as $k) {
+        if (isset($map[$k])) return 1;
+    }
+    return 0;
+}
+
 // begin Bundled Products
 // returns an array of all non-bundle products in the bundle with their quantities including products contained in nested bundles
 function get_all_bundle_products($bundle_id)

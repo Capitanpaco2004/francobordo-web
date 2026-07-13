@@ -97,6 +97,25 @@
   if ($VARS['action']=="Apply to all") {
 
   }
+
+
+  // Control de stock POR VARIANTE (2026-07-08): guarda products_attributes.check_stock.
+  // Semantica OR: el check global del producto (ficha) controla TODAS las variantes;
+  // estos flags anaden control SOLO a la variante marcada cuando el global esta apagado.
+  $msgCS = '';
+  if ($VARS['action']=="SaveCheckStock" && isset($VARS['product_id']) && is_numeric($VARS['product_id'])) {
+    $csPid = (int)$VARS['product_id'];
+    $csSel = (isset($VARS['cs']) && is_array($VARS['cs'])) ? $VARS['cs'] : array();
+    $qcs = tep_db_query("select pa.options_id, pa.options_values_id from products_attributes pa, products_options po where pa.products_id=" . $csPid . " and po.products_options_id=pa.options_id and po.products_options_track_stock=1 and po.language_id=" . (int)$languages_id);
+    $nCsOn = 0;
+    while ($rcs = tep_db_fetch_array($qcs)) {
+      $csKey = (int)$rcs['options_id'] . '-' . (int)$rcs['options_values_id'];
+      $csFlag = !empty($csSel[$csKey]) ? 1 : 0;
+      if ($csFlag) $nCsOn++;
+      tep_db_query("update products_attributes set check_stock=" . $csFlag . " where products_id=" . $csPid . " and options_id=" . (int)$rcs['options_id'] . " and options_values_id=" . (int)$rcs['options_values_id']);
+    }
+    $msgCS = 'Guardado: ' . $nCsOn . ' variante(s) con control de stock propio.';
+  }
   $q=tep_db_query($sql="select products_name,products_options_name as _option,products_attributes.options_id as _option_id,products_options_values_name as _value,products_attributes.options_values_id as _value_id from ".
                   "products_description, products_attributes,products_options,products_options_values where ".
                   "products_attributes.products_id=products_description.products_id and ".
@@ -195,6 +214,36 @@
         </table>
         </form></td>
       </tr>
+
+
+      <tr><td>
+      <?php if (!empty($flag)) {
+        // ===== Control de stock por variante (products_attributes.check_stock) =====
+        $csProd = tep_db_fetch_array(tep_db_query("select check_stock from products where products_id=" . (int)$VARS['product_id']));
+        $csMap = array();
+        $qcs2 = tep_db_query("select options_id, options_values_id, check_stock from products_attributes where products_id=" . (int)$VARS['product_id']);
+        while ($r2 = tep_db_fetch_array($qcs2)) $csMap[(int)$r2['options_id'] . '-' . (int)$r2['options_values_id']] = (int)$r2['check_stock'];
+        $stMap = array();
+        $qst = tep_db_query("select products_stock_attributes, products_stock_quantity from products_stock where products_id=" . (int)$VARS['product_id']);
+        while ($r3 = tep_db_fetch_array($qst)) $stMap[$r3['products_stock_attributes']] = (int)$r3['products_stock_quantity'];
+        echo '<br><form action="' . $PHP_SELF . '" method="post">';
+        echo '<input type="hidden" name="product_id" value="' . (int)$VARS['product_id'] . '">';
+        echo '<table border="0" width="100%" cellspacing="0" cellpadding="2">';
+        echo '<tr class="dataTableHeadingRow"><td class="dataTableHeadingContent" colspan="3">&nbsp;Control de stock por variante</td></tr>';
+        echo '<tr><td class="smalltext" colspan="3">&nbsp;Check de la ficha (todo el producto): <b>' . ((int)$csProd['check_stock'] == 1 ? 'ACTIVADO &mdash; ya se controlan TODAS las variantes; los checks de abajo no a&ntilde;aden nada' : 'desactivado &mdash; solo se controlar&aacute;n las variantes marcadas abajo') . '</b></td></tr>';
+        foreach ($options as $csOid => $csVals) {
+          foreach ($csVals as $csV) {
+            $csKey = (int)$csOid . '-' . (int)$csV[1];
+            echo '<tr><td class="smalltext" width="300">&nbsp;&nbsp;' . $option_names[$csOid] . ': <b>' . $csV[0] . '</b></td>';
+            echo '<td class="smalltext" width="120">stock: ' . (isset($stMap[$csKey]) ? $stMap[$csKey] : '&mdash;') . '</td>';
+            echo '<td class="smalltext"><label><input type="checkbox" name="cs[' . $csKey . ']" value="1"' . (!empty($csMap[$csKey]) ? ' checked' : '') . '> No permitir comprar sin stock (solo esta variante)</label></td></tr>';
+          }
+        }
+        echo '<tr><td colspan="3">&nbsp;<button type="submit" name="action" value="SaveCheckStock" style="padding:4px 14px; cursor:pointer;">Guardar control de stock</button></td></tr>';
+        if (!empty($msgCS)) echo '<tr><td colspan="3" class="smalltext" style="color:green;">&nbsp;<b>' . htmlspecialchars($msgCS) . '</b></td></tr>';
+        echo '</table></form>';
+      } ?>
+      </td></tr>
 <tr><td>
 
 <br>

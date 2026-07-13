@@ -72,8 +72,9 @@ $SQL_FORWARD_COUNT =
 
 $SQL_FORWARD_INSERT =
 "INSERT INTO products_stock (products_id, products_stock_attributes, products_stock_quantity, products_stock_cost)
- SELECT pa.products_id, CONCAT(pa.options_id, '-', pa.options_values_id), 0, 0.0000
+ SELECT pa.products_id, CONCAT(pa.options_id, '-', pa.options_values_id), IF(p.products_fabricacion = 1, 2000, 0), 0.0000
  FROM products_attributes AS pa
+ LEFT JOIN products AS p ON p.products_id = pa.products_id
  LEFT JOIN products_stock AS ps
    ON pa.products_id = ps.products_id
    AND ps.products_stock_attributes = CONCAT(pa.options_id, '-', pa.options_values_id)

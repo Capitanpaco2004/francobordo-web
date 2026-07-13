@@ -235,6 +235,16 @@ define('HEADING_TITLE', 'Importador productos en CSV');
 				$act_7 = tep_db_query($sql_7) or die($sql_7);
 					}
 
+
+				// Control de stock POR VARIANTE (columna 23 "C-Stock", campo 22): 1/0.
+				// Vacio = NO tocar (CSVs antiguos, p.ej. de QFac, llevan '' en las filas A
+				// y no deben borrar flags existentes). Espeja el update de la fila P.
+				$sCsRaw = trim((string)($campo[22] ?? ''));
+				if ($sCsRaw !== '') {
+					$sqlCS = "update products_attributes set check_stock = " . ((int)$sCsRaw == 1 ? 1 : 0) . " where products_attributes_id = " . (int)$campo[2];
+					tep_db_query($sqlCS) or die($sqlCS);
+				}
+
 				// Actualizamos la fecha de última modificacion
 				$sql_update = 'update products_attributes set attributes_last_modified = NOW() where products_attributes_id = "' . $campo[2] . '"';
 				tep_db_query($sql_update) or die($sql_update);

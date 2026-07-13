@@ -35,6 +35,15 @@ class option_combobox
 			$checkStock = (int)$row['check_stock'];
 		}
 
+
+		// Control de stock POR VARIANTE (OR con el global): mapa "oid-ovid" => 1.
+		// function_exists: este fichero es compartido; el path AJAX de _admin/order_edit
+		// no carga la general.php del catalogo que define fb_variant_check_map().
+		$aVariantCheck = array();
+		if ($products_id > 0 && !$checkStock && function_exists('fb_variant_check_map')) {
+			$aVariantCheck = fb_variant_check_map($products_id);
+		}
+
 		// Ofertas de VARIANTE del motor auto_specials: precargamos el delta ORIGINAL
 		// (snapshot) por options_values_id para poder pintar el precio "antes" tachado
 		// aunque el producto no tenga specials (una variante rebajada via delta es
@@ -99,11 +108,16 @@ class option_combobox
 			if ($products_id > 0) {
 				$nStock = stock_en_atributos($aDato['options_id'], $aDato['options_values_id'], $products_id);
 
+				// Flag efectivo de ESTA variante (global OR flag propio)
+				$nRowCheckStock = $checkStock;
+				if (!$nRowCheckStock && isset($aVariantCheck[(int)$aDato['options_id'] . '-' . (int)$aDato['options_values_id']]))
+					$nRowCheckStock = 1;
+
 				// ⚡ Reusamos la misma lógica que claseBotonComprar()
 				if (DISABLE_SHIPPING_5_DAYS == 'true' && $nStock <= 0) {
 					$textStatus = ' (Sin stock)';
 					$textStatusColor = '#e80d0d';
-				} elseif ($checkStock && $nStock <= 0) {
+				} elseif ($nRowCheckStock && $nStock <= 0) {
 					$textStatus = ' (Sin stock)';
 					$textStatusColor = '#e80d0d';
 				} elseif ($nStock <= -100 && $nStock >= -150) {
