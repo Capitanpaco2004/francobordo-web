@@ -75,57 +75,75 @@ if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || (preg_match('/^\d{4}-\d{2}-\d{
 $preview     = (($in['preview'] ?? '') === '1');
 $reprintLast = (($in['reprint_last'] ?? '') === '1');
 
-if ($reprintLast) {
-    $q = $db->query("SELECT MAX(manifested_at) m FROM seur_shipments WHERE manifested_at IS NOT NULL");
-    $mMax = $q ? (string) ($q->fetch_assoc()['m'] ?? '') : '';
-    if ($mMax === '') out_json(array('ok' => false, 'error' => 'No hay ningun manifiesto emitido todavia.'));
-    $st = $db->prepare("SELECT id, orders_id, id_rma, ref, shipment_code, ecb, service_code, product_code, kilos, request_json, date_added, manifested_at
-                        FROM seur_shipments
-                        WHERE tipo='envio' AND ok=1 AND entorno='pro' AND cancelled_at IS NULL AND manifested_at = ?
-                        ORDER BY id ASC");
-    $st->bind_param('s', $mMax);
-} else {
-    $st = $db->prepare("SELECT id, orders_id, id_rma, ref, shipment_code, ecb, service_code, product_code, kilos, request_json, date_added, manifested_at
-                        FROM seur_shipments
-                        WHERE tipo='envio' AND ok=1 AND entorno='pro' AND cancelled_at IS NULL AND manifested_at IS NULL
-                        ORDER BY id ASC");
-}
-if (!$st) { error_log('seur_manifiesto prepare: ' . $db->error); out_json(array('ok' => false, 'error' => 'consulta no disponible')); }
-$st->execute();
-$res = $st->get_result();
-
 function svcLabel($s, $p) {
     $k = (int) $s . '/' . (int) $p;
     $map = array('31/2' => 'SEUR 24', '1/48' => 'Punto', '9/2' => '13:30', '3/2' => 'SEUR 10', '57/2' => 'Sábado', '77/104' => 'Internacional', '77/48' => 'Punto intl');
     return $map[$k] ?? ((int) $s . '/' . (int) $p);
 }
 
-$rows = array(); $ids = array(); $totBultos = 0; $totKg = 0.0;
-while ($r = $res->fetch_assoc()) {
-    $name = ''; $ciudad = ''; $cp = ''; $bultos = 1;
-    $j = json_decode((string) $r['request_json'], true);
-    $pl = isset($j['payload']) && is_array($j['payload']) ? $j['payload'] : array();
-    if (isset($pl['receiver']['name']))                    $name   = trim((string) $pl['receiver']['name']);
-    if (isset($pl['receiver']['address']['cityName']))     $ciudad = trim((string) $pl['receiver']['address']['cityName']);
-    if (isset($pl['receiver']['address']['postalCode']))   $cp     = trim((string) $pl['receiver']['address']['postalCode']);
-    if (isset($pl['parcels']) && is_array($pl['parcels'])) $bultos = max(1, count($pl['parcels']));
-    $peso = (float) $r['kilos'];
-    $totBultos += $bultos; $totKg += $peso;
-    $ids[] = (int) $r['id'];
-    $rows[] = array(
-        'ref'     => (string) $r['ref'],
-        'name'    => $name,
-        'destino' => trim($ciudad . ($cp !== '' ? ' (' . $cp . ')' : '')),
-        'svc'     => svcLabel($r['service_code'], $r['product_code']),
-        'bultos'  => $bultos,
-        'peso'    => $peso,
-        'ecb'     => (string) $r['ecb'],
-        'fecha'   => substr((string) $r['date_added'], 5, 11),
-    );
+/* Última marca de manifiesto (para reimpresiones). */
+function ultimoManifiesto($db) {
+    $q = $db->query("SELECT MAX(manifested_at) m FROM seur_shipments WHERE manifested_at IS NOT NULL");
+    return $q ? (string) ($q->fetch_assoc()['m'] ?? '') : '';
+}
+
+/* Filas del manifiesto según condición extra (patrón cex_manifiesto). */
+$fetchRows = function ($whereExtra, $param) use ($db) {
+    $st = $db->prepare("SELECT id, orders_id, id_rma, ref, shipment_code, ecb, service_code, product_code, kilos, request_json, date_added, manifested_at
+                        FROM seur_shipments
+                        WHERE tipo='envio' AND ok=1 AND entorno='pro' AND cancelled_at IS NULL" . $whereExtra . "
+                        ORDER BY id ASC");
+    if (!$st) { error_log('seur_manifiesto prepare: ' . $db->error); out_json(array('ok' => false, 'error' => 'consulta no disponible')); }
+    if ($param !== null) $st->bind_param('s', $param);
+    $st->execute();
+    $res = $st->get_result();
+    $rows = array(); $ids = array(); $totB = 0; $totK = 0.0;
+    while ($r = $res->fetch_assoc()) {
+        $name = ''; $ciudad = ''; $cp = ''; $bultos = 1;
+        $j = json_decode((string) $r['request_json'], true);
+        $pl = isset($j['payload']) && is_array($j['payload']) ? $j['payload'] : array();
+        if (isset($pl['receiver']['name']))                    $name   = trim((string) $pl['receiver']['name']);
+        if (isset($pl['receiver']['address']['cityName']))     $ciudad = trim((string) $pl['receiver']['address']['cityName']);
+        if (isset($pl['receiver']['address']['postalCode']))   $cp     = trim((string) $pl['receiver']['address']['postalCode']);
+        if (isset($pl['parcels']) && is_array($pl['parcels'])) $bultos = max(1, count($pl['parcels']));
+        $peso = (float) $r['kilos'];
+        $totB += $bultos; $totK += $peso;
+        $ids[] = (int) $r['id'];
+        $rows[] = array(
+            'ref'     => (string) $r['ref'],
+            'name'    => $name,
+            'destino' => trim($ciudad . ($cp !== '' ? ' (' . $cp . ')' : '')),
+            'svc'     => svcLabel($r['service_code'], $r['product_code']),
+            'bultos'  => $bultos,
+            'peso'    => $peso,
+            'ecb'     => (string) $r['ecb'],
+            'fecha'   => substr((string) $r['date_added'], 5, 11),
+        );
+    }
+    return array($rows, $ids, $totB, $totK);
+};
+
+$mMax = '';
+if ($reprintLast) {
+    $mMax = ultimoManifiesto($db);
+    if ($mMax === '') out_json(array('ok' => false, 'error' => 'No hay ningun manifiesto emitido todavia.'));
+    list($rows, $ids, $totBultos, $totKg) = $fetchRows(' AND manifested_at = ?', $mMax);
+} else {
+    list($rows, $ids, $totBultos, $totKg) = $fetchRows(' AND manifested_at IS NULL', null);
+    if (!$rows && !$preview) {
+        /* Emisión sin pendientes → REIMPRIME el último manifiesto (mismo comportamiento
+         * que cex_manifiesto: doble clic de nuevo en el almacén = otra copia, con banner
+         * REIMPRESIÓN, sin re-marcar nada). El preview sí avisa honestamente. */
+        $mMax = ultimoManifiesto($db);
+        if ($mMax !== '') {
+            $reprintLast = true;
+            list($rows, $ids, $totBultos, $totKg) = $fetchRows(' AND manifested_at = ?', $mMax);
+        }
+    }
 }
 
 if (!$rows) {
-    out_json(array('ok' => false, 'error' => $reprintLast ? 'El ultimo manifiesto no tiene envios (?)' : 'Sin envios SEUR pendientes de manifiesto (todo lo preparado ya salio en manifiestos anteriores).'));
+    out_json(array('ok' => false, 'error' => $reprintLast ? 'El ultimo manifiesto no tiene envios (?)' : 'Sin envios SEUR pendientes de manifiesto (y no hay manifiesto anterior que reimprimir).'));
 }
 
 /* Nº de manifiesto = timestamp de emisión (o el del lote reimpreso). */

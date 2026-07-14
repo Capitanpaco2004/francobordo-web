@@ -184,6 +184,9 @@ $sessionCore = (new SessionCustomerMysqlInitializeBuild())();
 // Extraemos todas las varaibles de session a variables globales
 isset($_SESSION) ? extract($_SESSION, EXTR_OVERWRITE + EXTR_REFS) : null;
 
+// Atribucion IA: capta utm_source/referrer de ChatGPT&cia en la sesion (first-touch, blindado). Anadido 2026-07-13
+if (is_file(__DIR__ . '/fb_ai_attribution.php')) { include_once __DIR__ . '/fb_ai_attribution.php'; if (function_exists('fb_ai_capture')) fb_ai_capture(); }
+
 // Establecemos SID una vez, incluso si está vacío
 $SID = (session_id() !== '' && !ini_get('session.use_cookies')) ? session_name() . '=' . session_id() : '';
 

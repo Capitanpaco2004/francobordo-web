@@ -16,8 +16,10 @@ if (!defined('TRUSTPILOT_MONTHLY_CAP')) define('TRUSTPILOT_MONTHLY_CAP', 300);
 if (!defined('TRUSTPILOT_REINVITE_COOLDOWN_DAYS')) define('TRUSTPILOT_REINVITE_COOLDOWN_DAYS', 180);
 
 // Fallback Google (ficha Google Business Profile, Alcobendas): cuando se AGOTA el cupo mensual de
-// Trustpilot, a los clientes con envio <=24h que se habrian invitado se les anade en su lugar un
-// boton de resena de Google en el email de envio. Maps no tiene tope y es gratis. Vacio = desactivado.
+// Trustpilot, los clientes con envio <=24h que se habrian invitado se ENCOLAN (queued_at) y un bloque
+// al final de este cron les envia un EMAIL DEDICADO ~1 dia despues de la ENTREGA (estado 3), cuando ya
+// tienen el producto (2026-07-13; antes iba un boton en el email de envio, mal momento para pedir opinion).
+// Plantilla: UHtmlEmails/<layout>/google_review.php. Maps no tiene tope y es gratis. Vacio = desactivado.
 if (!defined('GOOGLE_REVIEW_URL')) define('GOOGLE_REVIEW_URL', 'https://search.google.com/local/writereview?placeid=ChIJNSqEzhAtQg0Rn7xA5nBG9uw');
 // No volver a pedir Google al mismo cliente (email) dentro de este periodo en dias. 0 = sin cooldown.
 if (!defined('GOOGLE_REINVITE_COOLDOWN_DAYS')) define('GOOGLE_REINVITE_COOLDOWN_DAYS', 180);
@@ -171,38 +173,28 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
                         echo '<pre>Trustpilot: NO invitado pedido ' . (int) $oID . ' (' . ($tp_dup ? 'cliente ya invitado en cooldown' : ('tope mensual ' . $tp_usados . '/' . (int) TRUSTPILOT_MONTHLY_CAP)) . ')</pre>';
 
                         // Fallback Google: solo si NO se invito por haberse AGOTADO el cupo (no por cooldown),
-                        // el email es valido y el cliente no fue invitado recientemente a Trustpilot. Se le anade
-                        // el boton de resena de Google al email de envio (Maps no tiene tope y es gratis).
+                        // el email es valido y el cliente no fue invitado recientemente a Trustpilot. Se ENCOLA
+                        // (queued_at, sent_at NULL) y el bloque "Invitaciones Google post-entrega" del final de
+                        // este cron le enviara un email dedicado ~1 dia despues de la ENTREGA (estado 3).
                         if ($tp_email !== '' && $tp_dup == 0 && $tp_usados >= (int) TRUSTPILOT_MONTHLY_CAP
                             && defined('GOOGLE_REVIEW_URL') && GOOGLE_REVIEW_URL !== '') {
 
-                            // Cooldown propio de Google: no volver a pedirselo al mismo cliente.
+                            // Cooldown propio de Google (cuenta tambien las aun en cola): no repetir cliente.
                             $g_dup = ((int) GOOGLE_REINVITE_COOLDOWN_DAYS > 0)
-                                ? tep_db_num_rows(tep_db_query("SELECT 1 FROM google_review_invites WHERE customers_email_address = '" . tep_db_input($tp_email) . "' AND sent_at >= ( NOW() - INTERVAL " . (int) GOOGLE_REINVITE_COOLDOWN_DAYS . " DAY ) LIMIT 1"))
+                                ? tep_db_num_rows(tep_db_query("SELECT 1 FROM google_review_invites WHERE customers_email_address = '" . tep_db_input($tp_email) . "' AND COALESCE(sent_at, queued_at) >= ( NOW() - INTERVAL " . (int) GOOGLE_REINVITE_COOLDOWN_DAYS . " DAY ) LIMIT 1"))
                                 : 0;
 
                             if ($g_dup == 0) {
-                                $g_inner = '<div style="border-top:1px solid #eaeef1;padding-top:24px;"><div style="font-size:16px;font-weight:700;color:#00374d;margin-bottom:7px;font-family:Arial,Helvetica,sans-serif;">&iquest;Qu&eacute; te ha parecido tu compra?</div><div style="font-size:14px;color:#5f6b72;line-height:21px;margin-bottom:16px;font-family:Arial,Helvetica,sans-serif;">Tu opini&oacute;n nos ayuda much&iacute;simo. Si tienes un momento, cu&eacute;ntanoslo en Google:</div><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center"><tr><td align="center" style="border:2px solid #00374d;border-radius:8px;"><a href="' . GOOGLE_REVIEW_URL . '" target="_blank" style="display:inline-block;padding:11px 26px;font-size:14px;font-weight:700;color:#00374d;text-decoration:none;font-family:Arial,Helvetica,sans-serif;">&#9733; Valorar en Google</a></td></tr></table></div>';
-                                // Fila CTA: reemplaza el marcador <!--GOOGLE_CTA--> de la plantilla (queda debajo de "Ver mi pedido").
-                                $g_row = '<tr><td class="px" align="center" style="padding:8px 44px 0;">' . $g_inner . '</td></tr>';
-                                // Fallback con tabla propia, por si la plantilla no tuviera el marcador.
-                                $g_table = '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;"><tr><td align="center" style="padding:26px 20px 32px;border-top:3px solid #00aff0;font-family:Arial,Helvetica,sans-serif;">' . $g_inner . '</td></tr></table>';
-                                if (strpos($email, '<!--GOOGLE_CTA-->') !== false) {
-                                    $email = str_replace('<!--GOOGLE_CTA-->', $g_row, $email);
-                                } elseif (strpos($email, '</body>') !== false) {
-                                    $email = str_replace('</body>', $g_table . '</body>', $email);
-                                } else {
-                                    $email .= $g_table;
-                                }
-                                tep_db_query("INSERT IGNORE INTO google_review_invites (orders_id, customers_email_address, sent_at) VALUES ('" . (int) $oID . "', '" . tep_db_input($tp_email) . "', NOW())");
-                                echo '<pre>Google: boton de resena anadido al envio del pedido ' . (int) $oID . '</pre>';
+                                tep_db_query("INSERT IGNORE INTO google_review_invites (orders_id, customers_email_address, queued_at) VALUES ('" . (int) $oID . "', '" . tep_db_input($tp_email) . "', NOW())");
+                                echo '<pre>Google: encolado pedido ' . (int) $oID . ' (email dedicado ~1 dia tras la entrega)</pre>';
                             } else {
-                                echo '<pre>Google: NO anadido pedido ' . (int) $oID . ' (cliente ya invitado a Google en cooldown)</pre>';
+                                echo '<pre>Google: NO encolado pedido ' . (int) $oID . ' (cliente ya invitado a Google en cooldown)</pre>';
                             }
                         }
                     }
                 }
-                // Quita el marcador del CTA de Google si no se uso (todos los emails que no son fallback Google).
+                // Quita el marcador <!--GOOGLE_CTA--> de la plantilla (desde 2026-07-13 ya no se inyecta nada
+                // en el email de envio; la invitacion de Google va en email dedicado post-entrega).
                 if (strpos($email, '<!--GOOGLE_CTA-->') !== false) { $email = str_replace('<!--GOOGLE_CTA-->', '', $email); }
                 // 2026-06-25: el nombre del destinatario debe ser el del CLIENTE (antes iba orders_status_name = "Enviado", que ensucia el "To" y puede confundir al AFS de Trustpilot que lee ese header).
                 tep_mail($check_status['customers_firstname'], $check_status['customers_email_address'], EMAIL_TEXT_SUBJECT . ' (Nº de Pedido: ' . $oID . ')', $email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS, false, $tp_bcc);
@@ -246,4 +238,57 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
         tep_db_query($sql);
     }
 
+}
+
+/*
+ Invitaciones Google post-entrega (2026-07-13)
+ Envia el email dedicado "Valoranos en Google" a los encolados (google_review_invites.sent_at NULL)
+ cuyo pedido lleva >= 1 dia en estado ENTREGADO (3, por tracking o por el autocompletado de arriba).
+ Respeta las bajas del canal de opiniones (opinion_optout). Plantilla: UHtmlEmails/<layout>/google_review.php.
+ */
+echo '<h4>Invitaciones Google (post-entrega)</h4>';
+if (defined('GOOGLE_REVIEW_URL') && GOOGLE_REVIEW_URL !== '') {
+    $g_optout = array();
+    $g_oq = tep_db_query('SELECT email FROM opinion_optout');
+    while ($g_or = tep_db_fetch_array($g_oq)) { $g_optout[] = strtolower(trim((string) $g_or['email'])); }
+
+    $g_pend = tep_db_query("SELECT gri.id, gri.orders_id, gri.customers_email_address, c.customers_firstname,
+            (SELECT MAX(osh.date_added) FROM orders_status_history osh WHERE osh.orders_id = gri.orders_id AND osh.orders_status_id = 3) AS entregado
+        FROM google_review_invites gri
+        JOIN orders o ON o.orders_id = gri.orders_id AND o.orders_status = 3
+        LEFT JOIN customers c ON c.customers_id = o.customers_id
+        WHERE gri.sent_at IS NULL
+        HAVING entregado IS NOT NULL AND entregado <= ( NOW() - INTERVAL 1 DAY )
+        ORDER BY entregado
+        LIMIT 40");
+    while ($g_fila = tep_db_fetch_array($g_pend)) {
+        $g_id    = (int) $g_fila['id'];
+        $g_oid   = (int) $g_fila['orders_id'];
+        $g_email = trim((string) $g_fila['customers_email_address']);
+        $g_name  = trim((string) ($g_fila['customers_firstname'] ?? ''));
+        if ($g_name === '') { $g_name = 'cliente'; }
+
+        if ($g_email === '' || !filter_var($g_email, FILTER_VALIDATE_EMAIL) || in_array(strtolower($g_email), $g_optout)) {
+            // Se marca como tratada para no reintentarla en cada pasada.
+            tep_db_query("UPDATE google_review_invites SET sent_at = NOW() WHERE id = " . $g_id);
+            echo '<pre>Google: descartado pedido ' . $g_oid . ' (baja del canal de opiniones o email invalido)</pre>';
+            continue;
+        }
+
+        // Enlace de baja del canal de opiniones (mismo mecanismo que cron_opiniones), si hay fila en opinion.
+        $g_baja = '';
+        $g_uq = tep_db_query("SELECT uniqid FROM opinion WHERE orders_id = '" . $g_oid . "' LIMIT 1");
+        if (tep_db_num_rows($g_uq)) {
+            $g_u = tep_db_fetch_array($g_uq);
+            $g_baja = 'https://www.francobordo.com/baja_opiniones.php?o=' . $g_u['uniqid'];
+        }
+
+        require DIR_FS_CATALOG_MODULES . 'UHtmlEmails/' . ULTIMATE_HTML_EMAIL_LAYOUT . '/google_review.php'; // define $g_html_email
+
+        // Asunto en bytes UTF-8 explicitos (PHPMailer CharSet=utf-8; a prueba del charset del fichero).
+        $g_subject = "Tu opini\xC3\xB3n nos hace mejores \xE2\xAD\x90 Val\xC3\xB3ranos en Google";
+        tep_mail($g_name, $g_email, $g_subject, $g_html_email, STORE_OWNER, STORE_OWNER_EMAIL_ADDRESS, false, '');
+        tep_db_query("UPDATE google_review_invites SET sent_at = NOW() WHERE id = " . $g_id);
+        echo '<pre>Google: enviado email de resena del pedido ' . $g_oid . ' (entregado ' . $g_fila['entregado'] . ')</pre>';
+    }
 }

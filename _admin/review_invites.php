@@ -13,8 +13,11 @@
       return (int) $x['c'];
   };
 
-  $g_total  = $_ri("SELECT COUNT(*) c FROM google_review_invites");
-  $g_mes    = $_ri("SELECT COUNT(*) c FROM google_review_invites WHERE sent_at >= DATE_FORMAT(NOW(),'%Y-%m-01')");
+  // Desde 2026-07-13 Google va en dos fases: se ENCOLA al enviar el pedido (queued_at) y el email
+  // dedicado sale ~1 dia despues de la ENTREGA (sent_at). "En cola" = pendientes de entrega+1d.
+  $g_total  = $_ri("SELECT COUNT(*) c FROM google_review_invites WHERE sent_at IS NOT NULL");
+  $g_mes    = $_ri("SELECT COUNT(*) c FROM google_review_invites WHERE sent_at IS NOT NULL AND sent_at >= DATE_FORMAT(NOW(),'%Y-%m-01')");
+  $g_cola   = $_ri("SELECT COUNT(*) c FROM google_review_invites WHERE sent_at IS NULL");
   $tp_total = $_ri("SELECT COUNT(*) c FROM trustpilot_invites");
   $tp_mes   = $_ri("SELECT COUNT(*) c FROM trustpilot_invites WHERE sent_at >= DATE_FORMAT(NOW(),'%Y-%m-01')");
 
@@ -33,26 +36,30 @@
 </div>
 
 <table border="0" width="100%" cellspacing="0" cellpadding="7"><tr valign="top">
-  <td width="25%"><div style="<?php echo $card . $cg; ?>">
+  <td width="20%"><div style="<?php echo $card . $cg; ?>">
     <div style="<?php echo $lbl; ?>">Google &middot; este mes</div>
     <div style="<?php echo $numG; ?>"><?php echo $g_mes; ?></div>
   </div></td>
-  <td width="25%"><div style="<?php echo $card . $cg; ?>">
+  <td width="20%"><div style="<?php echo $card . $cg; ?>">
+    <div style="<?php echo $lbl; ?>">Google &middot; en cola</div>
+    <div style="<?php echo $numG; ?>"><?php echo $g_cola; ?></div>
+  </div></td>
+  <td width="20%"><div style="<?php echo $card . $cg; ?>">
     <div style="<?php echo $lbl; ?>">Google &middot; total</div>
     <div style="<?php echo $numG; ?>"><?php echo $g_total; ?></div>
   </div></td>
-  <td width="25%"><div style="<?php echo $card . $ct; ?>">
+  <td width="20%"><div style="<?php echo $card . $ct; ?>">
     <div style="<?php echo $lbl; ?>">Trustpilot &middot; este mes</div>
     <div style="<?php echo $numT; ?>"><?php echo $tp_mes; ?><span style="font-size:18px;color:#7a8a96;font-weight:normal;"> / <?php echo $tp_cap; ?></span></div>
   </div></td>
-  <td width="25%"><div style="<?php echo $card . $ct; ?>">
+  <td width="20%"><div style="<?php echo $card . $ct; ?>">
     <div style="<?php echo $lbl; ?>">Trustpilot &middot; total</div>
     <div style="<?php echo $numT; ?>"><?php echo $tp_total; ?></div>
   </div></td>
 </tr></table>
 
 <p class="smallText" style="margin:12px 4px 20px;color:#777;line-height:18px;">
-  El <b>fallback de Google</b> se a&ntilde;ade autom&aacute;ticamente al email de env&iacute;o del cliente (pedidos enviados &le;24h) <b>cuando se agota el cupo mensual de Trustpilot</b> (<?php echo $tp_cap; ?>/mes). As&iacute; ning&uacute;n cliente con env&iacute;o r&aacute;pido se queda sin que le pidamos opini&oacute;n. Los contadores &laquo;este mes&raquo; van por mes natural (rue­dan el d&iacute;a 1).
+  Cuando <b>se agota el cupo mensual de Trustpilot</b> (<?php echo $tp_cap; ?>/mes), los clientes con env&iacute;o &le;24h se <b>encolan</b> y reciben un <b>email dedicado &laquo;Val&oacute;ranos en Google&raquo; ~1 d&iacute;a despu&eacute;s de la ENTREGA</b> del pedido (cuando ya tienen el producto). &laquo;En cola&raquo; = esperando la entrega. Los contadores &laquo;este mes&raquo; van por mes natural (ruedan el d&iacute;a 1).
 </p>
 
 <h2 class="pageHeading" style="font-size:15px;">Google &middot; por d&iacute;a <span style="font-weight:normal;color:#999;font-size:12px;">(&uacute;ltimos 14 con env&iacute;os)</span></h2>
@@ -62,7 +69,7 @@
     <td class="dataTableHeadingContent" align="right">Enviados</td>
   </tr>
 <?php
-  $r = tep_db_query("SELECT DATE(sent_at) d, COUNT(*) c FROM google_review_invites GROUP BY DATE(sent_at) ORDER BY d DESC LIMIT 14");
+  $r = tep_db_query("SELECT DATE(sent_at) d, COUNT(*) c FROM google_review_invites WHERE sent_at IS NOT NULL GROUP BY DATE(sent_at) ORDER BY d DESC LIMIT 14");
   if (tep_db_num_rows($r) == 0) {
       echo '<tr class="dataTableRow"><td class="dataTableContent" colspan="2">Sin env&iacute;os todav&iacute;a.</td></tr>';
   }
@@ -77,21 +84,26 @@
   <tr class="dataTableHeadingRow">
     <td class="dataTableHeadingContent">Pedido</td>
     <td class="dataTableHeadingContent">Email del cliente</td>
-    <td class="dataTableHeadingContent">Enviado</td>
+    <td class="dataTableHeadingContent">Encolada</td>
+    <td class="dataTableHeadingContent">Enviada</td>
   </tr>
 <?php
-  $r = tep_db_query("SELECT orders_id, customers_email_address, sent_at FROM google_review_invites ORDER BY sent_at DESC, id DESC LIMIT 30");
+  $r = tep_db_query("SELECT orders_id, customers_email_address, queued_at, sent_at FROM google_review_invites ORDER BY COALESCE(sent_at, queued_at) DESC, id DESC LIMIT 30");
   if (tep_db_num_rows($r) == 0) {
-      echo '<tr class="dataTableRow"><td class="dataTableContent" colspan="3">Sin invitaciones todav&iacute;a.</td></tr>';
+      echo '<tr class="dataTableRow"><td class="dataTableContent" colspan="4">Sin invitaciones todav&iacute;a.</td></tr>';
   }
   while ($row = tep_db_fetch_array($r)) {
       $oid   = (int) $row['orders_id'];
       $olink = defined('FILENAME_ORDERS') ? tep_href_link(FILENAME_ORDERS, 'oID=' . $oid . '&action=edit') : '';
       $ocell = $olink ? ('<a href="' . $olink . '" class="blacklink">' . $oid . '</a>') : $oid;
+      $scell = ($row['sent_at'] !== null && $row['sent_at'] !== '')
+          ? $row['sent_at']
+          : '<span style="color:#b8860b;font-weight:bold;">en cola</span>';
       echo '<tr class="dataTableRow">'
          . '<td class="dataTableContent">' . $ocell . '</td>'
          . '<td class="dataTableContent">' . htmlspecialchars($row['customers_email_address']) . '</td>'
-         . '<td class="dataTableContent">' . $row['sent_at'] . '</td>'
+         . '<td class="dataTableContent">' . ($row['queued_at'] !== null ? $row['queued_at'] : '-') . '</td>'
+         . '<td class="dataTableContent">' . $scell . '</td>'
          . '</tr>';
   }
 ?>

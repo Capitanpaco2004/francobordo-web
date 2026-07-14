@@ -173,6 +173,49 @@ function correos_build_labels($c, array $pkgCodes, $oid, $type) {
     return array($zplPath, $pdfPath, $zpl, $pdfBin, implode('; ', $errs));
 }
 
+/** Ejecuta gs con los argumentos dados. proc_open con array (sin shell): el FPM del web
+ *  tiene disable_functions=exec,shell_exec,... pero proc_open SÍ está permitido. */
+function correos_gs_run(array $args) {
+    if (!function_exists('proc_open') || !is_file('/usr/bin/gs')) return -1;
+    $pipes = array();
+    $p = @proc_open(array_merge(array('/usr/bin/gs', '-q'), $args),
+                    array(1 => array('pipe', 'w'), 2 => array('pipe', 'w')), $pipes);
+    if (!is_resource($p)) return -1;
+    @stream_get_contents($pipes[1]); @fclose($pipes[1]);
+    @stream_get_contents($pipes[2]); @fclose($pipes[2]);
+    return (int) proc_close($p);
+}
+
+/**
+ * CN23 imprimible en la HP A4 del almacén: extrae la PÁGINA de aduanas del PDF de
+ * etiquetas y la convierte a PCL-XL (pxlmono, papel A4) con Ghostscript. La página CN23
+ * se detecta por TAMAÑO (595×421, media altura), no por contarlas: un multibulto
+ * peninsular tiene N páginas de etiqueta (595×842) y ninguna CN23. Cachea el resultado
+ * en <pdf>.cn23.pcl (los reintentos/dedup lo re-sirven sin regenerar). Devuelve la ruta
+ * del .pcl o null (sin aduanas / fallo — best-effort, nunca rompe la respuesta).
+ */
+function correos_cn23_pcl($pdfPath) {
+    if (empty($pdfPath) || !is_file($pdfPath)) return null;
+    $pcl = $pdfPath . '.cn23.pcl';
+    if (is_file($pcl) && filesize($pcl) > 500) return $pcl;
+    // ¿La 1ª página es un CN23? (altura < 500pt; las etiquetas miden 842pt). Se extrae la
+    // pág.1 con CompatibilityLevel=1.4 (sin object streams → el /MediaBox queda en texto
+    // plano) y se busca en el probe entero.
+    $probe = $pdfPath . '.probe.pdf';
+    if (correos_gs_run(array('-o', $probe, '-sDEVICE=pdfwrite', '-dCompatibilityLevel=1.4', '-dFirstPage=1', '-dLastPage=1', $pdfPath)) !== 0) { @unlink($probe); return null; }
+    $head = (string) @file_get_contents($probe);
+    @unlink($probe);
+    if (!preg_match('/MediaBox\s*\[\s*[\d.]+\s+[\d.]+\s+[\d.]+\s+([\d.]+)/', $head, $m) || (float) $m[1] >= 500) {
+        return null;   // sin página CN23 (envío sin aduanas)
+    }
+    $tmp = $pcl . '.tmp';
+    $rc = correos_gs_run(array('-o', $tmp, '-sDEVICE=pxlmono', '-sPAPERSIZE=a4', '-dFIXEDMEDIA', '-dFitPage',
+                               '-dFirstPage=1', '-dLastPage=1', $pdfPath));
+    if ($rc !== 0 || !is_file($tmp) || filesize($tmp) < 500) { @unlink($tmp); return null; }
+    @rename($tmp, $pcl);
+    return $pcl;
+}
+
 /** Construye la respuesta de éxito a partir de una fila de correos_shipments. */
 function correos_resp_from_row(array $row, $type) {
     $resp = array(
@@ -180,7 +223,7 @@ function correos_resp_from_row(array $row, $type) {
         'shipmentCode' => $row['shipment_code'],
         'packageCodes' => correos_pkgcodes_from_row($row),
         'tracking_url' => $row['tracking_url'],
-        'zpl' => null, 'pdf_b64' => null,
+        'zpl' => null, 'pdf_b64' => null, 'cn23_pcl_b64' => null,
     );
     if (in_array($type, array('ZPL', 'BOTH'), true) && !empty($row['label_zpl_path']) && is_file($row['label_zpl_path'])) {
         $resp['zpl'] = file_get_contents($row['label_zpl_path']);
@@ -188,6 +231,9 @@ function correos_resp_from_row(array $row, $type) {
     if (in_array($type, array('PDF', 'BOTH'), true) && !empty($row['label_path']) && is_file($row['label_path'])) {
         $resp['pdf_b64'] = base64_encode(file_get_contents($row['label_path']));
     }
+    // CN23 en PCL para la impresora A4 del almacén (solo envíos con aduanas).
+    $pcl = correos_cn23_pcl(!empty($row['label_path']) ? $row['label_path'] : null);
+    if ($pcl !== null) $resp['cn23_pcl_b64'] = base64_encode(file_get_contents($pcl));
     return $resp;
 }
 
@@ -659,6 +705,7 @@ if (!$labelOk) {
               'labelError' => $labErr, 'shipmentCode' => $code, 'packageCodes' => $pkgCodes, 'tracking_url' => $trackingUrl));
 }
 
+$cn23 = correos_cn23_pcl($pdfPath);   // CN23→PCL para la HP A4 del almacén (null si no hay aduanas)
 out(array(
     'ok' => true, 'dedup' => false,
     'shipmentCode' => $code, 'packageCodes' => $pkgCodes,
@@ -667,4 +714,5 @@ out(array(
     'aviso'    => ($svcDegradado !== '' ? $svcDegradado : null),
     'zpl'     => in_array($type, array('ZPL', 'BOTH'), true) ? $zpl : null,
     'pdf_b64' => in_array($type, array('PDF', 'BOTH'), true) && $pdfBin !== null ? base64_encode($pdfBin) : null,
+    'cn23_pcl_b64' => ($cn23 !== null ? base64_encode(file_get_contents($cn23)) : null),
 ));

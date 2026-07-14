@@ -53,6 +53,17 @@
             tep_redirect( $_SERVER['HTTP_REFERER'] );
         break;
 
+		case 'setbajopedido':
+			// Toggle rapido del check "bajo pedido sin stock" desde el listado (clon de setflag).
+			// El cron de las 04:35 (scripts/cron_bajo_pedido_marcas.php) hace la conversion a -800.
+			$nId = tep_db_prepare_input( $_GET['id'] );
+			$nFlag = tep_db_prepare_input( $_GET['flag'] );
+
+			tep_db_query('UPDATE manufacturers set manufacturers_bajo_pedido = ' . ((int)$nFlag == 1 ? 1 : 0) . ' WHERE manufacturers_id = ' . (int)$nId );
+
+			tep_redirect( $_SERVER['HTTP_REFERER'] );
+		break;
+
 		case 'delete':
 			// Variables
 			$aGetId = tep_db_prepare_input( $_GET['id'] );
@@ -132,7 +143,7 @@
 			if( $sGetId != false )
 			{
 				// Obtenemos el registro
-				$aRecords = tep_db_query( 'SELECT m.manufacturers_id, m.manufacturers_name, m.orden,
+				$aRecords = tep_db_query( 'SELECT m.manufacturers_id, m.manufacturers_name, m.orden, m.manufacturers_bajo_pedido,
 										  mi.languages_id, mi.seo_title, mi.seo_description, mi.seo_text_landing_page
 										  FROM manufacturers m
 										  INNER JOIN manufacturers_info mi ON( m.manufacturers_id = mi.manufacturers_id )
@@ -149,6 +160,7 @@
 				{
 					$aRecord['manufacturers_name'][$aRow['languages_id']] = $aRow['manufacturers_name'];
 					$aRecord['orden'][$aRow['languages_id']] = $aRow['orden'];
+					$aRecord['manufacturers_bajo_pedido'] = (int)$aRow['manufacturers_bajo_pedido'];
 					$aRecord['seo_title'][$aRow['languages_id']] = $aRow['seo_title'];
 					$aRecord['seo_description'][$aRow['languages_id']] = $aRow['seo_description'];
 					$aRecord['seo_text_landing_page'][$aRow['languages_id']] = $aRow['seo_text_landing_page'];
@@ -172,7 +184,8 @@
 					// Array principal de marca
 					$aSql = [
 						'manufacturers_name' => $_POST['titulo'],
-						'orden' => $_POST['orden']
+						'orden' => $_POST['orden'],
+						'manufacturers_bajo_pedido' => (isset($_POST['bajo_pedido']) && $_POST['bajo_pedido'] == '1' ? 1 : 0)
 					];
 
 					if( $sGetId != false )
@@ -298,6 +311,14 @@
 								$sHtml .= '<input type="text" name="orden" id="orden" value="' . (array_key_exists( 'orden', $aRecord ) ? $aRecord['orden'][$languages_id] : ($_POST['orden'] ?? '')) . '"/>';
 								$sHtml .= '<div class="DFhelp">' . TEXT_MANUFACTURERS_ORDER_HELP . '</div>';
 							$sHtml .= '</div>';
+
+								$sHtml .= '<div class="xline xline-dashed"></div>';
+							
+								$sHtml .= '<label for="bajo_pedido" class="column a01 tright">Bajo pedido sin stock:</label>';
+								$sHtml .= '<div class="column a10">';
+									$sHtml .= '<input type="checkbox" name="bajo_pedido" id="bajo_pedido" value="1"' . (!empty($aRecord['manufacturers_bajo_pedido']) ? ' checked="checked"' : '') . ' /><label for="bajo_pedido"><span></span> Los productos de esta marca SIN stock pasan a BAJO PEDIDO (-800)</label>';
+									$sHtml .= '<div class="DFhelp">Sustituye al check por proveedor de QFac: el cron diario de las 04:35 (scripts/cron_bajo_pedido_marcas.php) convierte stock 0 (o negativo hasta -99) en -800, en el producto y sus variantes. No toca fabricaci&oacute;n (2000), proveedor (-100) ni descatalogado (-900).</div>';
+								$sHtml .= '</div>';
 						$sHtml .= '</div>';
 					$sHtml .= '</div>';
 
@@ -365,7 +386,7 @@
 			$sOrderby = $sGetOrderby != '' ? $sGetOrderby . ' ' . $sGetSort : 'manufacturers_name asc';
 
 			// Sql
-			$sSql = 'SELECT m.manufacturers_id, m.manufacturers_name, m.manufacturers_status, m.date_added, m.last_modified, m.orden, count( p.products_id ) as products_count
+			$sSql = 'SELECT m.manufacturers_id, m.manufacturers_name, m.manufacturers_status, m.manufacturers_bajo_pedido, m.date_added, m.last_modified, m.orden, count( p.products_id ) as products_count
 					 FROM manufacturers m
 					 LEFT JOIN products p ON( m.manufacturers_id = p.manufacturers_id )
 					 ' . $sWhere . ' GROUP BY m.manufacturers_id ORDER BY ' . $sOrderby;
@@ -415,6 +436,7 @@
 									$sHtml .= '<th class="sort">' . tableSetSort( 'orden', TEXT_MANUFACTURERS_TABLE_ORDER ) . '</th>';
 									$sHtml .= '<th class="sort">' . tableSetSort( 'products_count', TEXT_MANUFACTURERS_TABLE_PRODUCTS ) . '</th>';
 									$sHtml .= '<th style="text-align: center;">' . TEXT_MANUFACTURERS_TABLE_STATUS . '</th>';
+									$sHtml .= '<th style="text-align: center;" title="Los productos SIN stock de la marca pasan a BAJO PEDIDO (-800) cada noche (04:35)">Bajo pedido</th>';
 									$sHtml .= '<th width="125">' . TEXT_MANUFACTURERS_TABLE_ACTIONS . '</th>';
 								$sHtml .= '</tr>';
 							$sHtml .= '</thead>';
@@ -446,6 +468,13 @@
                                                 $sHtml .= tep_image(DIR_WS_IMAGES . 'icon_status_green.png', IMAGE_ICON_STATUS_GREEN, 10, 10) . '&nbsp;&nbsp;<a href="' . tep_href_link($sUrlPage, 'action=setflag&flag=0&id=' . $aDato['manufacturers_id'], 'NONSSL') . '">' . tep_image(DIR_WS_IMAGES . 'icon_status_red_light.png', IMAGE_ICON_STATUS_RED_LIGHT, 10, 10) . '</a>';
                                             } else {
                                                 $sHtml .= '<a href="' . tep_href_link($sUrlPage, 'action=setflag&flag=1&id=' . $aDato['manufacturers_id'], 'NONSSL') . '">' . tep_image(DIR_WS_IMAGES . 'icon_status_green_light.png', IMAGE_ICON_STATUS_GREEN_LIGHT, 10, 10) . '</a>&nbsp;&nbsp;' . tep_image(DIR_WS_IMAGES . 'icon_status_red.png', IMAGE_ICON_STATUS_RED, 10, 10);
+                                            }
+										$sHtml .= '</td>';
+										$sHtml .= '<td align="center" title="Sin stock -> BAJO PEDIDO (-800), cron 04:35">';
+											if ($aDato['manufacturers_bajo_pedido'] == '1') {
+                                                $sHtml .= tep_image(DIR_WS_IMAGES . 'icon_status_green.png', 'Bajo pedido ACTIVO', 10, 10) . '&nbsp;&nbsp;<a href="' . tep_href_link($sUrlPage, 'action=setbajopedido&flag=0&id=' . $aDato['manufacturers_id'], 'NONSSL') . '">' . tep_image(DIR_WS_IMAGES . 'icon_status_red_light.png', 'Desactivar bajo pedido', 10, 10) . '</a>';
+                                            } else {
+                                                $sHtml .= '<a href="' . tep_href_link($sUrlPage, 'action=setbajopedido&flag=1&id=' . $aDato['manufacturers_id'], 'NONSSL') . '">' . tep_image(DIR_WS_IMAGES . 'icon_status_green_light.png', 'Activar bajo pedido', 10, 10) . '</a>&nbsp;&nbsp;' . tep_image(DIR_WS_IMAGES . 'icon_status_red.png', 'Bajo pedido inactivo', 10, 10);
                                             }
 										$sHtml .= '</td>';
 										$sHtml .= '<td>';

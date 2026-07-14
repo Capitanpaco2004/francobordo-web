@@ -308,6 +308,8 @@ if (tep_session_is_registered('store_id')) {
 // Fin, tiendas
 
 tep_db_perform(TABLE_ORDERS, $sql_data_array);
+// Atribucion IA del pedido (ChatGPT&cia) -> orders_ai_source. Blindado: nunca interrumpe el checkout. (2026-07-13)
+if (function_exists('fb_ai_record_order')) { fb_ai_record_order((int) $insert_id, fb_ai_current_source()); }
 //  OrderCheck
 // commented out the line below
 //  $insert_id = tep_db_insert_id();

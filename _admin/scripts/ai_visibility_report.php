@@ -22,6 +22,9 @@
  */
 
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
+// CLI puro sin bootstrap de osC: desactiva el modo STRICT de mysqli (PHP 8.1+ lanzaria excepciones)
+// para restaurar la semantica "query()->false" de la que dependen aiv_db_chatgpt_sales y aiv_send_mail.
+if (function_exists('mysqli_report')) mysqli_report(MYSQLI_REPORT_OFF);
 
 const AIV_LOG_FILE  = '/home/francobordo/access-logs/francobordo.com-ssl_log';
 const AIV_STATE     = '/home/francobordo/logs/ai_visibility_state.json';
@@ -29,6 +32,11 @@ const AIV_MAIL_TO   = 'f.rodriguez@francobordo.com';
 const AIV_KEEP_DAYS = 35;
 const AIV_MAX_PAGES = 150;  // paginas distintas guardadas por dia y categoria
 const AIV_MAX_IPS   = 500;  // IPs de clics guardadas por dia
+
+// Ventas atribuidas a ChatGPT: se leen de la PROPIA tienda (tabla orders_ai_source), sin Google.
+// La captura la hace includes/fb_ai_attribution.php (utm_source/referrer -> sesion) y
+// checkout_process.php la persiste al crear el pedido. Aqui solo se consulta la BD.
+const AIV_DB_CONFIGURE = '/home/francobordo/public_html/includes/configure.php';
 
 // ---------------------------------------------------------------- estado
 function aiv_load_state() {
@@ -160,6 +168,40 @@ function aiv_top($arr, $n) {
     return $out ? implode("\n", $out) : '  (sin datos)';
 }
 
+// delta en % sin arrastrar el valor previo (para importes en EUR)
+function aiv_delta_pct($now, $prev) {
+    if ($prev <= 0) return $now > 0 ? '(nuevo)' : '';
+    $pct = round((($now - $prev) / $prev) * 100);
+    return sprintf('(%s%d%% vs anterior)', $pct >= 0 ? '+' : '', $pct);
+}
+
+// Ventas atribuidas a ChatGPT desde la propia BD (tabla orders_ai_source). array(orders,revenue) o false.
+function aiv_db_chatgpt_sales($from, $to, &$err) {
+    static $db = null, $tried = false;
+    try {
+        if (!$tried) {
+            $tried = true;
+            if (is_file(AIV_DB_CONFIGURE)) include_once AIV_DB_CONFIGURE;
+            if (defined('DB_SERVER')) {
+                $c = @new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
+                if ($c && !$c->connect_errno) $db = $c;
+            }
+        }
+        if (!$db) { $err = 'sin conexion a BD'; return false; }
+        $f = $db->real_escape_string($from . ' 00:00:00');
+        $t = $db->real_escape_string($to . ' 23:59:59');
+        $sql = "SELECT COUNT(DISTINCT o.orders_id) n, COALESCE(SUM(ot.value),0) rev"
+             . " FROM orders_ai_source a"
+             . " JOIN orders o ON o.orders_id = a.orders_id"
+             . " JOIN orders_total ot ON ot.orders_id = o.orders_id AND ot.class = 'ot_total'"
+             . " WHERE a.source = 'chatgpt' AND o.date_purchased BETWEEN '$f' AND '$t'";
+        $r = @$db->query($sql);
+        if (!$r) { $err = 'query fallo'; return false; }
+        $row = $r->fetch_assoc();
+        return array('orders' => (int) $row['n'], 'revenue' => (float) $row['rev']);
+    } catch (\Throwable $e) { $err = 'excepcion BD: ' . $e->getMessage(); return false; }
+}
+
 function aiv_report($test = false) {
     $s = aiv_load_state();
     $endCur   = $test ? date('Y-m-d') : date('Y-m-d', strtotime('-1 day'));
@@ -180,6 +222,21 @@ function aiv_report($test = false) {
     if ($test) $b[] = '*** INFORME DE PRUEBA: la ventana incluye HOY (datos parciales) ***';
     $b[] = '';
     $b[] = '== CHATGPT ==';
+    // Ventas REALES atribuidas a ChatGPT (pedidos de la propia tienda, tabla orders_ai_source)
+    $serr = '';
+    $sCur = aiv_db_chatgpt_sales($startCur, $endCur, $serr);
+    if ($sCur !== false) {
+        $sPrev    = aiv_db_chatgpt_sales($startPrev, $endPrev, $serr);
+        $revDelta = ($sPrev !== false) ? aiv_delta_pct($sCur['revenue'], $sPrev['revenue']) : '';
+        $ticket   = $sCur['orders'] > 0 ? $sCur['revenue'] / $sCur['orders'] : 0;
+        $b[] = '>> VENTAS atribuidas a ChatGPT (pedidos reales de la tienda):';
+        $b[] = '   Ingresos: ' . number_format($sCur['revenue'], 2, ',', '.') . ' EUR ' . $revDelta;
+        $b[] = '   Pedidos: ' . $fmt($sCur['orders']) . '  |  Ticket medio: ' . number_format($ticket, 0, ',', '.') . ' EUR';
+        $b[] = '   -> First-touch (utm_source=chatgpt o referrer chatgpt.com), desde 2026-07-13. Cifra BRUTA (no filtra estado del pedido).';
+    } else {
+        $b[] = '>> VENTAS atribuidas a ChatGPT (pedidos): no disponible -> ' . $serr;
+    }
+    $b[] = '';
     $b[] = 'Consultas EN VIVO (ChatGPT-User): ' . $fmt($cur['cgu']) . ' ' . aiv_delta($cur['cgu'], $prev['cgu']);
     $b[] = '  -> Cada una = ChatGPT leyendo nuestra web para responder a un usuario real.';
     $b[] = 'Clics humanos desde respuestas (utm_source=chatgpt): ' . $fmt($cur['clicks']) .
@@ -200,7 +257,7 @@ function aiv_report($test = false) {
     $b[] = aiv_top($cur['click_pages'], 10);
     $b[] = '';
     $b[] = 'Notas: los clics son INFRACUENTA (la app movil de ChatGPT no manda referrer ni utm).';
-    $b[] = 'Complementos: GA4 (fuente=chatgpt.com), Bing Webmaster Tools > AI Performance (Copilot).';
+    $b[] = 'Ventas: atribucion propia (orders_ai_source). Complemento: Bing Webmaster Tools > AI Performance (Copilot).';
     $b[] = 'Fuente: access log nic1 (colector horario; el log rota y se descarta, de ahi el colector).';
 
     $ok = aiv_send_mail($subject, implode("\n", $b));
