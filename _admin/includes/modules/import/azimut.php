@@ -3,8 +3,8 @@
 ini_set('memory_limit', '-1');
 set_time_limit(-1);
 
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
+// ini_set('display_errors', 1); // OFF 2026-07-14: no pisar display_errors=Off del admin (avisos impresos rompen AJAX/redirects)
+// ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 if (defined('IMPORT_AZIMUT_ACTIVE') && IMPORT_AZIMUT_ACTIVE != 'true') {

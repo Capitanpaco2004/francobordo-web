@@ -452,7 +452,7 @@ if( $updated || $ftp_feeds ) {
 
 /*
 if( function_exists('curl_init') ) {
-  $ch = curl_init(); curl_setopt($ch, CURLOPT_HEADER, false); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_URL, 'http://www.osc-sol.co.uk/updates/update_checker_v1.00.php?package=feedmachine_auto&version=' . FEEDMACHINE_AUTO_VERSION . '&domain=' . urlencode(HTTP_SERVER) . '&email=' . urlencode(STORE_OWNER_EMAIL_ADDRESS)); $response = curl_exec($ch); curl_close($ch);
+  $ch = curl_init(); curl_setopt($ch, CURLOPT_HEADER, false); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_URL, 'http://www.osc-sol.co.uk/updates/update_checker_v1.00.php?package=feedmachine_auto&version=' . FEEDMACHINE_AUTO_VERSION . '&domain=' . urlencode(HTTP_SERVER) . '&email=' . urlencode(STORE_OWNER_EMAIL_ADDRESS)); $response = curl_exec($ch);
 }
 */
 

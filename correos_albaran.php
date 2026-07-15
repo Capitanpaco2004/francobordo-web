@@ -134,6 +134,17 @@ function correos_no4b($s) {
     return preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', (string) $s);
 }
 
+/** Clasifica un documento de identidad espanol -> {type,num} para Correos, o null si no encaja.
+ *  doiType: 1=DNI/NIF, 3=NIE, 10=CIF (Anexo Correos). Requerido en el destinatario para la DUA. */
+function correosDoi($raw) {
+    $s = strtoupper(preg_replace('/[^0-9A-Za-z]/', '', (string) $raw));
+    if ($s === '') return null;
+    if (preg_match('/^\d{8}[A-Z]$/', $s))                 return array('type' => '1',  'num' => $s); // DNI/NIF
+    if (preg_match('/^[XYZ]\d{7}[A-Z]$/', $s))            return array('type' => '3',  'num' => $s); // NIE
+    if (preg_match('/^[A-HJ-NP-SUVW]\d{7}[0-9A-J]$/', $s)) return array('type' => '10', 'num' => $s); // CIF
+    return null;
+}
+
 /** Extrae TODOS los packageCodes del JSON de preregistro guardado en la fila. */
 function correos_pkgcodes_from_row(array $row) {
     $codes = array();
@@ -337,7 +348,7 @@ if ($manual || $free) {
 } else {
     $st = $db->prepare("SELECT orders_id, delivery_name, delivery_company, delivery_street_address, delivery_suburb,
                                delivery_city, delivery_postcode, delivery_state, delivery_country,
-                               customers_telephone, customers_email_address, shipping_module
+                               customers_telephone, customers_email_address, shipping_module, billing_nif
                         FROM orders WHERE orders_id=?");
     $st->bind_param('i', $oid);
     $st->execute();
@@ -601,6 +612,24 @@ $addressee = array(
     'language'      => 'spa',
 );
 if ($mode === 'ofi') $addressee['chosenOffice'] = $oficina;
+
+/* ADUANAS: Correos exige el DOI (DNI/NIF/NIE/CIF) del destinatario para la DUA (error 1060).
+ * Pedido web -> orders.billing_nif (el que el cliente puso para la factura); free -> param 'ddoi'.
+ * En islas es OBLIGATORIO: sin DOI valido se corta con error claro (evita el bucle 1060 del watcher
+ * hasta GIVEUP). Internacional (fuera UE): se manda si lo hay, pero no se bloquea (CN23 no siempre
+ * exige el DOI del receptor extranjero). */
+if ($necesitaAduanas) {
+    $doi = correosDoi($free ? ($in['ddoi'] ?? '') : ($o['billing_nif'] ?? ''));
+    if ($doi) {
+        $addressee['doiType']   = $doi['type'];
+        $addressee['doiNumber'] = $doi['num'];
+    } elseif ($esES) {
+        $comoAnadir = $free
+            ? "pasa el DNI/NIF del destinatario en 'ddoi'"
+            : "anade el DNI/NIF del destinatario al pedido (campo billing_nif); ahora vale '" . trim((string) ($o['billing_nif'] ?? '')) . "'";
+        out(array('ok' => false, 'error' => "pedido $oid a $cp (aduanas Canarias/Ceuta/Melilla): Correos exige el DNI/NIF del destinatario para la DUA; " . $comoAnadir));
+    }
+}
 
 $shipment = array(
     'product'        => $producto,        // PAFXB nacional / PAAXI internacional (Paq Estandar Int.)

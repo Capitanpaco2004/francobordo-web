@@ -26,11 +26,17 @@
 							// Obtenemos si hay que chequear stock
 							$aCheck = tep_db_query( 'SELECT check_stock FROM products WHERE products_id = "' . $sGetProductsId . '";' );
 							$aCheck = tep_db_fetch_array( $aCheck );
+							if (!is_array($aCheck)) $aCheck = ['check_stock' => 0];
+
+							// oid/id de la variante con null-safety (evita "null as array offset" cuando
+							// $attr1[0] no está definido) — se reutilizan en la comprobación de stock.
+							$_oid = (int)($attr1[0]['oid'] ?? 0);
+							$_id  = (int)($attr1[0]['id'] ?? 0);
 
 							// Control de stock POR VARIANTE (OR con el global)
 							if (!(int)$aCheck['check_stock'] && function_exists('fb_variant_check_stock'))
-								$aCheck['check_stock'] = fb_variant_check_stock($sGetProductsId, array((int)($attr1[0]['oid'] ?? 0) => (int)($attr1[0]['id'] ?? 0)), 0);
-							$nStock = stock_en_atributos($attr1[0]['oid'], $attr1[0]['id'], $sGetProductsId );
+								$aCheck['check_stock'] = fb_variant_check_stock($sGetProductsId, array($_oid => $_id), 0);
+							$nStock = stock_en_atributos($_oid, $_id, $sGetProductsId );
 							$sClass = claseBotonComprar( $nStock, $aCheck['check_stock'] );
 
 							$aDatos = tep_db_query( "select pov.products_options_values_id, pov.products_options_values_name, pa.options_values_price, pa.reference, pa.price_prefix, pa.products_attributes_id, pa.options_values_weight, pa.weight_prefix

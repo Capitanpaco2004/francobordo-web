@@ -454,7 +454,7 @@ function GetReferenceFiles($path) //use curl if possible to read in site informa
     curl_setopt ($ch, CURLOPT_CONNECTTIMEOUT, $timeout);
     curl_setopt($ch, CURLOPT_USERPWD, $username.':'.$password);
     $file_contents = curl_exec($ch);
-    curl_close($ch);
+    // sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
     $lines = explode("\n", $file_contents); 
   }
   else

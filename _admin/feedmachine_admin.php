@@ -15,7 +15,7 @@
 
   require('includes/application_top.php');
 
-  ini_set('display_errors', 'On');
+  // ini_set('display_errors', 'On'); // OFF 2026-07-14: no pisar display_errors=Off del admin (avisos impresos rompen AJAX/redirects)
 
   $action = isset($_POST['action']) ? $_POST['action'] : ( isset($_GET['action']) ? $_GET['action'] : false );
 

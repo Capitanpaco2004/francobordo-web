@@ -13,11 +13,12 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
 	// Si tenemos ticket
 	if( $sTicket !== false )
 	{
+		$sTicket = strtoupper( trim( (string)$sTicket ) );
 		// Si el ticket ha cambiado lo actualizamos
 		if( $rmaDetail['ticket'] != $sTicket )
 		{
-			// Actualizamos
-			tep_db_query( 'UPDATE rma SET ticket = "' . $sTicket . '" WHERE id_rma = "' . tep_db_prepare_input( $_GET['id'] ) . '";' );
+			// Actualizamos (valores escapados: tep_db_prepare_input no escapa para SQL)
+			tep_db_query( 'UPDATE rma SET ticket = "' . tep_db_input( $sTicket ) . '" WHERE id_rma = ' . (int)$_GET['id'] );
 			$rmaDetail['ticket'] = $sTicket;
 		}
 	}
@@ -60,10 +61,77 @@ if( $_SERVER['REQUEST_METHOD'] == 'POST' )
                     <label class="column a03 tright">Teléfono:</label>
                     <div class="column a09"><?php echo rmaDefaultValue($aCustomer['customers_telephone'], 'n/a'); ?></div>
                     <label class="column a03 tright">Ticket:</label>
-                    <div class="column a09"><form action="rma.php?action=view&id=<?php echo tep_db_prepare_input( $_GET['id'] ); ?>" method="POST"><input type="text" name="ticket" placeholder="Introduce el ID del ticket de Kayako" value="<?php echo $rmaDetail['ticket']; ?>" />&nbsp;<button class="column a12 xbutton verde" type="submit">Actualizar</button></form></div>
+                    <div class="column a09">
+                        <form id="rmaTicketForm" action="rma.php?action=view&id=<?php echo (int)$_GET['id']; ?>" method="POST"><input type="text" id="rmaTicketInput" name="ticket" value="<?php echo htmlspecialchars( (string)$rmaDetail['ticket'], ENT_QUOTES, 'UTF-8' ); ?>" title="Nº de ticket de Kayako (formato: ABC-123-12345)" />&nbsp;<button class="column a12 xbutton verde" type="submit">Actualizar</button>&nbsp;<button class="column a12 xbutton" type="button" onclick="rmaKayakoSearch(<?php echo (int)$rmaDetail['id_rma']; ?>, this);">Buscar en Kayako</button></form>
+                        <div id="rmaKayakoResults"></div>
+                        <form action="rma.php?action=kayako-create" method="POST" style="margin-top:6px;padding-top:6px;border-top:1px solid #eee;" onsubmit="return confirm('Se creará el ticket en Kayako, quedará asignado al RMA (y al pedido) y te llevará a Kayako para escribir el email al cliente.\n(No se envía nada hasta que tú respondas el ticket.)');">
+                            <input type="hidden" name="id" value="<?php echo (int)$rmaDetail['id_rma']; ?>">
+                            <input type="text" name="ticket_subject" value="RMA <?php echo (int)$rmaDetail['id_rma']; ?> - Pedido <?php echo (int)$rmaDetail['orders_id']; ?>" maxlength="255" style="width:200px;" title="Asunto del ticket">
+                            <select name="ticket_department" title="Departamento">
+                                <?php foreach (fb_kayako_departments() as $iDeptId => $sDeptName): ?>
+                                    <option value="<?php echo (int)$iDeptId; ?>"<?php echo ($iDeptId == 4 ? ' selected' : ''); ?>><?php echo htmlspecialchars($sDeptName, ENT_QUOTES, 'UTF-8'); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button class="column a12 xbutton" type="submit">Crear ticket</button>
+                        </form>
+                        <?php if( isset( $_GET['kayako_error'] ) ): ?>
+                            <div style="color:#c0392b;margin-top:4px;">No se pudo crear el ticket en Kayako (¿línea de la oficina caída?). Añádelo a mano.</div>
+                        <?php endif; ?>
+                    </div>
 					<?php if( $rmaDetail['ticket'] != '' ): ?>
-					<a href="http://soporte.francobordo.com/staff/index.php?/Tickets/Ticket/View/<?php echo $rmaDetail['ticket']; ?>/inbox/-1/-1/-1" class="column a12 xbutton green" target="_blank">Ir al ticket</a>
+					<a href="<?php echo fb_kayako_staff_url( $rmaDetail['ticket'] ); ?>" class="column a12 xbutton green" target="_blank">Ir al ticket</a>
 					<?php endif; ?>
+					<script>
+					function rmaKayakoEsc(s) {
+						return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+							return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+						});
+					}
+					function rmaKayakoSearch(idRma, btn) {
+						var box = document.getElementById('rmaKayakoResults');
+						btn.disabled = true;
+						box.innerHTML = 'Buscando tickets del cliente en Kayako…';
+						fetch('rma.php?action=kayako-search', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+							body: 'id=' + idRma
+						})
+							.then(function(r) { return r.json(); })
+							.then(function(d) {
+								btn.disabled = false;
+								if (!d.ok) { box.innerHTML = '<span style="color:#c0392b;">' + rmaKayakoEsc(d.error || 'Error consultando Kayako.') + '</span>'; return; }
+								if (!d.tickets.length) { box.innerHTML = 'El cliente no tiene tickets en Kayako (buscado por el email del pedido).'; return; }
+								var h = '';
+								for (var i = 0; i < d.tickets.length; i++) {
+									var t = d.tickets[i];
+									h += '<div style="border-top:1px solid #eee;padding:6px 0;">';
+									h += '<a href="https://soporte.francobordo.com/staff/index.php?/Tickets/Ticket/View/' + encodeURIComponent(t.mask) + '/inbox/-1/-1/-1" target="_blank" style="font-weight:bold;">' + rmaKayakoEsc(t.mask) + '</a> ';
+									h += '<small style="color:#888;">' + rmaKayakoEsc(t.lastactivity) + ' · ' + rmaKayakoEsc(t.status) + ' · ' + rmaKayakoEsc(t.department) + '</small><br>';
+									if (t.subject) { h += '<small style="color:#555;">' + rmaKayakoEsc(t.subject) + '</small><br>'; }
+									if (t.linked) {
+										h += '<small style="color:#27ae60;">Ya asignado a este RMA</small>';
+									} else {
+										h += '<button type="button" style="margin-top:3px;" onclick="rmaKayakoAssign(this)" data-mask="' + rmaKayakoEsc(t.mask) + '">Asignar a este RMA</button>';
+									}
+									h += '</div>';
+								}
+								box.innerHTML = h;
+							})
+							.catch(function() {
+								btn.disabled = false;
+								box.innerHTML = '<span style="color:#c0392b;">Error de red consultando Kayako.</span>';
+							});
+					}
+					function rmaKayakoAssign(btn) {
+						var input = document.getElementById('rmaTicketInput');
+						var mask = btn.getAttribute('data-mask');
+						if (input.value !== '' && input.value !== mask && !confirm('El RMA ya tiene el ticket ' + input.value + '. ¿Sustituirlo por ' + mask + '?')) {
+							return;
+						}
+						input.value = mask;
+						document.getElementById('rmaTicketForm').submit();
+					}
+					</script>
                 </div>
             </div>
         </div>

@@ -81,7 +81,7 @@ include_once dirname(__FILE__) . '/../../includes/classes/language.php';
 //$errorBacktrace = errorBacktrace::getInstance(E_ALL & ~E_DEPRECATED & ~E_NOTICE & ~E_WARNING);
 
 // Error reporting
-ini_set('display_errors', 1);
+ini_set('display_errors', 0); // OFF 2026-07-14: avisos impresos rompian el JSON de los AJAX y los tep_redirect (PHP 8.5); errores al log (log_errors=On)
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 
 

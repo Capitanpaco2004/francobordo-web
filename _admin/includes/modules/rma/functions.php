@@ -59,6 +59,14 @@ function rmaSection() {
             tep_db_perform(TABLE_RMA, $aFields, 'update', 'id_rma = '. intval($_POST['id']));
             tep_redirect(tep_href_link('rma.php', 'action=view&id=' . intval($_POST['id'])));
             break;
+        case 'kayako-search':
+            // AJAX (fetch POST): tickets del cliente en Kayako (JSON + exit).
+            rmaKayakoSearch();
+            break;
+        case 'kayako-create':
+            // Crea ticket en Kayako, lo asigna al RMA (y a la caja del pedido) y redirige a Kayako.
+            rmaKayakoCreate();
+            break;
         case 'add-attachments':
             // Subida de imágenes/documentos por parte de un operador (lado admin).
             rmaAddAttachments();
@@ -1092,4 +1100,85 @@ function rmaRemoveAttachment() {
     $path = DIR_FS_CATALOG . 'images/rma/' . $idRma . '/' . basename($row['filename_stored']);
     if (is_file($path)) @unlink($path);
     tep_db_query("DELETE FROM rma_attachments WHERE id = " . $idAtt . " AND id_rma = " . $idRma);
+}
+
+/**
+ * Tickets de Kayako en el RMA (2026-07-14). Reusa el helper
+ * includes/functions/kayako_tickets.php (lo carga rma.php) y comparte tabla
+ * con la caja "Tickets Kayako" del pedido: un ticket creado desde el RMA
+ * también queda vinculado en orders_kayako_tickets.
+ */
+function rmaKayakoSearch() {
+    header('Content-Type: application/json; charset=utf-8');
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        echo json_encode(array('ok' => false, 'error' => 'Método no permitido.'));
+        exit;
+    }
+    $iRma = (int)($_POST['id'] ?? 0);
+    $oSql = tep_db_query('SELECT r.ticket, o.customers_email_address FROM ' . TABLE_RMA . ' r JOIN ' . TABLE_ORDERS . ' o ON o.orders_id = r.orders_id WHERE r.id_rma = ' . $iRma);
+    if (!tep_db_num_rows($oSql)) {
+        echo json_encode(array('ok' => false, 'error' => 'RMA no encontrado.'));
+        exit;
+    }
+    $aRow = tep_db_fetch_array($oSql);
+    $aLookup = fb_kayako_lookup(array('email' => trim((string)$aRow['customers_email_address'])));
+    if (!is_array($aLookup) || empty($aLookup['ok'])) {
+        echo json_encode(array('ok' => false, 'error' => 'Kayako no responde (¿línea de la oficina caída?). Añade el ticket a mano.'));
+        exit;
+    }
+    foreach ($aLookup['tickets'] as $iKey => $aTicket) {
+        $aLookup['tickets'][$iKey]['linked'] = ((string)$aTicket['mask'] === (string)$aRow['ticket']);
+    }
+    echo json_encode($aLookup, JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+}
+
+function rmaKayakoCreate() {
+    $iRma = (int)($_POST['id'] ?? 0);
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || $iRma <= 0) {
+        tep_redirect(tep_href_link('rma.php', 'action=view&id=' . $iRma));
+    }
+    $sSubject = trim((string)($_POST['ticket_subject'] ?? ''));
+    $iDept = (int)($_POST['ticket_department'] ?? 4);
+    if (!array_key_exists($iDept, fb_kayako_departments())) {
+        $iDept = 4; // RMA
+    }
+    $oSql = tep_db_query('SELECT r.orders_id, o.customers_email_address, o.customers_name FROM ' . TABLE_RMA . ' r JOIN ' . TABLE_ORDERS . ' o ON o.orders_id = r.orders_id WHERE r.id_rma = ' . $iRma);
+    if (!tep_db_num_rows($oSql)) {
+        tep_redirect(tep_href_link('rma.php', 'action=view&id=' . $iRma . '&kayako_error=1'));
+    }
+    $aRow = tep_db_fetch_array($oSql);
+    if ($sSubject === '') {
+        $sSubject = 'RMA ' . $iRma . ' - Pedido ' . (int)$aRow['orders_id'];
+    }
+
+    $aResp = fb_kayako_create_ticket(array(
+        'email'         => trim((string)$aRow['customers_email_address']),
+        'fullname'      => trim((string)$aRow['customers_name']),
+        'subject'       => $sSubject,
+        'order_id'      => (int)$aRow['orders_id'],
+        'department_id' => $iDept,
+        'staff_email'   => trim((string)($_SESSION['login_email_address'] ?? '')),
+    ));
+    if (!is_array($aResp) || empty($aResp['ok']) || empty($aResp['mask'])) {
+        tep_redirect(tep_href_link('rma.php', 'action=view&id=' . $iRma . '&kayako_error=1'));
+    }
+    $sMask = strtoupper((string)$aResp['mask']);
+    tep_db_query('UPDATE ' . TABLE_RMA . ' SET ticket = "' . tep_db_input($sMask) . '" WHERE id_rma = ' . $iRma);
+
+    // También a la caja "Tickets Kayako" del pedido.
+    $sSubjStore = (string)preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $sSubject);
+    $oDup = tep_db_query("select id from orders_kayako_tickets where orders_id = '" . (int)$aRow['orders_id'] . "' and ticket_mask = '" . tep_db_input($sMask) . "'");
+    if (!tep_db_num_rows($oDup)) {
+        tep_db_perform('orders_kayako_tickets', array(
+            'orders_id'   => (int)$aRow['orders_id'],
+            'ticket_mask' => tep_db_prepare_input($sMask),
+            'subject'     => tep_db_prepare_input(mb_substr($sSubjStore, 0, 255)),
+            'date_added'  => 'now()',
+            'added_by'    => tep_db_prepare_input(mb_substr(trim((string)($_SESSION['login_first_name'] ?? '')), 0, 64)),
+        ));
+    }
+
+    // Directo a Kayako para que el operador escriba el email al cliente.
+    tep_redirect(fb_kayako_staff_url($sMask));
 }

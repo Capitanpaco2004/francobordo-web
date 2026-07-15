@@ -15,7 +15,7 @@ require_once('includes/application_top.php');
 
 // Mostrar errores
 error_reporting(E_ALL ^ E_NOTICE);
-ini_set('display_errors', 1);
+// ini_set('display_errors', 1); // OFF 2026-07-14: no pisar display_errors=Off del admin (avisos impresos rompen AJAX/redirects)
 
 // Variables
 $sUrlPage = 'log_profesionals_removed.php';

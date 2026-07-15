@@ -169,7 +169,7 @@ class correosoficina {
         ));
         $b = curl_exec($ch);
         $h = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        // sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
         return ($h >= 200 && $h < 300 && $b !== false) ? json_decode($b, true) : null;
     }
 

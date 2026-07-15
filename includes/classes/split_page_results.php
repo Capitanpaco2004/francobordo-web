@@ -44,15 +44,23 @@
         $count_string = tep_db_input($count_key);
       }
 
-	 if( $sQueryCount === false )
-	 {
-		if( preg_match( '/union/i', $query ) )
-			$count_query = tep_db_query("select count(" . $count_string . ") as total FROM (" . substr($query, 0, $pos_to) . ') AS count_query');
-		else
-		  $count_query = tep_db_query("select count(" . $count_string . ") as total " . substr($query, $pos_from, ($pos_to - $pos_from)));
+	 // Resiliencia: una query COUNT malformada (típico de bots de SQLi contra el buscador con
+	 // caracteres que rompen la sintaxis FULLTEXT/filtros) lanzaba PDOException → Fatal 500.
+	 // La capturamos y degradamos a 0 filas: el listado renderiza vacío en vez de petar. La query
+	 // PRINCIPAL corre aparte; un bug real de listado seguiría siendo visible por otra vía.
+	 try {
+		 if( $sQueryCount === false )
+		 {
+			if( preg_match( '/union/i', $query ) )
+				$count_query = tep_db_query("select count(" . $count_string . ") as total FROM (" . substr($query, 0, $pos_to) . ') AS count_query');
+			else
+			  $count_query = tep_db_query("select count(" . $count_string . ") as total " . substr($query, $pos_from, ($pos_to - $pos_from)));
+		 }
+		 else
+			  $count_query = tep_db_query( $sQueryCount );
+	 } catch ( \Throwable $__eCount ) {
+		 $count_query = false;
 	 }
-	 else
-		  $count_query = tep_db_query( $sQueryCount );
 
 		// Obtenemos el total de filas //
 
@@ -61,8 +69,8 @@
 		{
 			// Registro
 			$count = tep_db_fetch_array($count_query);
-			// Obtenemos el total
-			$this->number_of_rows = $count['total'];
+			// Obtenemos el total (0 si el count falló/degradó → evita null en el cálculo de páginas)
+			$this->number_of_rows = is_array($count) ? (int)$count['total'] : 0;
 		}
 		// Si tenemos una agrupacion, recorremos los registros y los sumamos
 		/*else

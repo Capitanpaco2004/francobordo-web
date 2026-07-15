@@ -6,6 +6,8 @@ require('includes/application_top.php');
 require(DIR_WS_CLASSES . 'currencies.php');
 $currencies = new currencies();
 
+require('includes/functions/kayako_tickets.php');
+
 if( !tep_session_is_registered('back_orders') ) {
 	tep_session_register('back_orders');
 }
@@ -924,6 +926,152 @@ if( tep_not_null($action) )
 
 				tep_redirect( tep_href_link( FILENAME_ORDERS, tep_get_all_get_params( array( 'action' ) ) . 'action=edit' ) );
 			break;
+
+			/**
+			 * Tickets de Kayako vinculados al pedido (caja "Tickets Kayako", 2026-07-14).
+			 * kayako_ticket_add: vincula una máscara (ej. BHH-424-12331); si no llega asunto,
+			 *   se pide a Kayako (y si Kayako no responde, se vincula igual).
+			 * kayako_ticket_del: desvincula.
+			 * kayako_ticket_search: AJAX, JSON con los tickets del cliente en Kayako.
+			 */
+			case 'kayako_ticket_add':
+				// CSRF: solo POST (form de la caja "Tickets Kayako").
+				if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+					tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)($_GET['oID'] ?? 0) . '&action=edit'));
+				}
+				$oID   = (int)($_GET['oID'] ?? 0);
+				$sMask = strtoupper(trim((string)($_POST['ticket_mask'] ?? '')));
+				$sSubj = trim((string)($_POST['ticket_subject'] ?? ''));
+
+				$orders_check = tep_db_query("select orders_id from " . TABLE_ORDERS . " where orders_id = '" . (int)$oID . "'");
+				if (!tep_db_num_rows($orders_check) || !fb_kayako_valid_mask($sMask)) {
+					$messageStack->add_session('Ticket no válido. Formato esperado: ABC-123-12345.', 'error');
+				} else {
+					if ($sSubj === '') {
+						$aLookup = fb_kayako_lookup(array('mask' => $sMask));
+						if (is_array($aLookup) && !empty($aLookup['ok'])) {
+							if (!empty($aLookup['tickets'])) {
+								$sSubj = (string)$aLookup['tickets'][0]['subject'];
+							} else {
+								$messageStack->add_session('Aviso: el ticket ' . $sMask . ' no existe en Kayako (vinculado igualmente).', 'warning');
+							}
+						}
+					}
+					// Operador: la sesión admin registra login_first_name ($admin['username'] es legacy muerto).
+					$sAdminUser = trim((string)($_SESSION['login_first_name'] ?? ''));
+					$dup_check = tep_db_query("select id from orders_kayako_tickets where orders_id = '" . (int)$oID . "' and ticket_mask = '" . tep_db_input($sMask) . "'");
+					if (tep_db_num_rows($dup_check)) {
+						$messageStack->add_session('El ticket ' . $sMask . ' ya estaba vinculado a este pedido.', 'warning');
+					} else {
+						// utf8mb3: fuera caracteres de 4 bytes (emojis) del asunto antes de guardar.
+						$sSubj = (string)preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $sSubj);
+						tep_db_perform('orders_kayako_tickets', array(
+							'orders_id'   => (int)$oID,
+							'ticket_mask' => $sMask,
+							'subject'     => tep_db_prepare_input(mb_substr($sSubj, 0, 255)),
+							'date_added'  => 'now()',
+							'added_by'    => tep_db_prepare_input(mb_substr($sAdminUser, 0, 64)),
+						));
+						$messageStack->add_session('Ticket ' . $sMask . ' vinculado al pedido.', 'success');
+					}
+				}
+				tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$oID . '&action=edit'));
+			break;
+
+			case 'kayako_ticket_del':
+				// CSRF: solo POST (botón × de la caja "Tickets Kayako").
+				if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+					tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)($_GET['oID'] ?? 0) . '&action=edit'));
+				}
+				$oID = (int)($_GET['oID'] ?? 0);
+				tep_db_query("delete from orders_kayako_tickets where id = '" . (int)($_POST['okt_id'] ?? 0) . "' and orders_id = '" . (int)$oID . "'");
+				$messageStack->add_session('Ticket desvinculado del pedido.', 'success');
+				tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$oID . '&action=edit'));
+			break;
+
+			case 'kayako_ticket_search':
+				// AJAX (fetch POST): tickets del cliente en Kayako, marcando los ya vinculados.
+				header('Content-Type: application/json; charset=utf-8');
+				if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+					echo json_encode(array('ok' => false, 'error' => 'Método no permitido.'));
+					exit;
+				}
+				$oID = (int)($_GET['oID'] ?? 0);
+				$email_query = tep_db_query("select customers_email_address from " . TABLE_ORDERS . " where orders_id = '" . (int)$oID . "'");
+				if (!tep_db_num_rows($email_query)) {
+					echo json_encode(array('ok' => false, 'error' => 'Pedido no encontrado.'));
+					exit;
+				}
+				$aEmailRow = tep_db_fetch_array($email_query);
+				$aLookup = fb_kayako_lookup(array('email' => trim((string)$aEmailRow['customers_email_address'])));
+				if (!is_array($aLookup) || empty($aLookup['ok'])) {
+					echo json_encode(array('ok' => false, 'error' => 'Kayako no responde (¿línea de la oficina caída?). Añade el ticket a mano.'));
+					exit;
+				}
+				$aLinked = array();
+				foreach (fb_kayako_order_tickets($oID) as $aTk) {
+					$aLinked[$aTk['ticket_mask']] = true;
+				}
+				foreach ($aLookup['tickets'] as $iKey => $aTicket) {
+					$aLookup['tickets'][$iKey]['linked'] = isset($aLinked[$aTicket['mask']]);
+				}
+				echo json_encode($aLookup, JSON_INVALID_UTF8_SUBSTITUTE);
+				exit;
+			break;
+
+			case 'kayako_ticket_create':
+				// Crea un ticket en Kayako para el cliente del pedido (sin enviar email:
+				// el operador escribe la respuesta en Kayako) y lo vincula. CSRF: solo POST.
+				if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+					tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)($_GET['oID'] ?? 0) . '&action=edit'));
+				}
+				$oID      = (int)($_GET['oID'] ?? 0);
+				$sSubject = trim((string)($_POST['ticket_subject'] ?? ''));
+				$iDept    = (int)($_POST['ticket_department'] ?? 1);
+				if (!array_key_exists($iDept, fb_kayako_departments())) {
+					$iDept = 1;
+				}
+
+				$order_query = tep_db_query("select customers_name, customers_email_address from " . TABLE_ORDERS . " where orders_id = '" . (int)$oID . "'");
+				if (!tep_db_num_rows($order_query)) {
+					$messageStack->add_session('Pedido no encontrado.', 'error');
+					tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$oID . '&action=edit'));
+				}
+				$aOrderRow = tep_db_fetch_array($order_query);
+				if ($sSubject === '') {
+					$sSubject = 'Pedido ' . (int)$oID;
+				}
+
+				$aResp = fb_kayako_create_ticket(array(
+					'email'         => trim((string)$aOrderRow['customers_email_address']),
+					'fullname'      => trim((string)$aOrderRow['customers_name']),
+					'subject'       => $sSubject,
+					'order_id'      => (int)$oID,
+					'department_id' => $iDept,
+					'staff_email'   => trim((string)($_SESSION['login_email_address'] ?? '')),
+				));
+
+				if (!is_array($aResp) || empty($aResp['ok']) || empty($aResp['mask'])) {
+					$sErr = (is_array($aResp) && !empty($aResp['error'])) ? (string)$aResp['error'] : 'sin respuesta — ¿línea de la oficina caída?';
+					$messageStack->add_session('No se pudo crear el ticket en Kayako (' . htmlspecialchars($sErr, ENT_QUOTES, 'UTF-8') . ').', 'error');
+				} else {
+					$sMask = strtoupper((string)$aResp['mask']);
+					// utf8mb3: fuera caracteres de 4 bytes (emojis) del asunto antes de guardar.
+					$sSubjStore = (string)preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $sSubject);
+					tep_db_perform('orders_kayako_tickets', array(
+						'orders_id'   => (int)$oID,
+						'ticket_mask' => tep_db_prepare_input($sMask),
+						'subject'     => tep_db_prepare_input(mb_substr($sSubjStore, 0, 255)),
+						'date_added'  => 'now()',
+						'added_by'    => tep_db_prepare_input(mb_substr(trim((string)($_SESSION['login_first_name'] ?? '')), 0, 64)),
+					));
+					$messageStack->add_session('Ticket ' . $sMask . ' creado en Kayako y vinculado al pedido.', 'success');
+					// Directo a Kayako para que el operador escriba el email al cliente
+					// (el vínculo ya queda registrado; el pedido lo mostrará al recargar).
+					tep_redirect(fb_kayako_staff_url($sMask));
+				}
+				tep_redirect(tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$oID . '&action=edit'));
+			break;
 		}
 	}
 
@@ -1247,6 +1395,97 @@ if( tep_not_null($action) )
 						<?php endif; ?>
 					</div>
 				</div>
+
+				<?php /* BOF Tickets Kayako (2026-07-14): tickets de soporte vinculados a este pedido */ ?>
+				<?php $aKayakoTickets = fb_kayako_order_tickets((int)$oID); ?>
+				<div class="box-tbl grid" style="width:100%;margin-top:4%;">
+					<div class="box-head">
+						<h6>Tickets Kayako</h6>
+						<div class="clear"></div>
+					</div>
+					<div class="box-txt">
+						<?php if (count($aKayakoTickets) == 0): ?>
+							<p style="color:#888;">Sin tickets vinculados.</p>
+						<?php endif; ?>
+						<?php foreach ($aKayakoTickets as $aTk): ?>
+							<div style="margin-bottom:8px;">
+								<a href="<?php echo fb_kayako_staff_url($aTk['ticket_mask']); ?>" target="_blank" style="font-weight:bold;"><i class="fa fa-external-link" style="margin-right:4px;"></i><?php echo htmlspecialchars((string)$aTk['ticket_mask'], ENT_QUOTES, 'UTF-8'); ?></a>
+								<small style="color:#888;">&nbsp;<?php echo date('d/m/Y', strtotime($aTk['date_added'])); ?><?php echo ($aTk['added_by'] != '' ? ' · ' . htmlspecialchars((string)$aTk['added_by'], ENT_QUOTES, 'UTF-8') : ''); ?></small>
+								<form action="<?php echo tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$oID . '&action=kayako_ticket_del'); ?>" method="post" style="display:inline;" onsubmit="return confirm('¿Desvincular el ticket <?php echo htmlspecialchars((string)$aTk['ticket_mask'], ENT_QUOTES, 'UTF-8'); ?> de este pedido?');">
+									<input type="hidden" name="okt_id" value="<?php echo (int)$aTk['id']; ?>">
+									<button type="submit" title="Desvincular" style="border:none;background:none;color:#c0392b;cursor:pointer;font-size:15px;padding:0 4px;">&times;</button>
+								</form>
+								<?php if ((string)$aTk['subject'] !== ''): ?>
+									<br><small style="color:#555;"><?php echo htmlspecialchars((string)$aTk['subject'], ENT_QUOTES, 'UTF-8'); ?></small>
+								<?php endif; ?>
+							</div>
+						<?php endforeach; ?>
+						<form action="<?php echo tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$oID . '&action=kayako_ticket_add'); ?>" method="post" style="margin-top:6px;white-space:nowrap;">
+							<input type="text" name="ticket_mask" maxlength="20" style="width:120px;" pattern="[A-Za-z]{3}-[0-9]{3}-[0-9]{4,6}" title="Nº de ticket de Kayako (formato: ABC-123-12345)" required>
+							<button type="submit" style="margin-left:4px;">Vincular</button>
+							<button type="button" style="margin-left:4px;" onclick="kayakoSearchTickets(<?php echo (int)$oID; ?>, this);">Buscar en Kayako</button>
+						</form>
+						<form action="<?php echo tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$oID . '&action=kayako_ticket_create'); ?>" method="post" style="margin-top:8px;padding-top:8px;border-top:1px solid #eee;" onsubmit="return confirm('Se creará el ticket en Kayako, quedará vinculado al pedido y te llevará a Kayako para escribir el email al cliente.\n(No se envía nada hasta que tú respondas el ticket.)');">
+							<input type="text" name="ticket_subject" value="Pedido <?php echo (int)$oID; ?>" maxlength="255" style="width:120px;" title="Asunto del ticket">
+							<select name="ticket_department" title="Departamento" style="max-width:110px;">
+								<?php foreach (fb_kayako_departments() as $iDeptId => $sDeptName): ?>
+									<option value="<?php echo (int)$iDeptId; ?>"><?php echo htmlspecialchars($sDeptName, ENT_QUOTES, 'UTF-8'); ?></option>
+								<?php endforeach; ?>
+							</select>
+							<button type="submit" style="margin-top:4px;">Crear ticket</button>
+						</form>
+						<div id="kayakoSearchResults" style="margin-top:8px;"></div>
+					</div>
+				</div>
+				<script>
+				function kayakoEsc(s) {
+					return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+						return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+					});
+				}
+				function kayakoSearchTickets(oID, btn) {
+					var box = document.getElementById('kayakoSearchResults');
+					btn.disabled = true;
+					box.innerHTML = 'Buscando tickets del cliente en Kayako…';
+					fetch('orders.php?oID=' + oID + '&action=kayako_ticket_search', { method: 'POST' })
+						.then(function(r) { return r.json(); })
+						.then(function(d) {
+							btn.disabled = false;
+							if (!d.ok) { box.innerHTML = '<span style="color:#c0392b;">' + kayakoEsc(d.error || 'Error consultando Kayako.') + '</span>'; return; }
+							if (!d.tickets.length) { box.innerHTML = 'El cliente no tiene tickets en Kayako (buscado por el email del pedido).'; return; }
+							var h = '';
+							for (var i = 0; i < d.tickets.length; i++) {
+								var t = d.tickets[i];
+								h += '<div style="border-top:1px solid #eee;padding:6px 0;">';
+								h += '<a href="https://soporte.francobordo.com/staff/index.php?/Tickets/Ticket/View/' + encodeURIComponent(t.mask) + '/inbox/-1/-1/-1" target="_blank" style="font-weight:bold;">' + kayakoEsc(t.mask) + '</a> ';
+								h += '<small style="color:#888;">' + kayakoEsc(t.lastactivity) + ' · ' + kayakoEsc(t.status) + ' · ' + kayakoEsc(t.department) + '</small><br>';
+								if (t.subject) { h += '<small style="color:#555;">' + kayakoEsc(t.subject) + '</small><br>'; }
+								if (t.linked) {
+									h += '<small style="color:#27ae60;">Ya vinculado a este pedido</small>';
+								} else {
+									h += '<button type="button" style="margin-top:3px;" onclick="kayakoAssignTicket(' + oID + ', this)" data-mask="' + kayakoEsc(t.mask) + '" data-subject="' + kayakoEsc(t.subject) + '">Vincular a este pedido</button>';
+								}
+								h += '</div>';
+							}
+							box.innerHTML = h;
+						})
+						.catch(function() {
+							btn.disabled = false;
+							box.innerHTML = '<span style="color:#c0392b;">Error de red consultando Kayako.</span>';
+						});
+				}
+				function kayakoAssignTicket(oID, btn) {
+					var f = document.createElement('form');
+					f.method = 'post';
+					f.action = 'orders.php?oID=' + oID + '&action=kayako_ticket_add';
+					var i1 = document.createElement('input'); i1.type = 'hidden'; i1.name = 'ticket_mask'; i1.value = btn.getAttribute('data-mask');
+					var i2 = document.createElement('input'); i2.type = 'hidden'; i2.name = 'ticket_subject'; i2.value = btn.getAttribute('data-subject');
+					f.appendChild(i1); f.appendChild(i2);
+					document.body.appendChild(f);
+					f.submit();
+				}
+				</script>
+				<?php /* EOF Tickets Kayako */ ?>
 			</div>
 
 			<div style="float:left;width:33.33%;padding:0 1%;box-sizing:border-box;">

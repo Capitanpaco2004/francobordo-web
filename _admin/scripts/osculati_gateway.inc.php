@@ -32,7 +32,7 @@ if (!function_exists('osculatiGw')) {
         ]);
         $ok = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        // sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
         fclose($fp);
         $ok = $ok && $code === 200 && filesize($localPath) >= $minBytes;
         if (!$ok) @unlink($localPath);

@@ -6,7 +6,7 @@ use util\tools;
 require_once( 'includes/application_top.php' );
 
 // Mostrar errores
-ini_set('display_errors', 1);
+// ini_set('display_errors', 1); // OFF 2026-07-14: no pisar display_errors=Off del admin (avisos impresos rompen AJAX/redirects)
 error_reporting(E_ERROR | E_WARNING | E_PARSE);
 
 // Variables

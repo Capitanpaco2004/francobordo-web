@@ -36,7 +36,7 @@
         curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
         $response = trim(curl_exec($ch));
-        curl_close($ch);
+        // sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
       } else {
         if ($fp = @fsockopen($target_host, 80, $errno, $errstr, 30)) {
           $data = 'info=' . $encoded;

@@ -155,7 +155,9 @@ function slugify($s) {
 	$s = strtr($s, ['á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','ñ'=>'n','ü'=>'u','à'=>'a','è'=>'e','ì'=>'i','ò'=>'o','ù'=>'u','ç'=>'c']);
 	$s = preg_replace('/[^a-z0-9]+/', '-', $s);
 	$s = trim($s, '-');
-	return substr($s, 0, 80);
+	// FB 2026-07-14: cap 50 (como el resto de importadores); con sufijo -<pid>[-<n>].jpg el
+	// nombre de imagen queda <=100 y no rompe el import de QFac (columna CFOTO VARCHAR(100)).
+	return substr($s, 0, 50);
 }
 /** Normaliza la talla del feed: "59INCH" → 59", el resto tal cual (S, M, 2XL, 10/12...). */
 function normalizeSize($size) {

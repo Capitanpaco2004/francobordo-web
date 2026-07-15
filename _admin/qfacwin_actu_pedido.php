@@ -44,6 +44,18 @@ echo "osCommerce Pedido: " . $comanda . $crlf;
 // pedido albaranado
 if ($tip == "A") {
 
+	// Guarda anti-retroceso (2026-07-14): no aplicar "En preparación" (13) si el pedido
+	// ya está en preparación o más avanzado (13, 5=Enviado, 7=Parcial, 3=Entregado,
+	// 310=Listo para Recoger en Tienda). Evita que un tip=A rezagado pise un pedido
+	// ya Enviado y re-avise al cliente (bug pedido 10364828). Espeja la guarda de
+	// idempotencia de tip=F.
+	$strsql = "select orders_status from " . $strprefixtaules . "orders where orders_id = " . $comanda . "  and orders_status in ( 13, 5, 7, 3, 310 )";
+	$result = db_query($strsql);
+	if ($rowchk = mysqli_fetch_array($result)) {
+		echo "pedido " . $comanda . " ya en estado " . $rowchk["orders_status"] . " (>= preparacion); tip=A ignorado" . $crlf;
+		echo 'codret=0';
+		die;
+	}
 
 	//añadimos / modificamos order status history
 	$strset = "orders_status_id = 13, date_added = now(), customer_notified = 0, ";
@@ -94,9 +106,10 @@ info@francobordo.com</p>' ";
 // facturado
 if ($tip == "F") {
 
-	// Idempotencia: si ya está en estado final (3=Entregado, 5=Enviado, 7=Enviado Parcialmente),
-	// no rehacer la transición — sólo se actualiza el numero de factura más abajo.
-	$strsql = "select orders_status from " . $strprefixtaules . "orders where orders_id = " . $comanda . "  and orders_status in ( 3, 5, 7 ) ";
+	// Idempotencia: si ya está en estado final (3=Entregado, 5=Enviado, 7=Enviado Parcialmente,
+	// 310=Listo para Recoger en Tienda), no rehacer la transición — sólo se actualiza el
+	// numero de factura más abajo.
+	$strsql = "select orders_status from " . $strprefixtaules . "orders where orders_id = " . $comanda . "  and orders_status in ( 3, 5, 7, 310 ) ";
 	$result = db_query($strsql);
 	if ($roworder = mysqli_fetch_array($result)) {
 		//nada
@@ -107,7 +120,7 @@ if ($tip == "F") {
 		// sync VStock cada 5 min). Si hay reservado/esperando todavía, este
 		// albarán no cubre el total → el pedido se va a 7. Cuando el
 		// siguiente albarán cierre el pedido, otra llamada con tip="F"
-		// volverá a entrar (porque 7 está incluido en la guarda IN(3,5,7)
+		// volverá a entrar (porque 7 está incluido en la guarda IN(3,5,7,310)
 		// — lo dejamos pasar manualmente más abajo cuando el sync ya haya
 		// despejado las pendientes; en la práctica la auto-corrección del
 		// sync 7→5 lo hará antes).
@@ -115,7 +128,19 @@ if ($tip == "F") {
 		$resPending = db_query($strsqlPending);
 		$rowPending = mysqli_fetch_array($resPending);
 		$bPartial = ((int)$rowPending['c'] > 0);
-		$nNewStatus = $bPartial ? 7 : 5;
+
+		// Recogida en tienda (2026-07-14): si el envío del pedido es "Recoger en tienda"
+		// (orders_total class ot_shipping), el pedido facturado completo pasa a 310
+		// (Listo para Recoger en Tienda) con su propio email, en vez de 5 (Enviado).
+		// El email lo envía cron_mail_status.php (que también acepta el 310).
+		$bPickup = false;
+		if (!$bPartial) {
+			$strsqlPickup = "select count(*) as c from " . $strprefixtaules . "orders_total where orders_id = " . (int)$comanda . " and class = 'ot_shipping' and title like 'Recoger en tienda%'";
+			$resPickup = db_query($strsqlPickup);
+			$rowPickup = mysqli_fetch_array($resPickup);
+			$bPickup = ((int)$rowPickup['c'] > 0);
+		}
+		$nNewStatus = $bPartial ? 7 : ($bPickup ? 310 : 5);
 
 		if ($bPartial) {
 			$strset = "orders_status_id = 7, date_added = now(), customer_notified = 0, ";
@@ -126,18 +151,31 @@ if ($tip == "F") {
 	<p>Así mismo queremos informarle de que la factura de su pedido le será enviada en formato PDF a la dirección de correo electrónico que usted nos ha facilitado.</p>
 	<p> Gracias por su confianza.
 	</p>' ";
+		} elseif ($bPickup) {
+			// Recogida en tienda: sin tracking. Dirección y horario de la tienda.
+			$strset = "orders_status_id = 310, date_added = now(), customer_notified = 0, ";
+			$strset .= "comments = '<p>Estimado cliente:</p>
+	<p>Le comunicamos que su pedido ya está preparado y <strong>disponible para recoger en nuestra tienda</strong>.</p>
+	<p>Puede pasar a recogerlo en:<br>
+	<strong>Francobordo</strong> — Calle San Rafael nº 8, 28108 Alcobendas (Madrid)<br>
+	Horario: Lunes a Viernes de 10:00 a 20:00 · Sábados de 10:00 a 14:00</p>
+	<p>Le recomendamos traer su número de pedido y un documento identificativo.</p>
+	<p>Así mismo queremos informarle de que la factura de su pedido le será enviada en formato PDF a la dirección de correo electrónico que usted nos ha facilitado.</p>
+	<p> Gracias por su confianza.
+	</p>' ";
 		} else {
+			// OJO: el hueco exacto "seguimiento es:</p><p>...<br></p>" lo rellena
+			// cron_mail_status.php (resolverTrackingWeb) con el tracking real — no cambiar.
 			$strset = "orders_status_id = 5, date_added = now(), customer_notified = 0, ";
 			$strset .= "comments = '<p>Estimado cliente:</p>
-	<p>Le comunicamos que su pedido ya ha sido finalizado.</p>
-	<p>Si usted escogió la opción de recoger en tienda, a partir de este momento su pedido está disponible para ser recogido en nuestro establecimiento. Si usted escogió la opción de envío por agencia de trasporte o Correos, su pedido ya ha sido entregado al transportista y el número de seguimiento es:</p>
+	<p>Le comunicamos que su pedido ya ha sido finalizado y entregado al transportista. El número de seguimiento es:</p>
 	<p>" . $tracking . "<br></p>
 	<p>Así mismo queremos informarle de que la factura de su pedido le será enviada en formato PDF a la dirección de correo electrónico que usted nos ha facilitado.</p>
 	<p> Gracias por su confianza.
 	</p>' ";
 		}
 
-		//buscamos si existe orders_status_history para el estado destino (5 o 7)
+		//buscamos si existe orders_status_history para el estado destino (5, 7 o 310)
 		$strsql = "select orders_status_history_id from " . $strprefixtaules . "orders_status_history where orders_id = " . $comanda . "  and orders_status_id = " . $nNewStatus;
 		$result = db_query($strsql);
 		// si existe lo modificamos pero dejamos igual el status del pedido

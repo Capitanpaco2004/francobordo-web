@@ -63,7 +63,7 @@ function translateIT($text) {
 	]);
 	$resp = curl_exec($ch);
 	$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-	curl_close($ch);
+	// sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
 	if ($httpCode !== 200 || $resp === false) return '';
 	$data = json_decode($resp, true);
 	return trim((string) ($data['choices'][0]['message']['content'] ?? ''));

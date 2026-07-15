@@ -260,7 +260,7 @@ function llmCall($systemPrompt, $userText, $maxTokens = 700, $maxRetries = 2) {
         curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_POST=>true,
             CURLOPT_HTTPHEADER=>['Content-Type: application/json'], CURLOPT_POSTFIELDS=>$payload,
             CURLOPT_TIMEOUT=>60, CURLOPT_CONNECTTIMEOUT=>8]);
-        $resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+        $resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); // sin curl_close(): deprecado en PHP 8.5
         if ($resp !== false && $code === 200) {
             $j = json_decode($resp, true);
             $c = $j['choices'][0]['message']['content'] ?? null;

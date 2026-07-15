@@ -84,7 +84,7 @@
 
     $result = curl_exec($ch);
 
-    curl_close($ch);
+    // sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
   }
 
   if ($result == 'VERIFIED') {

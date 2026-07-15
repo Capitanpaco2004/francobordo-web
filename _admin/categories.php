@@ -2245,6 +2245,7 @@
                 {
                     $product_query = tep_db_query("select p.categoria_ebay, pd.products_name, pd.products_seo_url, pd.products_description, p.products_fileupload, p.products_pdfupload, pd.products_url, p.products_id, p.products_quantity, p.products_quantity_deseada, p.exclude_feedmachine, p.check_stock, p.products_model, p.shipping_methods, p.payment_methods, p.products_youtube, p.products_image, p.products_subimages, p.products_price, p.products_cost, p.products_qty_blocks, p.products_min_order_qty, p.products_hide_from_groups, p.products_weight, p.ISBN, p.products_date_added, p.products_last_modified, date_format(p.products_date_available, '%Y-%m-%d') as products_date_available, p.products_status, p.products_tax_class_id, p.product_ean, p.reference_prov, p.manufacturers_id, p.amazon_status, p.products_liquidacion, p.products_fabricacion, p.products_ship_free, p.products_bundle, p.sold_in_bundle_only  from " . TABLE_PRODUCTS . " p, " . TABLE_PRODUCTS_DESCRIPTION . " pd where p.products_id = '" . (int)$_GET['pID'] . "' and p.products_id = pd.products_id and pd.language_id = '" . (int)$languages_id . "'");
                     $product = tep_db_fetch_array($product_query);
+                    if (!is_array($product)) $product = []; // pID inexistente → fetch false → addProperties(false) Fatal
 
                     $pInfo->addProperties($product);
                     unset($pInfo->products_qty_blocks);

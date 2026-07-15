@@ -100,7 +100,8 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
 
         if (!is_array($pedidos[$check_status['orders_id']])) {
             //echo '<pre>'.print_r($check_status, 1).'</pre>';
-            if ((int) $check_status['orders_status'] == 5 || (int) $check_status['orders_status'] == 13) {
+            // 310 = Listo para Recoger en Tienda (2026-07-14): recogida ya no pasa por el 5.
+            if ((int) $check_status['orders_status'] == 5 || (int) $check_status['orders_status'] == 13 || (int) $check_status['orders_status'] == 310) {
                 $pedidos[$check_status['orders_id']] = $check_status;
             }
 
@@ -146,12 +147,13 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
                 require DIR_FS_CATALOG_MODULES . 'UHtmlEmails/' . ULTIMATE_HTML_EMAIL_LAYOUT . '/orders.php';
                 $email = $html_email;
 
-                // Trustpilot: BCC (invitacion a opinar) SOLO si este cambio es "Enviado" (estado 5),
+                // Trustpilot: BCC (invitacion a opinar) SOLO si este cambio es "Enviado" (estado 5)
+                // o "Listo para Recoger en Tienda" (310; antes esos pedidos iban al 5 y ya se invitaban),
                 // el pedido se envio en <= TRUSTPILOT_MAX_SHIP_SECONDS desde la compra, queda cupo mensual
                 // (plan Free 50) y el cliente no fue invitado dentro del cooldown. Se registra en trustpilot_invites
                 // (registro propio: trazabilidad + tope + dedup por cliente). El cliente no ve nada distinto.
                 $tp_bcc = '';
-                if ((int) $check_status['orders_status_id'] === 5
+                if (((int) $check_status['orders_status_id'] === 5 || (int) $check_status['orders_status_id'] === 310)
                     && defined('TRUSTPILOT_AFS_BCC') && TRUSTPILOT_AFS_BCC !== ''
                     && !empty($check_status['date_purchased'])
                     && (strtotime($check_status['date_added']) - strtotime($check_status['date_purchased'])) <= TRUSTPILOT_MAX_SHIP_SECONDS) {
@@ -224,7 +226,7 @@ $aDatosStatuses = tep_db_query('SELECT os.orders_status_id, c.customers_group_id
  			LEFT JOIN orders o ON o.orders_id = osh.orders_id
  			LEFT JOIN customers c ON c.customers_id = o.customers_id
  			LEFT JOIN orders_status os ON osh.orders_status_id = os.orders_status_id
- 			WHERE osh.customer_notified = 0 AND os.language_id = 3 AND os.public_flag = 1 AND osh.date_added < ( CURDATE() - INTERVAL 5 DAY ) AND os.orders_status_id = 5 AND o.orders_status = 5
+ 			WHERE osh.customer_notified = 0 AND os.language_id = 3 AND os.public_flag = 1 AND osh.date_added < ( CURDATE() - INTERVAL 5 DAY ) AND os.orders_status_id IN (5, 310) AND o.orders_status IN (5, 310)
  			ORDER BY osh.date_added DESC');
 $stado_entregado = 3;
 

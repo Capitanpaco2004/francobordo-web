@@ -98,7 +98,7 @@ curl_setopt_array($ch, [
 $resp = curl_exec($ch);
 $httpStatus = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 $curlErr = curl_error($ch);
-curl_close($ch);
+// sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
 $elapsedMs = (int)round((microtime(true) - $t0) * 1000);
 
 // 7) Log (request + response truncados a 8 KB)

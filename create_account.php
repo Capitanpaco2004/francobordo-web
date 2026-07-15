@@ -92,7 +92,7 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
 	$postcode        = strtoupper($postcode);
 	$city            = RemoveShouting($city);
 	$state           = RemoveShouting($state);
-	$nif             = strtoupper($nif);
+	$nif             = strtoupper($nif ?? '');
 
 	$telephone = tep_db_prepare_input($_POST['telephone']);
 	$fax       = tep_db_prepare_input($_POST['fax']);
@@ -136,7 +136,7 @@ if (isset($_POST['action']) && ($_POST['action'] == 'process')) {
 	}
 
 	if (RGPD_ACCOUNT_DELETE_DOB == '2') {
-		if (checkdate($_POST['dob_inm'], $_POST['dob_ind'], $_POST['dob_inY']) == false) {
+		if (checkdate((int)($_POST['dob_inm'] ?? 0), (int)($_POST['dob_ind'] ?? 0), (int)($_POST['dob_inY'] ?? 0)) == false) {
 			$error = true;
 			$messageStack->add('create_account', ENTRY_DATE_OF_BIRTH_ERROR . "<br/");
 		}

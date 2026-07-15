@@ -157,7 +157,7 @@ function downloadImage($url, $destAbs, $minBytes = IMG_MIN_BYTES) {
     if (!preg_match('#^https?://#i', $url)) return false;
     $ch = curl_init($url);
     $fp = fopen($destAbs, 'wb');
-    if (!$fp) { curl_close($ch); return false; }
+    if (!$fp) { return false; }
     curl_setopt_array($ch, [
         CURLOPT_FILE => $fp,
         CURLOPT_FOLLOWLOCATION => true,

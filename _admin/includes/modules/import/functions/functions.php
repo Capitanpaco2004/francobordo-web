@@ -364,7 +364,7 @@ function downloadImage($url, $path)
     curl_setopt($cURL, CURLOPT_FILE, $file);
     curl_setopt($cURL, CURLOPT_HEADER, 0);
     curl_exec($cURL);
-    curl_close($cURL);
+    // sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
     fclose($file);
 
     return basename($path);

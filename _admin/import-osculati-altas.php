@@ -734,7 +734,9 @@ function slugify($s) {
 	]);
 	$s = preg_replace('/[^a-z0-9]+/', '-', $s);
 	$s = trim($s, '-');
-	return substr($s, 0, 80);
+	// FB 2026-07-14: cap 50 (como el resto de importadores); con sufijo -s<serie>-<pid>.ext el
+	// nombre de imagen queda <=100 y no rompe el import de QFac (columna CFOTO VARCHAR(100)).
+	return substr($s, 0, 50);
 }
 
 $isAction = ($action === 'execute');

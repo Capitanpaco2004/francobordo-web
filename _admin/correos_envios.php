@@ -90,7 +90,7 @@ function correosEnvEndpoint($params) {
     $params['token'] = CORREOS_ALB_TOKEN;
     $ch = curl_init('https://www.francobordo.com/correos_albaran.php?' . http_build_query($params));
     curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 120, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2));
-    $raw = curl_exec($ch); $err = curl_error($ch); curl_close($ch);
+    $raw = curl_exec($ch); $err = curl_error($ch); // sin curl_close(): deprecado en PHP 8.5
     return array(json_decode((string) $raw, true), $err, $raw);
 }
 
@@ -163,7 +163,7 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
             $ch = curl_init('https://www.francobordo.com/correos_albaran.php');
             curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 120, CURLOPT_POST => 1,
                 CURLOPT_POSTFIELDS => http_build_query($params), CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2));
-            $raw = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
+            $raw = curl_exec($ch); $cerr = curl_error($ch); // sin curl_close(): deprecado en PHP 8.5
             $resp = json_decode((string) $raw, true);
             if (is_array($resp) && !empty($resp['ok']) && !empty($resp['shipmentCode'])) {
                 if (!empty($resp['zpl']))

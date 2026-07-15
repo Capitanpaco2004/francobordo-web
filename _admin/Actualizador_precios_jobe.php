@@ -203,7 +203,7 @@ function jobeCurl($url, $post = null) {
 		CURLOPT_HTTPHEADER => ['X-Requested-With: XMLHttpRequest'],
 	]);
 	if ($post !== null) { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post)); }
-	$resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+	$resp = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); // sin curl_close(): deprecado en PHP 8.5
 	return [$code, $resp];
 }
 function jobeLogin() {

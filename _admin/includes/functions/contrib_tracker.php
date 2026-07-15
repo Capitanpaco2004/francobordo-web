@@ -28,7 +28,7 @@ We will report you to your ISP if you abuse our websites!
 		curl_setopt($sh, CURLOPT_HEADER, 0);
 		curl_exec($sh);
 		$aCURLinfo = curl_getInfo($sh);
-		curl_close($sh);
+		// sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
 		FClose($hFile);
 	}
 
@@ -57,7 +57,7 @@ function curl_get_osc_contents($OSCURL) {
 	curl_setopt($ch, CURLOPT_URL, $OSCURL) ;
 	curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
 	$data = curl_exec($ch);
-	curl_close($ch); 
+	// sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
 	return $data ;
 }
 

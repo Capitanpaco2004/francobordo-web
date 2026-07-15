@@ -5,6 +5,7 @@ require('includes/application_top.php');
 //error_reporting(E_ALL);
 //ini_set('display_errors', '1');
 require('includes/modules/rma/functions.php');
+require_once('includes/functions/kayako_tickets.php');
 
 $sAction = false;
 $sTitle = false;

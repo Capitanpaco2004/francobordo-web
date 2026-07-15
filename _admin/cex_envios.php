@@ -99,7 +99,7 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
             $ch = curl_init('https://www.francobordo.com/cex_albaran.php');
             curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 90, CURLOPT_POST => 1,
                 CURLOPT_POSTFIELDS => http_build_query($params), CURLOPT_SSL_VERIFYPEER => 0, CURLOPT_SSL_VERIFYHOST => 0));
-            $raw = curl_exec($ch); $cerr = curl_error($ch); curl_close($ch);
+            $raw = curl_exec($ch); $cerr = curl_error($ch); // sin curl_close(): deprecado en PHP 8.5
             $resp = json_decode((string) $raw, true);
             if (is_array($resp) && !empty($resp['ok']) && !empty($resp['shipmentCode'])) {
                 if (!empty($resp['zpl']))

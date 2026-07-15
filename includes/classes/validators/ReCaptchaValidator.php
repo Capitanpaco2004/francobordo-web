@@ -28,7 +28,7 @@ class ReCaptchaValidator extends ValidatorBase
 		));
 
 		$curlData = curl_exec($curl);
-		curl_close($curl);
+		// sin curl_close(): deprecado en PHP 8.5 (no-op desde 8.0)
 		$recaptcha = json_decode($curlData, true);
 
 		// Si es error
