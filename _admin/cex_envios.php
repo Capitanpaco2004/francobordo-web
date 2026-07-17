@@ -260,7 +260,7 @@ if (isset($_GET['modify']) && (int) $_GET['modify'] > 0) {
       <label>Tel&eacute;fono<input type="text" name="m_dphone"></label>
       <label>Email<input type="text" name="m_demail"></label>
       <label>Peso (kg)<input type="text" name="m_kilos" value="1"></label>
-      <label>Bultos<input type="number" name="m_bultos" value="1" min="1"></label>
+      <label>Bultos (n&ordm; de paquetes, 1-20)<input type="number" name="m_bultos" value="1" min="1" max="20" title="N&uacute;mero de PAQUETES, no la referencia. La referencia/n&ordm; de pedido va en el campo de abajo."></label>
       <label style="grid-column:1/3;">Referencia (sale en la columna Pedido/Ref y es buscable &mdash; p.ej. n&ordm; de RMA, proveedor&hellip;)<input type="text" name="m_ref" placeholder="auto: M-aaaammdd-hhmmss"></label>
       <div style="grid-column:1/3;margin-top:4px;"><button class="btn" style="background:#2e9e44" type="submit">Crear env&iacute;o y mandar etiqueta a la Zebra</button></div>
     </form>

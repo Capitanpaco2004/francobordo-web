@@ -39,6 +39,12 @@ error_reporting(E_ALL & ~E_NOTICE & ~E_DEPRECATED & ~E_WARNING);
 ini_set('display_errors', '0');
 
 define('CEX_ALB_TOKEN', 'cexalb_8b3e6d1f4a92');
+/* Tope sano de bultos por envío (máximo histórico real = 4; 20 deja margen de sobra).
+ * Sin tope, un tecleo erróneo -el nº de pedido en el campo "Bultos", incidente 2026-07-16
+ * ref 10364648- hacía que la clase construyese MILLONES de entradas en listaBultos (GB de
+ * RAM) y que CEX se atragantase -> timeout de 60s y etiqueta perdida, con un mensaje
+ * ("Operation timed out") que no delataba la causa real. */
+define('CEX_MAX_BULTOS', 20);
 
 $in = array_merge($_GET, $_POST);
 function out($arr) { echo json_encode($arr, JSON_UNESCAPED_UNICODE); exit; }
@@ -79,7 +85,12 @@ if (($in['reprint_done'] ?? '') !== '') {
 $oid    = (int) ($in['oid'] ?? 0);
 $kilos  = (float) str_replace(',', '.', (string) ($in['kilos'] ?? '1'));
 if ($kilos <= 0) $kilos = 1;
-$bultos = max(1, (int) ($in['bultos'] ?? 1));
+$bultos = max(1, (int) ($in['bultos'] ?? 1));   // 0/ausente -> 1 (albaranes sin ALB_BULTOS)
+/* Rechazo explícito por encima del tope: mejor un error claro AQUÍ que una petición
+ * absurda que CEX deja expirar (ver CEX_MAX_BULTOS arriba). */
+if ($bultos > CEX_MAX_BULTOS) {
+    out(array('ok' => false, 'error' => 'bultos fuera de rango (1-' . CEX_MAX_BULTOS . '): ' . $bultos . '. ¿Has escrito el nº de pedido/referencia en el campo Bultos?'));
+}
 $alb    = trim((string) ($in['albaran'] ?? ''));
 $type   = strtoupper(trim((string) ($in['type'] ?? 'BOTH')));
 if (!in_array($type, array('ZPL', 'PDF', 'BOTH'), true)) $type = 'BOTH';

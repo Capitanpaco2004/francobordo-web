@@ -127,7 +127,10 @@ if ($bLooksLikeCode) {
 
         // Mostramos el resultado en AJAX
         else {
-            $sWhere = ' p.products_id = "' . (int) $aSearch['products_id'] . '" ';
+            // 'AND ' final OBLIGATORIO: más abajo se hace $sWhere .= ' p.products_status = 1'
+            // (igual que su gemela de la línea ~158). Sin él quedaba
+            // 'p.products_id = "X"  p.products_status = 1' → SQL 1064 near '"X"'.
+            $sWhere = ' p.products_id = "' . (int) $aSearch['products_id'] . '" AND ';
             $bBuscarId = true;
         }
     } else if (tep_db_num_rows($aSearch) == 0) {

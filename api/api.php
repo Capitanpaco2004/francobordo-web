@@ -156,8 +156,14 @@
 			// Recorremos para buscar
 			foreach( $aFiles as $sFile )
 			{
+				// El listado se hace antes de leer: ficheros efímeros (p.ej. _admin/qfacwin_cfg.php,
+				// que el proceso QFac crea y borra) desaparecen a mitad del escaneo → file_get_contents
+				// emitía "Failed to open stream". Comprobamos existencia y silenciamos la lectura.
+				if( ! is_file( $sFile ) )
+					continue;
+
 				// Shell
-				if( !preg_match( '/threat_scanner\.php/' , $sFile ) && preg_match( '/128\/2/i', file_get_contents( $sFile ) ) )
+				if( !preg_match( '/threat_scanner\.php/' , $sFile ) && preg_match( '/128\/2/i', (string) @file_get_contents( $sFile ) ) )
 					$sReturn .= 'Shell: ' . $sFile;
 
 				// Checkout confirmation tiene js hacia el ie/6

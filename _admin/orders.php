@@ -1945,6 +1945,7 @@ if( tep_not_null($action) )
 			}
 			$bShowWarehouseColumn = ! empty($aWarehouseStatus);
 			$aProductSkuCache = []; // products_id => CCODIART
+			$aWhMatched = []; // claves sku|variante ya pintadas en alguna linea
 			// Variante por orders_products_id (CCODIVAL concatenados, mismo formato que sync)
 			$aLineVariante = [];
 			// Variante por línea: 1º intenta CCODIVAL via _id; si falla (orders_products_attributes
@@ -2059,6 +2060,7 @@ if( tep_not_null($action) )
 							$varLine = $aLineVariante[$opid] ?? '';
 							$keyWh = $skuLine . '|' . $varLine;
 							$wh = ($skuLine !== '' && isset($aWarehouseStatus[$keyWh])) ? $aWarehouseStatus[$keyWh] : null;
+							if ($wh !== null) { $aWhMatched[$keyWh] = true; }
 							$cellHtml = '';
 							if ($wh === null) {
 								$cellHtml = '<span style="color:#aaa;">—</span>';
@@ -2084,6 +2086,32 @@ if( tep_not_null($action) )
 							   '            <td align="center"><b>' . $currencies->format($order->products[$i]['final_price'] * $order->products[$i]['qty'], true, $order->info['currency'], $order->info['currency_value']) . '</b></td>' . "\n" .
 							   '            <td align="center"><b>' . $currencies->format(tep_add_tax($order->products[$i]['final_price'], $order->products[$i]['tax'], true) * $order->products[$i]['qty'], true, $order->info['currency'], $order->info['currency_value']) . '</b></td>' . "\n";
 						 echo '          </tr>' . "\n";
+					}
+
+					// Filas de almacen sin linea propia en el pedido web: componentes
+					// de KITS (QFac/VStock explotan el kit; la web tiene solo la linea
+					// del kit padre). Sin esto parecen 'sin registro de almacen'.
+					if ($bShowWarehouseColumn) {
+						$aWhUnmatched = array_diff_key($aWarehouseStatus, $aWhMatched);
+						if (!empty($aWhUnmatched)) {
+							echo '<tr><td colspan="14" style="background:#fbf7ea;padding:8px 12px;border-top:1px solid #e8dfc0;">';
+							echo '<div style="font-size:11px;color:#8a6d00;font-weight:700;margin-bottom:5px;">Almac&eacute;n &mdash; componentes sin l&iacute;nea propia en el pedido web (kits):</div>';
+							foreach ($aWhUnmatched as $k => $wh2) {
+								list($skuU, $varU) = array_pad(explode('|', $k, 2), 2, '');
+								$lbl = htmlspecialchars($skuU . ($varU !== '' ? ' (' . $varU . ')' : ''), ENT_QUOTES);
+								if ($wh2['status'] === 'reservado') {
+									$badge = '<span style="background:#22a06b;color:#fff;font-size:10px;font-weight:600;padding:2px 7px;border-radius:9px;">Reservado</span>';
+								} elseif ($wh2['status'] === 'enviado') {
+									$badge = '<span style="background:#3373c4;color:#fff;font-size:10px;font-weight:600;padding:2px 7px;border-radius:9px;">&#128230; Enviado</span>';
+								} elseif (!empty($wh2['arrival_date'])) {
+									$badge = '<span style="background:#f0a020;color:#fff;font-size:10px;font-weight:600;padding:2px 7px;border-radius:9px;">Llegada ' . date('d/m/Y', strtotime($wh2['arrival_date'])) . '</span>';
+								} else {
+									$badge = '<span style="background:#d23a3a;color:#fff;font-size:10px;font-weight:600;padding:2px 7px;border-radius:9px;">Pendiente proveedor</span>';
+								}
+								echo '<span style="display:inline-block;margin:2px 10px 2px 0;font-size:12px;color:#555;">' . $lbl . ' ' . $badge . '</span>';
+							}
+							echo '</td></tr>';
+						}
 					}
 				?>
 				</tbody>

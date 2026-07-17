@@ -230,6 +230,44 @@ try {
         }
     }
 
+    // ---- Anulados en VStock (sin albaran QFac) -> cancelar en web ----
+    // Regla 2026-07-16: VStock PCL_ESTADO=18 + QFac CSERVIDA='S' + SIN albaran
+    // (el sync ya filtro; los CON albaran son ENVIOS DIRECTOS y no llegan aqui).
+    // Solo se cancelan pedidos en estados iniciales; nunca enviados/entregados.
+    $webCancelled = 0;
+    $cancelSkipped = 0;
+    if (isset($payload['cancelled_orders']) && is_array($payload['cancelled_orders'])) {
+        $stmtStatus = $db->prepare("SELECT orders_status FROM orders WHERE orders_id = ? LIMIT 1");
+        $stmtCancel = $db->prepare("UPDATE orders SET orders_status = 4 WHERE orders_id = ? AND orders_status = ?");
+        $stmtHist = $db->prepare(
+            "INSERT INTO orders_status_history (orders_id, orders_status_id, date_added, customer_notified, comments) "
+            . "VALUES (?, 4, ?, 0, ?)"
+        );
+        $cancellableStates = [1, 2, 13, 309];
+        $comment = '<p>Pedido anulado en almacén (VStock) y cerrado en QFac sin albarán. '
+            . 'Cancelado automáticamente por la sincronización de almacén.</p>';
+        foreach ($payload['cancelled_orders'] as $cid) {
+            $cid = (int)$cid;
+            if ($cid <= 0) { continue; }
+            $stmtStatus->bind_param('i', $cid);
+            $stmtStatus->execute();
+            $resSt = $stmtStatus->get_result();
+            $rowSt = $resSt ? $resSt->fetch_assoc() : null;
+            if (!$rowSt) { $cancelSkipped++; continue; }
+            $curSt = (int)$rowSt['orders_status'];
+            if (!in_array($curSt, $cancellableStates, true)) { $cancelSkipped++; continue; }
+            $stmtCancel->bind_param('ii', $cid, $curSt);
+            $stmtCancel->execute();
+            if ($stmtCancel->affected_rows === 1) {
+                $stmtHist->bind_param('iss', $cid, $nowSql, $comment);
+                $stmtHist->execute();
+                $webCancelled++;
+            } else {
+                $cancelSkipped++;
+            }
+        }
+    }
+
     $db->commit();
 } catch (Throwable $e) {
     $db->rollback();
@@ -248,5 +286,7 @@ echo json_encode([
     'orders_purged' => $ordersDeleted,
     'full_snapshot' => $fullSnapshot,
     'status_transitions' => $statusTransitions,
+    'web_cancelled' => $webCancelled,
+    'cancel_skipped' => $cancelSkipped,
     'updated_at' => $nowSql,
 ]);
