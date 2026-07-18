@@ -301,15 +301,18 @@ foreach ($prods as $pid => $p) {
 }
 
 // ───────────────────── Bloque A: cómputo specials a borrar (post main loop, pre PLAN summary) ─────────────────────
-// Política V2 (2026-06-25): si !apply_extremes ⇒ borrar TODAS las ofertas activas en scope, sin threshold ni cap.
+// Política V3 (2026-07-17): si !apply_extremes ⇒ borrar solo ofertas de productos repreciados en este run.
 // Razonamiento: ofertas puestas sobre PVP antiguo dejan de tener sentido cuando el PVP cambia.
+// Política V3 (2026-07-17): solo ofertas de productos cuyo PVP cambia en ESTE run.
+// (La V2 borraba todas las del scope — incidente Osculati 2026-07-16, 383 ofertas
+// purgadas de 15+ marcas y restauradas desde backup.)
 $badSpecials = [];
-if (!$applyExtremes) {
+if (!$applyExtremes && !empty($updPriceMain)) {
 	$effPrice = [];
-	foreach ($prods as $pid => $p) $effPrice[$pid] = (float) $p['products_price'];
 	foreach ($updPriceMain as $u) $effPrice[(int)$u['pid']] = (float) $u['new'];
+	$idsRepriced = implode(',', array_map('intval', array_keys($effPrice)));
 
-	$rs = $mysqli->query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($ids)");
+	$rs = $mysqli->query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($idsRepriced)");
 	if (!$rs) { logMsg("ERROR SELECT specials: " . $mysqli->error); goto end_action; }
 	while ($s = $rs->fetch_assoc()) {
 		$pid = (int) $s['products_id'];
@@ -323,7 +326,7 @@ if (!$applyExtremes) {
 			'eff_price' => $eff,
 			'sp_price'  => $sp,
 			'dto_pct'   => $dtoPct,
-			'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP)' : (sprintf('dto %.1f%%', $dtoPct) . ' — política: borrar todas en run sin extremos'),
+			'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP nuevo)' : (sprintf('dto %.1f%%', $dtoPct) . ' sobre PVP nuevo — PVP repreciado en este run'),
 			'created'   => substr((string)$s['specials_date_added'], 0, 10),
 			'expires'   => substr((string)$s['expires_date'], 0, 10),
 		];
@@ -343,7 +346,7 @@ if (!$applyExtremes && $maxChangeRatio > 0) {
 	logMsg("⚠️  Productos extremos > {$maxChangePct}% EXCLUIDOS (revisar): " . count($extremesProds) . " (padre + sus variantes no se tocan)");
 }
 // ───────────────────── Bloque B: línea de resumen specials a borrar ─────────────────────
-if (!$applyExtremes) logMsg("🗑️  Specials a BORRAR (TODAS las ofertas activas en scope) : " . count($badSpecials) . (empty($badSpecials)?" (ninguno)":""));
+if (!$applyExtremes) logMsg("🗑️  Specials a BORRAR (solo de productos repreciados en este run) : " . count($badSpecials) . (empty($badSpecials)?" (ninguno)":""));
 logMsg("Sin match en xlsm                : " . count($noMatch));
 
 $showLimit = 25; if (!empty($onlyExtremes)) $showLimit = 1000000;
@@ -389,7 +392,7 @@ if (!empty($noMatch)) {
 }
 // ───────────────────── Bloque C: listado detallado specials a borrar ─────────────────────
 if (!empty($badSpecials)) {
-	logMsg(sprintf("--- 🗑️ Specials a BORRAR (TODAS: %d) ---", count($badSpecials)));
+	logMsg(sprintf("--- 🗑️ Specials a BORRAR (repreciados en este run: %d) ---", count($badSpecials)));
 	foreach ($badSpecials as $b) {
 		logMsg(sprintf("  specials_id=%d pid=%d ref=%-14s PVP=%7.2f sp=%7.2f dto=%5.1f%% creado=%s expira=%s — %s",
 			$b['specials_id'], $b['pid'], $b['ref'], $b['eff_price']*1.21, $b['sp_price']*1.21, $b['dto_pct'], $b['created'], $b['expires'], $b['reason']));
@@ -443,7 +446,7 @@ try {
 		$fh = @fopen($bakPath, 'w');
 		if ($fh) {
 			fwrite($fh, "-- Backup specials borrados por Actualizador_precios_cressi.php " . date('Y-m-d H:i:s') . "\n");
-			fwrite($fh, "-- Política: !apply_extremes ⇒ borrar TODAS las ofertas activas en scope. Total: " . count($badSpecials) . " filas.\n\n");
+			fwrite($fh, "-- Política V3: !apply_extremes ⇒ borrar ofertas de productos repreciados en este run. Total: " . count($badSpecials) . " filas.\n\n");
 			$idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
 			$rb = $mysqli->query("SELECT * FROM specials WHERE specials_id IN ($idList)");
 			if ($rb) while ($srow = $rb->fetch_assoc()) {

@@ -139,9 +139,13 @@ function loadProducts() {
 	        WHERE manufacturers_id = " . OSCULATI_MFG_ID . "
 	           OR products_import_origin LIKE 'osculati%'
 	           OR (reference_prov IS NOT NULL AND reference_prov <> ''
-	               AND reference_prov RLIKE '^[0-9]{2}\\.[0-9]{3}\\.[0-9]{2}')
+	               AND reference_prov RLIKE '^[0-9]{2}[.][0-9]{3}[.][0-9]{2}')
 	           OR (products_model IS NOT NULL AND products_model <> ''
-	               AND products_model RLIKE '^[0-9]{2}\\.[0-9]{3}\\.[0-9]{2}')";
+	               AND products_model RLIKE '^[0-9]{2}[.][0-9]{3}[.][0-9]{2}')";
+	// OJO escape: '\\.' en PHP llega al SQL como '\.' y el parser de cadenas de MariaDB
+	// descarta ese backslash -> el punto quedaba como comodin y colaban referencias de
+	// 10 digitos sin puntos (Sevylor/Coleman 2000026700, Jobe, Dometic, 3M...): purga de
+	// specials multimarca del 2026-07-16 (383 ofertas). '[.]' no depende de escapes.
 	$r = tep_db_query($sql);
 	while ($p = tep_db_fetch_array($r)) {
 		$pid = (int)$p['products_id'];
@@ -457,18 +461,18 @@ $plan = buildPlan($prods, $xlsx, $g1prods, $g1attrs, $maxChangeRatio, $applyExtr
 echo '<p>Plan calculado en ' . round(microtime(true) - $t0, 2) . 's.</p>';
 
 // ─── Bloque A: cómputo de specials a borrar ───
-// Política V2 (2026-06-25): cuando se ejecuta SIN "Aplicar extremos" (apply_extremes=false), borramos
-// TODAS las ofertas activas (specials.status=1) de los productos en scope. Razón: las ofertas se
-// pusieron sobre PVP antiguo; al cambiar el PVP dejan de tener sentido. Si quieres conservarlas,
-// marca "Aplicar también los extremos".
+// Política V3 (2026-07-17): purgamos SOLO las ofertas activas de productos cuyo PVP cambia en
+// ESTE run (plan updates_product). Un PVP que no se mueve deja su oferta tan válida como estaba.
+// (La V2 borraba TODAS las del scope: el 2026-07-16 se llevó 383 ofertas de 15+ marcas ajenas
+// combinada con el bug del RLIKE — restauradas desde backup el 2026-07-17.)
+// Con "Aplicar extremos" marcado se conservan todas, como siempre.
 $badSpecials = [];
-if (!$applyExtremes && !empty($prods)) {
-	// PVP efectivo post-run = nuevo si hay update, si no el actual.
+if (!$applyExtremes && !empty($plan['updates_product'])) {
+	// PVP efectivo post-run de los repreciados.
 	$effPrice = [];
-	foreach ($prods as $pid => $p) $effPrice[$pid] = (float) $p['price'];
 	foreach ($plan['updates_product'] as $u) $effPrice[(int)$u['pid']] = (float) $u['new_price'];
 
-	$ids = implode(',', array_map('intval', array_keys($prods)));
+	$ids = implode(',', array_map('intval', array_keys($effPrice)));
 	$rs = tep_db_query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($ids)");
 	while ($s = tep_db_fetch_array($rs)) {
 		$pid = (int) $s['products_id'];
@@ -482,7 +486,7 @@ if (!$applyExtremes && !empty($prods)) {
 			'eff_price' => $eff,
 			'sp_price'  => $sp,
 			'dto_pct'   => $dtoPct,
-			'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP)' : (sprintf('dto %.1f%%', $dtoPct) . ' — política: borrar todas en run sin extremos'),
+			'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP nuevo)' : (sprintf('dto %.1f%% sobre PVP nuevo', $dtoPct) . ' — PVP repreciado en este run'),
 			'created'   => substr((string)$s['specials_date_added'], 0, 10),
 			'expires'   => substr((string)$s['expires_date'], 0, 10),
 		];
@@ -513,7 +517,7 @@ if ($dryRun) {
 	<li>⚠️ Productos EXTREMOS excluidos (price o cost del padre supera <?php echo $maxChangePct; ?>%): <strong><?php echo count($plan['extremes']); ?></strong></li>
 	<?php endif; ?>
 	<?php if (!$applyExtremes): ?>
-	<li>🗑️ Specials a BORRAR (TODAS las ofertas activas en scope): <strong><?php echo count($badSpecials); ?></strong><?php if (empty($badSpecials)) echo ' (ninguno)'; ?></li>
+	<li>🗑️ Specials a BORRAR (solo de productos repreciados en este run): <strong><?php echo count($badSpecials); ?></strong><?php if (empty($badSpecials)) echo ' (ninguno)'; ?></li>
 	<?php endif; ?>
 	<li class="small">Sin match en xlsx (no se toca): <?php echo $plan['skipped_no_match']; ?> + <?php echo count($plan['unmatched_codes']) - $plan['skipped_no_match']; ?> variantes | fuera de scope (U.M. ≠ PZ y no A2-/A4-): <?php echo $plan['skipped_out_scope']; ?> | sin coste válido: <?php echo $plan['skipped_no_cost']; ?> | sin cambio significativo: <?php echo $plan['skipped_unchanged']; ?></li>
 </ul>
@@ -558,7 +562,7 @@ if (!empty($plan['extremes'])) {
 
 // ─── Bloque C: listado detallado de specials a borrar ───
 if (!empty($badSpecials)) {
-	renderTable('🗑️ Specials a BORRAR (TODAS las ofertas activas en scope — política V2)', $badSpecials, [
+	renderTable('🗑️ Specials a BORRAR (solo de productos repreciados en este run — política V3)', $badSpecials, [
 		['specials_id', function ($r) { return $r['specials_id']; }],
 		['pid', function ($r) { return $r['pid']; }],
 		['ref', function ($r) { return $r['ref']; }],
@@ -634,7 +638,7 @@ if (!$dryRun) {
 			$fh = @fopen($bakPath, 'w');
 			if ($fh) {
 				fwrite($fh, "-- Backup specials borrados por Actualizador_precios_osculati.php " . date('Y-m-d H:i:s') . "\n");
-				fwrite($fh, "-- Política V2: !apply_extremes ⇒ borrar TODAS las ofertas activas en scope. Total: " . count($badSpecials) . " filas.\n\n");
+				fwrite($fh, "-- Política V3: !apply_extremes ⇒ borrar ofertas de productos repreciados en este run. Total: " . count($badSpecials) . " filas.\n\n");
 				$idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
 				$rb = tep_db_query("SELECT * FROM specials WHERE specials_id IN ($idList)");
 				while ($srow = tep_db_fetch_array($rb)) {

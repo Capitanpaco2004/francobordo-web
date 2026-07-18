@@ -161,14 +161,15 @@ $t0 = microtime(true);
 $plan = buildPlan($prods, $xlsx, $g1prods, $maxChangeRatio, $applyExtremes);
 echo '<p>Plan calculado en ' . round(microtime(true) - $t0, 2) . 's.</p>';
 
-// ─── Bloque A: cómputo specials a borrar (política V2: !apply_extremes ⇒ borrar TODAS) ───
+// ─── Bloque A: cómputo specials a borrar (política V3: solo repreciados en este run) ───
+// Política V3 (2026-07-17): solo ofertas de productos cuyo PVP cambia en ESTE run.
+// (La V2 borraba todas las del scope — incidente Osculati 2026-07-16, restaurado.)
 $badSpecials = [];
-if (!$applyExtremes && !empty($prods)) {
+if (!$applyExtremes && !empty($plan['updates_product'])) {
     $effPrice = [];
-    foreach ($prods as $pid => $p) $effPrice[$pid] = (float) $p['price'];
     foreach ($plan['updates_product'] as $u) $effPrice[(int) $u['pid']] = (float) $u['new_price'];
 
-    $ids = implode(',', array_map('intval', array_keys($prods)));
+    $ids = implode(',', array_map('intval', array_keys($effPrice)));
     try {
         $rs = tep_db_query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($ids)");
         while ($rs && ($s = tep_db_fetch_array($rs))) {
@@ -183,7 +184,7 @@ if (!$applyExtremes && !empty($prods)) {
                 'eff_price' => $eff,
                 'sp_price'  => $sp,
                 'dto_pct'   => $dtoPct,
-                'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP)' : (sprintf('dto %.1f%%', $dtoPct) . ' — política: borrar todas en run sin extremos'),
+                'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP nuevo)' : (sprintf('dto %.1f%%', $dtoPct) . ' sobre PVP nuevo — PVP repreciado en este run'),
                 'created'   => substr((string) $s['specials_date_added'], 0, 10),
                 'expires'   => substr((string) $s['expires_date'], 0, 10),
             ];
@@ -213,7 +214,7 @@ if ($dryRun) {
     <li>⚠️ Productos EXTREMOS excluidos (&gt; <?php echo $maxChangePct; ?>%): <strong><?php echo count($plan['extremes']); ?></strong></li>
     <?php endif; ?>
     <?php if (!$applyExtremes): ?>
-    <li>🗑️ Specials a BORRAR (TODAS las ofertas activas en scope): <strong><?php echo count($badSpecials); ?></strong><?php if (empty($badSpecials)) echo ' <span class="small">(ninguno)</span>'; ?></li>
+    <li>🗑️ Specials a BORRAR (solo de productos repreciados en este run): <strong><?php echo count($badSpecials); ?></strong><?php if (empty($badSpecials)) echo ' <span class="small">(ninguno)</span>'; ?></li>
     <?php endif; ?>
     <li class="small">Sin match en CSV: <?php echo $plan['skipped_no_match']; ?> | sin coste/PVP válido: <?php echo $plan['skipped_no_cost']; ?> | sin cambio significativo: <?php echo $plan['skipped_unchanged']; ?></li>
 </ul>
@@ -243,7 +244,7 @@ renderTable('INSERTs Grupo 1', $plan['inserts_g1_product'], [['pid', fn($r) => $
 $unmatchedRows = array_map(fn($c) => ['code' => $c], array_values(array_unique($plan['unmatched_codes'])));
 renderTable('Códigos sin match en CSV (informativo)', $unmatchedRows, [['code', fn($r) => $r['code']]]);
 
-if (!empty($badSpecials)) renderTable('🗑️ Specials a BORRAR (TODAS las ofertas activas en scope)', $badSpecials, [
+if (!empty($badSpecials)) renderTable('🗑️ Specials a BORRAR (solo de productos repreciados en este run — política V3)', $badSpecials, [
     ['specials_id', fn($r) => $r['specials_id']],
     ['pid', fn($r) => $r['pid']],
     ['ref', fn($r) => $r['ref']],
@@ -261,7 +262,7 @@ if (!$dryRun) {
     try {
         applyPlan($plan);
 
-        // ─── Bloque D: backup + DELETE specials (política V2: !apply_extremes ⇒ borrar TODAS) ───
+        // ─── Bloque D: backup + DELETE specials (política V3: solo repreciados en este run) ───
         if (!empty($badSpecials)) {
             $bakDir = '/home/francobordo/backups';
             @mkdir($bakDir, 0755, true);
@@ -277,7 +278,7 @@ if (!$dryRun) {
                 throw new Exception("backup specials no escribible");
             }
             fwrite($fh, "-- Backup specials borrados por Actualizador_precios_ram.php " . date('Y-m-d H:i:s') . "\n");
-            fwrite($fh, "-- Política: !apply_extremes ⇒ borrar TODAS las ofertas activas en scope. Total: " . count($badSpecials) . " filas.\n\n");
+            fwrite($fh, "-- Política V3: !apply_extremes ⇒ borrar ofertas de productos repreciados en este run. Total: " . count($badSpecials) . " filas.\n\n");
             $idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
             $rb = tep_db_query("SELECT * FROM specials WHERE specials_id IN ($idList)");
             if ($rb) while ($srow = tep_db_fetch_array($rb)) {

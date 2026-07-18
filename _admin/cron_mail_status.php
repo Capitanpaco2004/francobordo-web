@@ -243,6 +243,30 @@ if (tep_db_num_rows($aDatosStatuses) > 0) {
 }
 
 /*
+ Reconciliación por tracking (2026-07-17): pedidos ATASCADOS en 13 "En preparación"
+ cuyo transportista ya ENTREGÓ (cex/seur/correos/ontime_tracking.entregado=1).
+ Ocurre cuando QFac factura pero su llamada "facturado" a qfacwin_actu_pedido se
+ pierde (p.ej. incidente ACTUPEDIWEB jul-26): el pedido nunca pasa por el 5 y el
+ autocompletado de arriba (solo 5/310) no lo cierra jamás. Se cierra a 3 sin email
+ (customer_notified=1), igual que el bloque anterior. Detectados 116 el 2026-07-17.
+ */
+echo '<h4>Pedidos en preparación (13) ya entregados según el tracking</h4>';
+$aStuck = tep_db_query("SELECT DISTINCT o.orders_id
+        FROM " . TABLE_ORDERS . " o
+        WHERE o.orders_status = 13 AND (
+              EXISTS (SELECT 1 FROM cex_tracking     k WHERE k.referencia = CONCAT('F', o.orders_id) AND k.entregado = 1)
+           OR EXISTS (SELECT 1 FROM seur_tracking    k WHERE k.referencia = CONCAT('F', o.orders_id) AND k.entregado = 1)
+           OR EXISTS (SELECT 1 FROM correos_tracking k WHERE k.referencia = CONCAT('F', o.orders_id) AND k.entregado = 1)
+           OR EXISTS (SELECT 1 FROM ontime_tracking  k WHERE k.referencia = CONCAT('F', o.orders_id) AND k.entregado = 1)
+        )");
+while ($aStuckRow = tep_db_fetch_array($aStuck)) {
+    $nStuckOid = (int) $aStuckRow['orders_id'];
+    tep_db_query("update " . TABLE_ORDERS . " set orders_status = '" . $stado_entregado . "', last_modified = now() where orders_id = '" . $nStuckOid . "' and orders_status = 13");
+    tep_db_query("insert into " . TABLE_ORDERS_STATUS_HISTORY . " (orders_id, orders_status_id, date_added, customer_notified, comments) values ('" . $nStuckOid . "', '" . $stado_entregado . "', now(), 1, 'Entregado (confirmado por el seguimiento del transportista).')");
+    echo '<pre>pedido ' . $nStuckOid . ' cerrado a Entregado (tracking)</pre>';
+}
+
+/*
  Invitaciones Google post-entrega (2026-07-13)
  Envia el email dedicado "Valoranos en Google" a los encolados (google_review_invites.sent_at NULL)
  cuyo pedido lleva >= 1 dia en estado ENTREGADO (3, por tracking o por el autocompletado de arriba).

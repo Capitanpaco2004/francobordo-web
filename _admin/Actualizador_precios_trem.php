@@ -266,17 +266,18 @@ foreach ($prods as $pid => $p) {
 }
 
 // ─────────────────────────── SPECIALS A BORRAR ───────────────────────────
-// Política (usuario 2026-06-25): cuando se ejecuta SIN marcar "Aplicar extremos",
-// se borran TODAS las ofertas activas (specials.status=1) de los productos en scope.
-// Razonamiento: una oferta puesta sobre un PVP antiguo deja de tener sentido cuando
-// el PVP se actualiza por la tarifa nueva — el motor auto_specials la recreará si toca.
+// Política V3 (2026-07-17): solo se borran las ofertas activas de productos cuyo PVP
+// cambia en ESTE run ($updPriceMain). Una oferta sobre un PVP que no se mueve sigue
+// siendo válida. (La V2 del 2026-06-25 borraba todas las del scope — incidente Osculati
+// 2026-07-16, 383 ofertas purgadas y restauradas.) El motor auto_specials recreará
+// ofertas donde toque tras el repricing.
 $badSpecials = [];
-if (!$applyExtremes) {
+if (!$applyExtremes && !empty($updPriceMain)) {
 	$effPrice = [];
-	foreach ($prods as $pid => $p) $effPrice[$pid] = (float) $p['products_price'];
 	foreach ($updPriceMain as $u) $effPrice[(int)$u['pid']] = (float) $u['new'];
 
-	$rs = $mysqli->query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($ids)");
+	$idsRepriced = implode(',', array_map('intval', array_keys($effPrice)));
+	$rs = $mysqli->query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($idsRepriced)");
 	if (!$rs) { logMsg("ERROR SELECT specials: " . $mysqli->error); goto end_action; }
 	while ($s = $rs->fetch_assoc()) {
 		$pid = (int) $s['products_id'];
@@ -290,7 +291,7 @@ if (!$applyExtremes) {
 			'eff_price' => $eff,
 			'sp_price'  => $sp,
 			'dto_pct'   => $dtoPct,
-			'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP)' : (sprintf('dto %.1f%%', $dtoPct) . ' — política: borrar todas en run sin extremos'),
+			'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP nuevo)' : (sprintf('dto %.1f%% sobre PVP nuevo', $dtoPct) . ' — PVP repreciado en este run'),
 			'created'   => substr((string)$s['specials_date_added'], 0, 10),
 			'expires'   => substr((string)$s['expires_date'], 0, 10),
 		];
@@ -310,7 +311,7 @@ if (!$applyExtremes && $maxChangeRatio > 0) {
 	logMsg("⚠️  Productos extremos > {$maxChangePct}% EXCLUIDOS (revisar): " . count($extremesProds) . " (padre + sus variantes no se tocan)");
 }
 logMsg("Sin match en xlsx                : " . count($noMatch));
-if (!$applyExtremes) logMsg("🗑️  Specials a BORRAR (TODAS las ofertas activas en scope) : " . count($badSpecials) . (empty($badSpecials)?" (ninguno)":""));
+if (!$applyExtremes) logMsg("🗑️  Specials a BORRAR (solo de productos repreciados en este run) : " . count($badSpecials) . (empty($badSpecials)?" (ninguno)":""));
 
 $showLimit = 25; if (!empty($onlyExtremes)) $showLimit = 1000000;
 foreach ([
@@ -409,7 +410,7 @@ try {
 		$fh = @fopen($bakPath, 'w');
 		if ($fh) {
 			fwrite($fh, "-- Backup specials borrados por Actualizador_precios_trem.php " . date('Y-m-d H:i:s') . "\n");
-			fwrite($fh, "-- Política: !apply_extremes ⇒ borrar TODAS las ofertas activas en scope. Total: " . count($badSpecials) . " filas.\n\n");
+			fwrite($fh, "-- Política V3: !apply_extremes ⇒ borrar ofertas de productos repreciados en este run. Total: " . count($badSpecials) . " filas.\n\n");
 			$idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
 			$rb = $mysqli->query("SELECT * FROM specials WHERE specials_id IN ($idList)");
 			if ($rb) while ($srow = $rb->fetch_assoc()) {

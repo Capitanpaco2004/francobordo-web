@@ -515,16 +515,19 @@ foreach ($prods as $pid => $p) {
 
 // ─────────────────────────── SPECIALS A BORRAR ───────────────────────────
 // Política (usuario 2026-06-25): cuando se ejecuta SIN marcar "Aplicar extremos",
-// se borran TODAS las ofertas activas (specials.status=1) de los productos en scope.
+// se borran las ofertas activas (status=1) SOLO de los productos repreciados en este run (V3 2026-07-17).
 // Razonamiento: una oferta puesta sobre un PVP antiguo deja de tener sentido cuando
 // el PVP se actualiza por la tarifa nueva — el motor auto_specials la recreará si toca.
+// Política V3 (2026-07-17): solo ofertas de productos cuyo PVP cambia en ESTE run.
+// (La V2 borraba todas las del scope — incidente Osculati 2026-07-16, 383 ofertas
+// purgadas de 15+ marcas y restauradas desde backup.)
 $badSpecials = [];
-if (!$applyExtremes) {
+if (!$applyExtremes && !empty($updPriceMain)) {
     $effPrice = [];
-    foreach ($prods as $pid => $p) $effPrice[$pid] = (float) $p['products_price'];
     foreach ($updPriceMain as $u) $effPrice[(int)$u['pid']] = (float) $u['new'];
+    $idsRepriced = implode(',', array_map('intval', array_keys($effPrice)));
 
-    $rs = $mysqli->query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($ids)");
+    $rs = $mysqli->query("SELECT specials_id, products_id, specials_new_products_price, specials_date_added, expires_date, expires_repeat FROM specials WHERE status=1 AND products_id IN ($idsRepriced)");
     if (!$rs) { vetusLogMsg("ERROR SELECT specials: " . $mysqli->error); goto end_action; }
     while ($s = $rs->fetch_assoc()) {
         $pid = (int) $s['products_id'];
@@ -538,7 +541,7 @@ if (!$applyExtremes) {
             'eff_price' => $eff,
             'sp_price'  => $sp,
             'dto_pct'   => $dtoPct,
-            'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP)' : (sprintf('dto %.1f%%', $dtoPct) . ' — política: borrar todas en run sin extremos'),
+            'reason'    => ($sp > $eff) ? 'NEGATIVO (special > PVP nuevo)' : (sprintf('dto %.1f%%', $dtoPct) . ' sobre PVP nuevo — PVP repreciado en este run'),
             'created'   => substr((string)$s['specials_date_added'], 0, 10),
             'expires'   => substr((string)$s['expires_date'], 0, 10),
         ];
@@ -588,7 +591,7 @@ if (!empty($extremesProds)) {
 }
 
 if (!empty($badSpecials)) {
-    vetusLogMsg(sprintf("--- 🗑️ Specials a BORRAR (TODOS: %d, sobre PVP efectivo) ---", count($badSpecials)));
+    vetusLogMsg(sprintf("--- 🗑️ Specials a BORRAR (repreciados en este run: %d, sobre PVP nuevo) ---", count($badSpecials)));
     foreach ($badSpecials as $b) {
         vetusLogMsg(sprintf("  specials_id=%d pid=%d ref=%-14s PVP=%7.2f sp=%7.2f dto=%5.1f%% creado=%s expira=%s — %s",
             $b['specials_id'], $b['pid'], $b['ref'],
@@ -711,7 +714,7 @@ try {
         $fh = @fopen($bakPath, 'w');
         if ($fh) {
             fwrite($fh, "-- Backup specials borrados por Actualizador_precios_vetus.php " . date('Y-m-d H:i:s') . "\n");
-            fwrite($fh, "-- Política: !apply_extremes ⇒ borrar TODAS las ofertas activas en scope. Total: " . count($badSpecials) . " filas.\n\n");
+            fwrite($fh, "-- Política V3: !apply_extremes ⇒ borrar ofertas de productos repreciados en este run. Total: " . count($badSpecials) . " filas.\n\n");
             $idList = implode(',', array_map(fn($b) => (int) $b['specials_id'], $badSpecials));
             $rb = $mysqli->query("SELECT * FROM specials WHERE specials_id IN ($idList)");
             if ($rb) while ($srow = $rb->fetch_assoc()) {
@@ -811,7 +814,7 @@ end_action:
         - <strong>Grupo 1</strong> (per-Tipo): <code>roundToNickel(RRP × (1 − prof[tipo]/100))</code>. Es la diferencia respecto al importador (×0,80 plano).<br>
         - Match por SKU = <code>products_model</code> (PDF no trae EAN). Variantes: padre = más barata, resto delta.<br>
         - Scope: <code>manufacturers_id=421</code> (Vetus). Stock NO se toca. <code>products_status</code> NO se toca. Sin match / Tipo K / Tipo no soportado → se listan, no se tocan.<br>
-        - <strong>Cuando NO se aplican extremos</strong>: el script <strong>borra TODAS las ofertas activas</strong> de los productos en scope (las que existían sobre el PVP viejo dejan de tener sentido al cambiar la tarifa). Se hace backup SQL automático en <code>/home/francobordo/backups/vetus_specials_purge_*.sql</code> (revertible). Si quieres conservar todas las ofertas, marca «Aplicar también los extremos» (desactiva la limpieza).
+        - <strong>Cuando NO se aplican extremos</strong>: el script <strong>borra las ofertas activas solo de los productos repreciados en este run</strong> (una oferta sobre un PVP que cambia deja de tener sentido; las de productos cuyo PVP no se mueve se conservan). Se hace backup SQL automático en <code>/home/francobordo/backups/vetus_specials_purge_*.sql</code> (revertible). Si quieres conservar todas las ofertas, marca «Aplicar también los extremos» (desactiva la limpieza).
     </p>
 <?php endif; ?>
 </div></td></tr></table>
