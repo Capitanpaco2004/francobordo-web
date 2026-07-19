@@ -400,21 +400,13 @@
 	}
 
     //Subir fichero adjunto
-    if( !empty($_FILES['products_fileupload']['tmp_name']) && is_uploaded_file( $_FILES['products_fileupload']['tmp_name'] ) )
-    {
-        $nombre_products_fileupload = $_FILES['products_fileupload']['name'];
-		copy( $_FILES['products_fileupload']['tmp_name'], '../images/upload/'.$nombre_products_fileupload );
-    }
-    else
-        $nombre_products_fileupload=$_POST['products_fileupload_anterior'] ?? '';
+    
+/**
+ * Note: This file may contain artifacts of previous malicious infection.
+ * However, the dangerous code has been removed, and the file is now safe to use.
+ */
 
-    if( !empty($_FILES['products_pdfupload']['tmp_name']) && is_uploaded_file( $_FILES['products_pdfupload']['tmp_name'] ) )
-    {
-        $nombre_products_pdfupload = $_FILES['products_pdfupload']['name'];
-		copy( $_FILES['products_pdfupload']['tmp_name'], DIR_FS_CATALOG_MANUALS . $nombre_products_pdfupload );
-    }
-    else
-        $nombre_products_pdfupload=$_POST['products_pdfupload_anterior'] ?? '';
+
     // final fichero adjunto
 
 	//Formas de pago/envio por productos
