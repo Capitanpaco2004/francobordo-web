@@ -92,14 +92,23 @@ if (isset($_SESSION['module_shipping_estimator'])) {
 										$sSeurIvaZ = isset($aQuote['tax']) ? $aQuote['tax'] : 0;
 										$kgSeurZ = (isset($GLOBALS['cart']) && is_object($GLOBALS['cart']) && method_exists($GLOBALS['cart'], 'show_weight')) ? (float) $GLOBALS['cart']->show_weight() : 0.0;
 										if ($kgSeurZ <= 0 && isset($GLOBALS['shipping_weight'])) $kgSeurZ = (float) $GLOBALS['shipping_weight'];
-										$seurPrecioZonaZ = function ($zona) use ($kgSeurZ, $sSeurIvaZ, $currencies, $sSeurPrice) {
+										// Precio por CP del PUNTO (2026-07-20): zona PEN/BAL + recargo insular Baleares
+										// (reexpedición Menorca/Ibiza/Formentera + extrapeninsular) + MARGEN (faltaba
+										// desde el cambio a +10% del 02-07) + fuel — la MISMA fórmula que quote().
+										$seurPrecioCpZ = function ($cpZ) use ($kgSeurZ, $sSeurIvaZ, $currencies, $sSeurPrice) {
 										    if ($kgSeurZ <= 0 || !class_exists('seurpunto')) return $sSeurPrice;
-										    $b = seurpunto::costePorPeso($kgSeurZ, $zona) * seurpunto::FUEL;
+										    $zonaZ = (strncmp((string) $cpZ, '07', 2) === 0) ? 'BAL' : 'PEN';
+										    $b = seurpunto::costePorPeso($kgSeurZ, $zonaZ);
+										    if ($zonaZ === 'BAL') $b += seurpunto::recargoInsularBaleares($cpZ, $kgSeurZ);
+										    $b = $b * seurpunto::MARGEN * seurpunto::FUEL;
 										    $cir = round($b * (1 + $sSeurIvaZ / 100) / 0.05) * 0.05;
 										    $c = ($sSeurIvaZ > 0) ? ($cir / (1 + $sSeurIvaZ / 100)) : $cir;
 										    return $currencies->format(tep_add_tax($c, $sSeurIvaZ));
 										};
-										$sSeurPricePen = $seurPrecioZonaZ('PEN'); $sSeurPriceBal = $seurPrecioZonaZ('BAL');
+										$sSeurPricePen   = $seurPrecioCpZ('28001');   // península
+										$sSeurPriceBal70 = $seurPrecioCpZ('07001');   // Palma capital (sin recargos)
+										$sSeurPriceBal   = $seurPrecioCpZ('07300');   // Mallorca no capital (+3)
+										$sSeurPriceBal7x = $seurPrecioCpZ('07800');   // Menorca/Ibiza/Formentera (reexp.+3)
 										echo '<label>' . TEXT_SELECT_SEUR_PUDO . '</label>';
 										// Buscador: permite recoger en OTRO código postal distinto al de entrega
 										echo '<div style="display:flex;gap:6px;margin:0 0 6px 0;align-items:center">';
@@ -107,10 +116,10 @@ if (isset($_SESSION['module_shipping_estimator'])) {
 										echo '<button type="button" id="seurPudoCpBtn" data-searching="' . htmlspecialchars(TEXT_SEUR_PUDO_CP_SEARCHING) . '" style="padding:6px 12px;cursor:pointer">' . TEXT_SEUR_PUDO_CP_SEARCH . '</button>';
 										echo '</div>';
 										echo '<input type="hidden" name="seur_pudo_cp" id="seurPudoCp" value="' . htmlspecialchars(trim($order->delivery['postcode'])) . '">';
-										echo '<select name="seur_pudo" id="seurPudoSelect" data-price="' . $sSeurPrice . '" data-price-pen="' . htmlspecialchars($sSeurPricePen) . '" data-price-bal="' . htmlspecialchars($sSeurPriceBal) . '" data-empty-text="' . htmlspecialchars(TEXT_SEUR_PUDO_EMPTY) . '" data-choose-text="' . htmlspecialchars(TEXT_SELECT_SEUR_PUDO_CHOOSE) . '">';
+										echo '<select name="seur_pudo" id="seurPudoSelect" data-price="' . $sSeurPrice . '" data-price-pen="' . htmlspecialchars($sSeurPricePen) . '" data-price-bal="' . htmlspecialchars($sSeurPriceBal) . '" data-price-bal70="' . htmlspecialchars($sSeurPriceBal70) . '" data-price-bal7x="' . htmlspecialchars($sSeurPriceBal7x) . '" data-empty-text="' . htmlspecialchars(TEXT_SEUR_PUDO_EMPTY) . '" data-choose-text="' . htmlspecialchars(TEXT_SELECT_SEUR_PUDO_CHOOSE) . '">';
 										echo '<option value="" data-price="' . $sSeurPrice . '">' . TEXT_SELECT_SEUR_PUDO_CHOOSE . '</option>';
 										foreach ($aSeurPuntos as $aPto) {
-											$sPtoZ = (substr((string) $aPto['cp'], 0, 2) === '07') ? $sSeurPriceBal : $sSeurPricePen;
+											$sPtoZ = $seurPrecioCpZ((string) $aPto['cp']);   // precio EXACTO por CP del punto
 											echo '<option data-price="' . htmlspecialchars($sPtoZ) . '" value="' . htmlspecialchars($aPto['id']) . '"' . ($aPto['id'] == $sSeurSel ? ' selected' : '') . '>'
 												. htmlspecialchars($aPto['name'] . ' - ' . $aPto['address'] . ' (' . $aPto['cp'] . ' ' . $aPto['city'] . ')') . '</option>';
 										}
@@ -240,6 +249,15 @@ if ($bSeurPudoMap):
 		if (!elSel) return;
 		var price = elSel.dataset.price || '';
 		var pricePen = elSel.dataset.pricePen || price, priceBal = elSel.dataset.priceBal || price;
+		var priceBal70 = elSel.dataset.priceBal70 || priceBal, priceBal7x = elSel.dataset.priceBal7x || priceBal;
+		// Precio por CP del punto: 070xx Palma / 077-078xx Menorca-Ibiza-Formentera (recargo isla) / resto 07 Mallorca / península
+		function precioPorCp(cp) {
+			var d = String(cp || '').replace(/[^0-9]/g, '');
+			if (d.slice(0, 2) !== '07') return pricePen;
+			if (d.slice(0, 3) === '070') return priceBal70;
+			if (d.slice(0, 3) === '077' || d.slice(0, 3) === '078') return priceBal7x;
+			return priceBal;
+		}
 
 		// Reconstruir el select (manteniendo data-price para el JS del checkout)
 		elSel.innerHTML = '';
@@ -251,7 +269,7 @@ if ($bSeurPudoMap):
 			var o = document.createElement('option');
 			o.value = p.id;
 			o.textContent = p.name + ' - ' + p.address + ' (' + p.cp + ' ' + p.city + ')';
-			o.setAttribute('data-price', (String(p.cp || '').replace(/[^0-9]/g, '').slice(0, 2) === '07') ? priceBal : pricePen);
+			o.setAttribute('data-price', precioPorCp(p.cp));
 			elSel.appendChild(o);
 		});
 		if (elMsg) elMsg.style.display = puntos.length ? 'none' : 'block';

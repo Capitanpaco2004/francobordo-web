@@ -407,6 +407,25 @@ class correos_express {
     }
 
     /* ================================================================== *
+     *  Etiqueta de un envío YA grabado (apiRestEtiquetaTransporte)       *
+     * ================================================================== */
+
+    /** Recupera la(s) etiqueta(s) de un envío ya existente en CEX.
+     *  Clave tras un timeout de grabacionEnvio en el que la petición SÍ se procesó
+     *  (solo se perdió la respuesta): permite imprimir sin crear otro envío.
+     *  @param string $numEnvio nº de envío CEX (datosResultado del alta)
+     *  @param string $tipo     '1'=PDF base64, '2'=ZPL texto claro, '3'/'4'/'5'=variantes PDF
+     *  Respuesta: data.codErr (0=OK), data.listaEtiquetas[] (una por bulto).
+     *  Doc: DC_SP_WS_apiRestEtiquetaTransporte_v01.04. */
+    public function etiquetaTransporte($numEnvio, $tipo = '2') {
+        return $this->post('apiRestEtiquetaTransporte/json/etiquetaTransporte', array(
+            'keyCli' => self::CLIENTE,
+            'nenvio' => (string) $numEnvio,
+            'tipo'   => (string) $tipo,
+        ));
+    }
+
+    /* ================================================================== *
      *  Manifiesto / Informe de envíos (apiRestGeneracionInformes)         *
      * ================================================================== */
 

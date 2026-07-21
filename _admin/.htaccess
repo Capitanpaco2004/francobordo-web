@@ -21,6 +21,8 @@ allow from 95.124.191.7
 allow from 217.127.199.171
 #IP Andorra
 allow from 145.224.124.130
+#IP Starlink
+allow from 150.228.101.103
 
 # VPN Kadevia
 #allow from 51.91.52.168

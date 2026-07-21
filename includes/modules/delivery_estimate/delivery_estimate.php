@@ -316,8 +316,15 @@ class delivery_estimate {
 			return (int)( defined('DELIVERY_ESTIMATE_TRANSIT_CANARIAS') ? DELIVERY_ESTIMATE_TRANSIT_CANARIAS : 6 );
 		if( $prefix === '51' || $prefix === '52' )   // Ceuta / Melilla
 			return (int)( defined('DELIVERY_ESTIMATE_TRANSIT_CEUTAMELILLA') ? DELIVERY_ESTIMATE_TRANSIT_CEUTAMELILLA : 6 );
-		if( $prefix === '07' )                        // Baleares
-			return (int)( defined('DELIVERY_ESTIMATE_TRANSIT_BALEARES') ? DELIVERY_ESTIMATE_TRANSIT_BALEARES : 1 );
+		if( $prefix === '07' ) {                      // Baleares
+			// Formentera: doble salto maritimo -> un dia mas que el resto del archipielago.
+			// CPs segun dataset cities: 07860 Sant Francesc, 07870 La Savina,
+			// 07871 Sant Ferran/Es Pujols/Migjorn, 07872 Pilar de la Mola/Es Calo.
+			$cp5 = substr( $cp, 0, 5 );
+			if( in_array( $cp5, array( '07860', '07870', '07871', '07872' ), true ) )
+				return (int)( defined('DELIVERY_ESTIMATE_TRANSIT_FORMENTERA') ? DELIVERY_ESTIMATE_TRANSIT_FORMENTERA : 3 );
+			return (int)( defined('DELIVERY_ESTIMATE_TRANSIT_BALEARES') ? DELIVERY_ESTIMATE_TRANSIT_BALEARES : 2 );
+		}
 
 		// Peninsula: transito segun la tabla de CP (abajo). $balearExtra ya no aplica.
 		$balearExtra = 0;

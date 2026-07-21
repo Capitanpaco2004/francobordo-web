@@ -31,7 +31,15 @@
  *   free    1 = envio manual sin pedido (ref propia, orders_id=0, sin dedup)
  *   dry     1 = no crea nada, devuelve el payload que se enviaria
  *
- * Respuesta JSON: { ok, dedup, env, shipmentCode, ecb, ref, tracking_url, zpl, error }
+ * Respuesta JSON: { ok, dedup, env, shipmentCode, ecb, ref, tracking_url, zpl,
+ *                   recuperado_timeout, error }
+ *
+ * Anti-duplicados tras timeout: si grabacionEnvio expira (o 502/504), la petición pudo
+ * haberse procesado en CEX (respuesta perdida). Antes de fallar -y antes de crear en un
+ * reintento- se consulta seguimientoEnvio(ref); si existe un envío reciente no registrado
+ * en cex_shipments, se recupera su etiqueta (apiRestEtiquetaTransporte) y se devuelve
+ * ok=1 con recuperado_timeout=true en vez de crear un envío fantasma (corte API 20/07/2026).
+ *
  * Ver memoria francobordo_correos_express_api.
  */
 header('Content-Type: application/json; charset=utf-8');
@@ -280,25 +288,127 @@ if ($pudoId !== '')     $opt['idPtoExterno'] = $pudoId;
 if ($dry) out(array('ok' => true, 'dry' => true, 'env' => $env, 'producto' => $producto,
                     'entrSabado' => $entrSabado, 'idPtoExterno' => $pudoId, 'ref' => $ref, 'payload' => $opt));
 
+/* ---- Anti-duplicados tras TIMEOUT --------------------------------------------------
+ * Un timeout de grabacionEnvio es AMBIGUO: la petición pudo procesarse en CEX y perderse
+ * solo la respuesta. Reintentar a ciegas crea envíos fantasma (que CEX puede facturar):
+ * en el corte API del 20/07/2026 los reintentos del watcher dejaron 3 envíos por pedido
+ * en F10365421/F10365403. Antes de dar el alta por fallida se pregunta a CEX si la ref ya
+ * tiene un envío que NO tengamos registrado (seguimientoEnvio devuelve el ÚLTIMO de la
+ * ref); si existe y es reciente, se recupera su etiqueta (apiRestEtiquetaTransporte) y se
+ * responde como si el alta hubiera ido bien. Solo para timeouts, nunca errores de negocio. */
+function cexTimedOut(array $res) {
+    $http = (int) ($res['http'] ?? 0);
+    if (in_array($http, array(502, 504), true)) return true;   // gateway sin respuesta del backend: igual de ambiguo
+    return $http === 0 && preg_match('/timed?\s*out/i', (string) ($res['error'] ?? ''));
+}
+
+/** Si la ref ya tiene en CEX un envío reciente que no está en cex_shipments, recupera su
+ *  etiqueta y devuelve un pseudo-$d con la forma de la respuesta de grabacionEnvio.
+ *  Devuelve null si la ref no existe en CEX (reintentar es seguro: error 100 "NO
+ *  ENCONTRADO" / 999 "BUSCAR_EXPEDICION") o si no se pudo concluir (mejor fallar). */
+function cexRecuperarEnvioPerdido(correos_express $cex, mysqli $db, $ref, $env) {
+    $seg = $cex->seguimientoEnvio($ref);
+    $sd  = is_array($seg['data'] ?? null) ? $seg['data'] : array();
+    if (!$seg['ok'] || (int) ($sd['error'] ?? -1) !== 0) return null;
+    $numEnvio = trim((string) ($sd['numEnvio'] ?? ''));
+    if ($numEnvio === '') return null;
+
+    /* Si ese numEnvio ya está registrado aquí, NO lo creó la petición perdida (es un envío
+     * anterior legítimo de la misma ref: otro albarán del pedido, un "modificar" viejo...). */
+    $st = $db->prepare("SELECT id FROM cex_shipments WHERE shipment_code=? AND entorno=? LIMIT 1");
+    $st->bind_param('ss', $numEnvio, $env);
+    $st->execute();
+    if ($st->get_result()->fetch_assoc()) return null;
+
+    /* Solo envíos recientes (fecha DD/MM/AA, <=7 días): un desconocido antiguo no es nuestro. */
+    $ts = false;
+    if (preg_match('#^(\d{2})/(\d{2})/(\d{2})$#', trim((string) ($sd['fecha'] ?? '')), $m)) {
+        $ts = mktime(12, 0, 0, (int) $m[2], (int) $m[1], 2000 + (int) $m[3]);
+    }
+    if ($ts === false || $ts < time() - 7 * 86400) return null;
+
+    $et = $cex->etiquetaTransporte($numEnvio, '2');
+    $ed = is_array($et['data'] ?? null) ? $et['data'] : array();
+    if (!$et['ok'] || (int) ($ed['codErr'] ?? -1) !== 0
+        || empty($ed['listaEtiquetas']) || !is_array($ed['listaEtiquetas'])) return null;
+
+    $labels = array(); $zplAll = '';
+    foreach ($ed['listaEtiquetas'] as $z) {
+        $z = (string) $z;
+        if ($z === '') continue;
+        $labels[] = array('etiqueta2' => $z);   // misma forma que grabacionEnvio (ZPL texto plano)
+        $zplAll  .= $z;
+    }
+    if (!$labels) return null;
+    /* ECB (código de barras del bulto) desde el propio ZPL; ojo: no es el numEnvio literal. */
+    $ecb = preg_match('/\^FD(\d{18,30})\^FS/', $zplAll, $m) ? $m[1] : '';
+
+    return array(
+        'codigoRetorno'  => 0,
+        'mensajeRetorno' => '',
+        'datosResultado' => $numEnvio,
+        'listaBultos'    => $ecb !== '' ? array(array('codUnico' => $ecb)) : array(),
+        'etiqueta'       => $labels,
+        'recuperadoTrasTimeout' => 1,   // marca de evidencia en response_json
+    );
+}
+
 /* ---- Crear envio + etiqueta (una sola llamada) ---- */
 $cex = new correos_express($env);
 $cex->setTimeout(60);
-$res = $cex->grabacionEnvio($opt);
-$d   = $res['data'] ?? array();
-$cod = isset($d['codigoRetorno']) ? (int) $d['codigoRetorno'] : -1;
-$msg = (string) ($d['mensajeRetorno'] ?? ($res['error'] ?? 'sin respuesta'));
 
-if (!$res['ok'] || $cod !== 0) {
-    $st = $db->prepare("INSERT INTO cex_shipments (id_rma, orders_id, albaran_id, tipo, entorno, product_code, ref, kilos,
-                          http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                        VALUES (0,?,?,'envio',?,?,?,?,?,?,0,?,?, 'vstock-watcher', NOW())");
-    $http = (string) ($res['http'] ?? '');
-    $reqj = json_encode($opt, JSON_UNESCAPED_UNICODE);
-    $rawj = json_encode($d, JSON_UNESCAPED_UNICODE);
-    $msg500 = substr($msg, 0, 500);
-    $st->bind_param('issssdssss', $oid, $alb, $env, $producto, $ref, $kilos, $http, $msg500, $reqj, $rawj);
-    $st->execute();
-    out(array('ok' => false, 'env' => $env, 'error' => $msg, 'cod' => $cod, 'http' => $res['http'] ?? null));
+/* Pre-chequeo: si el intento ANTERIOR para este mismo albarán/pedido murió por timeout,
+ * la petición pudo llegar a CEX -> preguntar ANTES de crear otro (mata el fantasma del
+ * reintento incluso si la recuperación en caliente falló durante el corte). Solo en el
+ * flujo normal: en regen el operario puede cambiar datos entre intentos y en free la
+ * ref es nueva en cada intento. */
+$recovered = false;
+$d = array();
+$res = array('ok' => true, 'http' => 200, 'error' => '');
+if (!$regen && !$free) {
+    $stPT = $alb !== ''
+        ? $db->prepare("SELECT id FROM cex_shipments WHERE albaran_id=? AND entorno=? AND ok=0
+                          AND (mensaje_retorno LIKE '%timed out%' OR http_code IN ('502','504'))
+                          AND date_added > DATE_SUB(NOW(), INTERVAL 7 DAY) LIMIT 1")
+        : $db->prepare("SELECT id FROM cex_shipments WHERE orders_id=? AND entorno=? AND ok=0
+                          AND (mensaje_retorno LIKE '%timed out%' OR http_code IN ('502','504'))
+                          AND date_added > DATE_SUB(NOW(), INTERVAL 7 DAY) LIMIT 1");
+    if ($alb !== '') $stPT->bind_param('ss', $alb, $env); else $stPT->bind_param('is', $oid, $env);
+    $stPT->execute();
+    if ($stPT->get_result()->fetch_assoc()) {
+        $dRec = cexRecuperarEnvioPerdido($cex, $db, $ref, $env);
+        if ($dRec !== null) { $d = $dRec; $recovered = true; }
+    }
+}
+
+if (!$recovered) {
+    $res = $cex->grabacionEnvio($opt);
+    $d   = $res['data'] ?? array();
+    $cod = isset($d['codigoRetorno']) ? (int) $d['codigoRetorno'] : -1;
+    $msg = (string) ($d['mensajeRetorno'] ?? ($res['error'] ?? 'sin respuesta'));
+
+    /* Timeout ambiguo: ¿llegó a crearse? Si CEX ya lo tiene, recuperar en vez de fallar
+     * (el reintento del watcher crearía OTRO envío). */
+    if ((!$res['ok'] || $cod !== 0) && cexTimedOut($res)) {
+        $dRec = cexRecuperarEnvioPerdido($cex, $db, $ref, $env);
+        if ($dRec !== null) {
+            $d = $dRec; $recovered = true;
+            $res = array('ok' => true, 'http' => 200, 'error' => '');
+        }
+    }
+
+    if (!$recovered && (!$res['ok'] || $cod !== 0)) {
+        $st = $db->prepare("INSERT INTO cex_shipments (id_rma, orders_id, albaran_id, tipo, entorno, product_code, ref, kilos,
+                              http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
+                            VALUES (0,?,?,'envio',?,?,?,?,?,?,0,?,?, 'vstock-watcher', NOW())");
+        $http = (string) ($res['http'] ?? '');
+        $reqj = json_encode($opt, JSON_UNESCAPED_UNICODE);
+        $rawj = json_encode($d, JSON_UNESCAPED_UNICODE);
+        $msg500 = substr($msg, 0, 500);
+        $st->bind_param('issssdssss', $oid, $alb, $env, $producto, $ref, $kilos, $http, $msg500, $reqj, $rawj);
+        $st->execute();
+        out(array('ok' => false, 'env' => $env, 'error' => $msg, 'cod' => $cod, 'http' => $res['http'] ?? null));
+    }
 }
 
 /* numEnvio + codigo de barras del bulto + ZPL */
@@ -339,15 +449,16 @@ $trackingUrl = 'https://www.correosexpress.com/url/v?s=' . rawurlencode($ref) . 
 $st = $db->prepare("INSERT INTO cex_shipments (id_rma, orders_id, albaran_id, tipo, entorno, shipment_code, ecb,
                       product_code, pudo_id, pudo_name, ref, kilos, label_format, label_zpl_path, tracking_url,
                       http_code, mensaje_retorno, ok, request_json, response_json, operator, date_added)
-                    VALUES (0,?,?,'envio',?,?,?,?,?,?,?,?,?,?,?,?, '', 1, ?, ?, 'vstock-watcher', NOW())");
+                    VALUES (0,?,?,'envio',?,?,?,?,?,?,?,?,?,?,?,?, ?, 1, ?, ?, 'vstock-watcher', NOW())");
 $fmt = $zplPath ? 'zpl' : '';
 $http = (string) ($res['http'] ?? '');
+$msgOk = $recovered ? 'Recuperado tras timeout: el envio ya existia en CEX (etiquetaTransporte)' : '';
 $reqj = json_encode($opt, JSON_UNESCAPED_UNICODE);
 $rawj = json_encode($d, JSON_UNESCAPED_UNICODE);
 $pudoIdDb   = ($pudoId !== '') ? $pudoId : null;
 $pudoNameDb = ($pudoName !== '') ? $pudoName : null;
-$st->bind_param('issssssssdssssss', $oid, $alb, $env, $numEnvio, $ecb, $producto, $pudoIdDb, $pudoNameDb,
-                $ref, $kilos, $fmt, $zplPath, $trackingUrl, $http, $reqj, $rawj);
+$st->bind_param('issssssssdsssssss', $oid, $alb, $env, $numEnvio, $ecb, $producto, $pudoIdDb, $pudoNameDb,
+                $ref, $kilos, $fmt, $zplPath, $trackingUrl, $http, $msgOk, $reqj, $rawj);
 $st->execute();
 $newId = $db->insert_id;
 
@@ -366,6 +477,7 @@ out(array(
     'ok' => true, 'dedup' => false, 'env' => $env, 'shipment_id' => $newId,
     'shipmentCode' => $numEnvio, 'ecb' => $ecb, 'ref' => $ref, 'producto' => $producto,
     'bultos' => $bultos, 'labels' => $nLabels,
+    'recuperado_timeout' => $recovered,   // true = etiqueta de un envío ya existente (no se creó otro)
     'entrSabado' => $entrSabado, 'idPtoExterno' => $pudoId, 'tracking_url' => $trackingUrl,
     'zpl' => in_array($type, array('ZPL', 'BOTH')) ? $zpl : null,
 ));

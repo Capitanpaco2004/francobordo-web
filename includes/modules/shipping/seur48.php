@@ -30,6 +30,25 @@ class seur48
     const MARGEN = 1.10;
     const FUEL = 1.1654;  // sobrecoste fuel SEUR 16,54% repercutido al cliente (2026-06-25)
 
+    /** Recargos insulares de Baleares del CONTRATO (2026-07-20; se suman al COSTE y
+     *  luego se aplican margen y fuel como al resto):
+     *   - Reexpedición especial a Menorca (077xx) e Ibiza/Formentera (078xx):
+     *     7,98 €/exp + 0,25 €/kg ("Reexpediciones" + punto 22 de la tarifa — la columna
+     *     Baleares solo cubre Mallorca; el salto de isla se factura aparte).
+     *   - Extrapeninsulares (población no capital de provincia): 3 €/exp — aproximado
+     *     por CP: todo 07xxx salvo Palma (070xx). */
+    public static function recargoInsularBaleares($cp, $kg)
+    {
+        $cp = preg_replace('/[^0-9]/', '', (string) $cp);
+        if (strncmp($cp, '07', 2) !== 0) return 0.0;
+        $r = 0.0;
+        if (strncmp($cp, '077', 3) === 0 || strncmp($cp, '078', 3) === 0) {
+            $r += 7.98 + 0.25 * ceil(max(1.0, (float) $kg));
+        }
+        if (strncmp($cp, '070', 3) !== 0) $r += 3.0;
+        return $r;
+    }
+
     /** Codigos postales restringidos (campo admin MODULE_SEUR48_CP_RESTRINGIDOS, separados
      *  por comas). Admite prefijos: '29' restringe la provincia 29; '29620' solo ese CP. */
     public static function cpRestringido($cp)
@@ -99,7 +118,9 @@ class seur48
         $zona = (strncmp($cp, '07', 2) === 0) ? 'BAL'
               : ((strncmp($cp, '35', 2) === 0 || strncmp($cp, '38', 2) === 0) ? 'CAN'
               : ((strncmp($cp, '51', 2) === 0 || strncmp($cp, '52', 2) === 0) ? 'CEU' : 'PEN'));
-        $base = self::tarifaB2C($kg, $zona) * self::MARGEN * self::FUEL;
+        $coste = self::tarifaB2C($kg, $zona);
+        if ($zona === 'BAL') $coste += self::recargoInsularBaleares($cp, $kg);   // reexpedición isla + extrapeninsular
+        $base = $coste * self::MARGEN * self::FUEL;
 
         $iva = ($this->tax_class > 0)
             ? tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id'])

@@ -69,6 +69,21 @@ class seurpunto {
         return end($tabla);
     }
 
+    /** Recargos insulares de Baleares del CONTRATO (2026-07-20; se suman al COSTE y luego
+     *  margen+fuel): reexpedición especial a Menorca 077xx / Ibiza-Formentera 078xx
+     *  (7,98 €/exp + 0,25 €/kg) + extrapeninsular no-capital 3 €/exp (todo 07 salvo
+     *  Palma 070xx). Idéntico a seur48::recargoInsularBaleares. */
+    public static function recargoInsularBaleares($cp, $kg) {
+        $cp = preg_replace('/[^0-9]/', '', (string) $cp);
+        if (strncmp($cp, '07', 2) !== 0) return 0.0;
+        $r = 0.0;
+        if (strncmp($cp, '077', 3) === 0 || strncmp($cp, '078', 3) === 0) {
+            $r += 7.98 + 0.25 * ceil(max(1.0, (float) $kg));
+        }
+        if (strncmp($cp, '070', 3) !== 0) $r += 3.0;
+        return $r;
+    }
+
     public function quote($method = '') {
         global $order, $cart, $shipping_weight;
 
@@ -126,7 +141,9 @@ class seurpunto {
         }
 
         $zona = (strncmp($cp, '07', 2) === 0) ? 'BAL' : 'PEN';
-        $base = self::costePorPeso($kg, $zona) * self::MARGEN * self::FUEL;   // coste sin IVA + margen 10% + fuel 16,54%
+        $coste = self::costePorPeso($kg, $zona);
+        if ($zona === 'BAL') $coste += self::recargoInsularBaleares($cp, $kg);   // reexpedición isla + extrapeninsular
+        $base = $coste * self::MARGEN * self::FUEL;   // coste sin IVA + margen 10% + fuel 16,54%
 
         $iva = ($this->tax_class > 0)
             ? tep_get_tax_rate($this->tax_class, $order->delivery['country']['id'], $order->delivery['zone_id'])
