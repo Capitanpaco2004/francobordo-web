@@ -61,7 +61,9 @@ if (!$row0) out(array('ok' => true, 'job' => null));
 $id = (int) $row0['id'];
 $db->query("UPDATE correos_reprint_queue SET done = 2, attempts = attempts + 1, done_at = NOW() WHERE id = " . $id . " AND done IN (0,2)");
 if ($db->affected_rows < 1) out(array('ok' => true, 'job' => null));   // otro lo reclamó (carrera)
-$r2 = $db->query("SELECT id, orders_id, zpl FROM correos_reprint_queue WHERE id = " . $id);
+$r2 = $db->query("SELECT id, orders_id, zpl, cn23_pcl FROM correos_reprint_queue WHERE id = " . $id);
 $row = $r2 ? $r2->fetch_assoc() : null;
 if (!$row) out(array('ok' => true, 'job' => null));
-out(array('ok' => true, 'job' => array('id' => (int) $row['id'], 'oid' => (int) $row['orders_id'], 'zpl' => $row['zpl'])));
+/* cn23_pcl = CN23 de aduanas en PCL A4 (base64); el watcher lo imprime en la HP tras la etiqueta. */
+out(array('ok' => true, 'job' => array('id' => (int) $row['id'], 'oid' => (int) $row['orders_id'],
+                                       'zpl' => $row['zpl'], 'cn23_pcl' => (string) ($row['cn23_pcl'] ?? ''))));

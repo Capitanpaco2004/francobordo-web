@@ -104,11 +104,15 @@ class seur48
 
         if (!$this->enabled) return array();
 
-        // Destino: toda Espana (ES). La zona/tarifa la marca el CP (Baleares 07, Canarias
-        // 35/38, Ceuta 51, Melilla 52, resto peninsula). Mas los CPs del campo admin restringidos.
+        // Destino: Espana peninsular + Baleares. Canarias 35/38 y Ceuta/Melilla 51/52
+        // EXCLUIDAS desde 2026-07-20 (decision usuario): la tarifa no cubre los gastos de
+        // aduana (DUA/despacho como suplidos, punto 16), la tasa IMO maritima 0,30/kg ni la
+        // reexpedicion especial de Ceuta/Melilla -> el checkout los deriva a los modulos de
+        // Correos especificos de esas zonas. Las tablas CAN/CEU siguen en tarifaB2C() por si
+        // se reactiva cuando la 1a factura permita tarifar el despacho con datos.
         $iso = strtoupper((string) ($order->delivery['country']['iso_code_2'] ?? ''));
         $cp  = preg_replace('/\s+/', '', (string) $order->delivery['postcode']);
-        if ($iso !== 'ES' || self::cpRestringido($cp)) {
+        if ($iso !== 'ES' || preg_match('/^(35|38|51|52)/', $cp) || self::cpRestringido($cp)) {
             $this->enabled = false;
             return array();
         }

@@ -109,6 +109,7 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
         $mbultos = max(1, min(10, (int) ($_POST['m_bultos'] ?? 1)));
         $mref = $g('m_ref'); if ($mref === '') $mref = 'M-' . date('ymd-His') . '-' . substr(bin2hex(random_bytes(2)), 0, 4);
         $mdvalue = str_replace(',', '.', $g('m_dvalue')); $mddesc = $g('m_ddesc');
+        $mddoi   = strtoupper(preg_replace('/[^0-9A-Za-z]/', '', $g('m_ddoi')));
         $mmode = ($g('m_mode') === 'ofi') ? 'ofi' : 'dom';
         // Pais destino ISO-3. Internacional (!= ESP) => Paq Estandar Internacional (PAAXI), SOLO domicilio.
         $mcountry = strtoupper(preg_replace('/[^A-Za-z]/', '', $g('m_dcountry')));
@@ -147,8 +148,13 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
             $cpd = preg_replace('/\D/', '', (string) $dest['dcp']);
             $aduanas = $mesES ? in_array(substr($cpd, 0, 2), array('35', '38', '51', '52'), true)
                               : !in_array($mcountry, $ue27, true);
+            $doiOk = (bool) preg_match('/^(\d{8}[A-Z]|[XYZ]\d{7}[A-Z]|[A-HJ-NP-SUVW]\d{7}[0-9A-J])$/', $mddoi);
             if ($aduanas && ((float) $mdvalue <= 0 || $mddesc === ''))
                 $err = 'Destino con aduanas (' . htmlspecialchars($mesES ? $cpd : $mcountry) . '): el valor declarado y el contenido son obligatorios (declaracion DUA/CN23).';
+            elseif ($aduanas && $mesES && !$doiOk)
+                $err = 'Destino Canarias/Ceuta/Melilla: Correos exige el DNI/NIF/NIE del destinatario para la DUA' . ($mddoi === '' ? '.' : ' ("' . htmlspecialchars($mddoi) . '" no tiene formato valido: 12345678Z, X1234567L o B12345678).');
+            elseif ($aduanas && !$mesES && $mddoi !== '' && !$doiOk)
+                $err = 'El documento del destinatario "' . htmlspecialchars($mddoi) . '" no tiene formato valido (DNI 12345678Z, NIE X1234567L o CIF B12345678); dejalo vacio si no lo tienes.';
             elseif ($aduanas && $mbultos > 1)
                 $err = 'Destino con aduanas: usa un solo bulto (la declaracion DUA/CN23 debe ir completa en un paquete).';
         }
@@ -160,14 +166,20 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
                 'kilos' => $mkilos, 'bultos' => $mbultos, 'type' => 'ZPL'), $dest);
             if ($mdvalue !== '' && (float) $mdvalue > 0) $params['dvalue'] = $mdvalue;
             if ($mddesc !== '') $params['ddesc'] = $mddesc;
+            if ($mddoi !== '') $params['ddoi'] = $mddoi;
             $ch = curl_init('https://www.francobordo.com/correos_albaran.php');
             curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => 1, CURLOPT_TIMEOUT => 120, CURLOPT_POST => 1,
                 CURLOPT_POSTFIELDS => http_build_query($params), CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2));
             $raw = curl_exec($ch); $cerr = curl_error($ch); // sin curl_close(): deprecado en PHP 8.5
             $resp = json_decode((string) $raw, true);
             if (is_array($resp) && !empty($resp['ok']) && !empty($resp['shipmentCode'])) {
-                if (!empty($resp['zpl']))
-                    tep_db_perform('correos_reprint_queue', array('shipment_id' => 0, 'orders_id' => 0, 'zpl' => $resp['zpl'], 'done' => 0, 'date_added' => 'now()'));
+                if (!empty($resp['zpl']) || !empty($resp['cn23_pcl_b64'])) {
+                    // cn23_pcl_b64 = documentos de exportacion (DUA/CN23) en PCL A4; sin el, un manual
+                    // a Canarias imprimia la etiqueta pero NUNCA los papeles de aduana.
+                    $qrow = array('shipment_id' => 0, 'orders_id' => 0, 'zpl' => (string) ($resp['zpl'] ?? ''), 'done' => 0, 'date_added' => 'now()');
+                    if (!empty($resp['cn23_pcl_b64'])) $qrow['cn23_pcl'] = $resp['cn23_pcl_b64'];
+                    tep_db_perform('correos_reprint_queue', $qrow);
+                }
                 $donde = ($mmode === 'ofi') ? ' (entrega en oficina)' : ($mesES ? '' : ' (internacional ' . htmlspecialchars($mcountry) . ')');
                 $extra = empty($resp['zpl']) ? ' (sin ZPL: descarga el PDF / reimprime desde el listado).' : ' La etiqueta saldra por la impresora del almacen en ~1 min.';
                 $_SESSION['correos_flash'] = array('m' => 'Envio manual creado' . $donde . ': <strong>' . htmlspecialchars($resp['shipmentCode']) . '</strong> (ref ' . htmlspecialchars($mref) . ').' . $extra, 'c' => 'success');
@@ -222,16 +234,22 @@ if ($action !== '' && $shipId > 0) {
                 } elseif (empty($s['ok']) || !empty($s['cancelled_at'])) {
                     $msg = 'Solo se reimprimen envíos activos y con etiqueta correcta.'; $msgClass = 'warning';
                 } else {
-                    $zpl = '';
+                    $zpl = ''; $cn23b64 = '';
                     if (!empty($s['label_zpl_path']) && is_file($s['label_zpl_path'])) $zpl = (string) file_get_contents($s['label_zpl_path']);
+                    // CN23 (aduanas): el endpoint lo cachea junto al PDF de la etiqueta
+                    if (!empty($s['label_path']) && is_file($s['label_path'] . '.cn23.pcl'))
+                        $cn23b64 = base64_encode((string) file_get_contents($s['label_path'] . '.cn23.pcl'));
                     if ($zpl === '' && (int) $s['orders_id'] > 0) {
                         list($resp, , ) = correosEnvEndpoint(array('oid' => (int) $s['orders_id'], 'type' => 'ZPL'));
                         if (is_array($resp) && !empty($resp['zpl'])) $zpl = (string) $resp['zpl'];
+                        if ($cn23b64 === '' && is_array($resp) && !empty($resp['cn23_pcl_b64'])) $cn23b64 = (string) $resp['cn23_pcl_b64'];
                     }
                     if ($zpl !== '') {
-                        tep_db_perform('correos_reprint_queue', array(
+                        $qrow = array(
                             'shipment_id' => $shipId, 'orders_id' => (int) $s['orders_id'],
-                            'zpl' => $zpl, 'done' => 0, 'date_added' => 'now()'));
+                            'zpl' => $zpl, 'done' => 0, 'date_added' => 'now()');
+                        if ($cn23b64 !== '') $qrow['cn23_pcl'] = $cn23b64;
+                        tep_db_perform('correos_reprint_queue', $qrow);
                         $msg = 'Reimpresión encolada para ' . htmlspecialchars($s['shipment_code']) . '. Saldrá por la impresora del almacén en ~1 min.'; $msgClass = 'success';
                     } else {
                         $msg = 'No se pudo obtener el ZPL para reimprimir (ni en disco ni regenerándolo).'; $msgClass = 'danger';
@@ -300,8 +318,11 @@ if ($action !== '' && $shipId > 0) {
                                 list($resp, $cerr, ) = correosEnvEndpoint($params);
                                 $newCode = (is_array($resp) && !empty($resp['ok']) && empty($resp['dedup']) && !empty($resp['shipmentCode'])) ? $resp['shipmentCode'] : '';
                                 if ($newCode !== '' && $newCode !== $s['shipment_code']) {
-                                    if (!empty($resp['zpl']))
-                                        tep_db_perform('correos_reprint_queue', array('shipment_id' => 0, 'orders_id' => $oidM, 'zpl' => $resp['zpl'], 'done' => 0, 'date_added' => 'now()'));
+                                    if (!empty($resp['zpl'])) {
+                                        $qrow = array('shipment_id' => 0, 'orders_id' => $oidM, 'zpl' => $resp['zpl'], 'done' => 0, 'date_added' => 'now()');
+                                        if (!empty($resp['cn23_pcl_b64'])) $qrow['cn23_pcl'] = $resp['cn23_pcl_b64'];
+                                        tep_db_perform('correos_reprint_queue', $qrow);
+                                    }
                                     $msg = 'Envío regenerado: nuevo código <strong>' . htmlspecialchars($newCode) . '</strong>. El anterior queda anulado; la nueva etiqueta saldrá por la impresora en ~1 min. <strong>Descarta la etiqueta anterior.</strong>'; $msgClass = 'success';
                                 } else {
                                     // ¿Se creó pese a respuesta no clara? (persistencia temprana del endpoint) — evitar reintento que anularía el bueno.
@@ -461,7 +482,8 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
       <label style="grid-column:1/3;">Referencia / concepto <span style="color:#999;font-weight:normal">(aparece en la columna Pedido/RMA del listado y es buscable; d&eacute;jalo vac&iacute;o para auto)</span><input type="text" name="m_ref" placeholder="p.ej. RMA proveedor 123, n&ordm; factura, pedido relacionado&hellip;"></label>
       <label>Valor declarado &euro; <span style="color:#999">(islas / fuera UE)</span><input type="text" name="m_dvalue" placeholder="p.ej. 1234.56"></label>
       <label>Contenido <span style="color:#999">(islas / fuera UE)</span><input type="text" name="m_ddesc" placeholder="p.ej. recambios nauticos"></label>
-      <div id="mAvisoAduanas" style="grid-column:1/3;display:none;margin-top:2px;padding:6px 9px;background:#fff8e1;border:1px solid #ffe082;border-radius:4px;color:#7a5900;font-size:11px;">Destino <strong>con aduanas</strong> (Canarias/Ceuta/Melilla o fuera de la UE): el <strong>valor declarado y el contenido</strong> son obligatorios y el env&iacute;o debe ir en <strong>un solo bulto</strong> (la declaraci&oacute;n DUA/CN23 va completa en un paquete).</div>
+      <label>DNI/NIF destinatario <span style="color:#999">(obligatorio en islas)</span><input type="text" name="m_ddoi" maxlength="12" placeholder="12345678Z / X1234567L / B12345678"></label>
+      <div id="mAvisoAduanas" style="grid-column:1/3;display:none;margin-top:2px;padding:6px 9px;background:#fff8e1;border:1px solid #ffe082;border-radius:4px;color:#7a5900;font-size:11px;">Destino <strong>con aduanas</strong> (Canarias/Ceuta/Melilla o fuera de la UE): el <strong>valor declarado y el contenido</strong> son obligatorios y el env&iacute;o debe ir en <strong>un solo bulto</strong> (la declaraci&oacute;n DUA/CN23 va completa en un paquete). En Canarias/Ceuta/Melilla Correos exige adem&aacute;s el <strong>DNI/NIF del destinatario</strong>.</div>
       <div style="grid-column:1/3;margin-top:2px;color:#777;font-size:11px;">Espa&ntilde;a: Paq Est&aacute;ndar, domicilio o recogida en oficina. Otros pa&iacute;ses: <strong>Paq Est&aacute;ndar Internacional</strong>, solo domicilio. Rellena <strong>valor y contenido</strong> para Canarias/Ceuta/Melilla y para destinos <strong>fuera de la UE</strong> (declaraci&oacute;n DUA/CN23 obligatoria).</div>
       <div style="grid-column:1/3;margin-top:4px;"><button class="btn verde" type="submit">Crear env&iacute;o y mandar etiqueta a la impresora</button></div>
     </form>
@@ -488,6 +510,7 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
       var ISLAS = ['35', '38', '51', '52'];
       var elCp = f.querySelector('[name="m_dcp"]'), elBul = f.querySelector('[name="m_bultos"]');
       var elVal = f.querySelector('[name="m_dvalue"]'), elDsc = f.querySelector('[name="m_ddesc"]');
+      var elDoi = f.querySelector('[name="m_ddoi"]');
       // Mismo criterio que el endpoint: islas espanolas (por CP) o destino fuera de la UE-27.
       function conAduanas(iso) {
         if (iso !== 'ESP') return UE27.indexOf(iso) < 0;
@@ -510,6 +533,8 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
         if (elBul) { elBul.max = adu ? 1 : 10; if (adu) elBul.value = 1; }
         if (elVal) elVal.required = adu;
         if (elDsc) elDsc.required = adu;
+        // El DNI del destinatario solo es obligatorio en islas espanolas (el endpoint no lo exige fuera de la UE).
+        if (elDoi) elDoi.required = (adu && iso === 'ESP');
       }
       if (cty) cty.addEventListener('change', syncPais);
       if (elCp) elCp.addEventListener('input', syncPais);
