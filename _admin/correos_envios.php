@@ -155,8 +155,8 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
                 $err = 'Destino Canarias/Ceuta/Melilla: Correos exige el DNI/NIF/NIE del destinatario para la DUA' . ($mddoi === '' ? '.' : ' ("' . htmlspecialchars($mddoi) . '" no tiene formato valido: 12345678Z, X1234567L o B12345678).');
             elseif ($aduanas && !$mesES && $mddoi !== '' && !$doiOk)
                 $err = 'El documento del destinatario "' . htmlspecialchars($mddoi) . '" no tiene formato valido (DNI 12345678Z, NIE X1234567L o CIF B12345678); dejalo vacio si no lo tienes.';
-            elseif ($aduanas && $mbultos > 1)
-                $err = 'Destino con aduanas: usa un solo bulto (la declaracion DUA/CN23 debe ir completa en un paquete).';
+            elseif ($aduanas && !$mesES && $mbultos > 1)
+                $err = 'Internacional con aduanas: Paq Estandar Internacional admite un solo bulto; divide en envios separados.';
         }
         if ($err !== '') {
             $_SESSION['correos_flash'] = array('m' => $err, 'c' => 'danger');
@@ -483,7 +483,7 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
       <label>Valor declarado &euro; <span style="color:#999">(islas / fuera UE)</span><input type="text" name="m_dvalue" placeholder="p.ej. 1234.56"></label>
       <label>Contenido <span style="color:#999">(islas / fuera UE)</span><input type="text" name="m_ddesc" placeholder="p.ej. recambios nauticos"></label>
       <label>DNI/NIF destinatario <span style="color:#999">(obligatorio en islas)</span><input type="text" name="m_ddoi" maxlength="12" placeholder="12345678Z / X1234567L / B12345678"></label>
-      <div id="mAvisoAduanas" style="grid-column:1/3;display:none;margin-top:2px;padding:6px 9px;background:#fff8e1;border:1px solid #ffe082;border-radius:4px;color:#7a5900;font-size:11px;">Destino <strong>con aduanas</strong> (Canarias/Ceuta/Melilla o fuera de la UE): el <strong>valor declarado y el contenido</strong> son obligatorios y el env&iacute;o debe ir en <strong>un solo bulto</strong> (la declaraci&oacute;n DUA/CN23 va completa en un paquete). En Canarias/Ceuta/Melilla Correos exige adem&aacute;s el <strong>DNI/NIF del destinatario</strong>.</div>
+      <div id="mAvisoAduanas" style="grid-column:1/3;display:none;margin-top:2px;padding:6px 9px;background:#fff8e1;border:1px solid #ffe082;border-radius:4px;color:#7a5900;font-size:11px;">Destino <strong>con aduanas</strong> (Canarias/Ceuta/Melilla o fuera de la UE): el <strong>valor declarado y el contenido</strong> son obligatorios. En Canarias/Ceuta/Melilla Correos exige adem&aacute;s el <strong>DNI/NIF del destinatario</strong>; con varios bultos el valor se reparte entre ellos y cada bulto lleva su CN23. Internacional fuera de la UE: <strong>un solo bulto</strong>.</div>
       <div style="grid-column:1/3;margin-top:2px;color:#777;font-size:11px;">Espa&ntilde;a: Paq Est&aacute;ndar, domicilio o recogida en oficina. Otros pa&iacute;ses: <strong>Paq Est&aacute;ndar Internacional</strong>, solo domicilio. Rellena <strong>valor y contenido</strong> para Canarias/Ceuta/Melilla y para destinos <strong>fuera de la UE</strong> (declaraci&oacute;n DUA/CN23 obligatoria).</div>
       <div style="grid-column:1/3;margin-top:4px;"><button class="btn verde" type="submit">Crear env&iacute;o y mandar etiqueta a la impresora</button></div>
     </form>
@@ -529,8 +529,9 @@ if (isset($_GET['edit']) && (int) $_GET['edit'] > 0) {
         }
         var adu = conAduanas(iso);
         if (aviso) aviso.style.display = adu ? '' : 'none';
-        // El endpoint rechaza multibulto con aduanas: la DUA/CN23 va completa en un bulto.
-        if (elBul) { elBul.max = adu ? 1 : 10; if (adu) elBul.value = 1; }
+        // Islas: multibulto OK (declaracion por bulto). Internacional con aduanas: PAAXI = 1 bulto.
+        var soloUnBulto = adu && iso !== 'ESP';
+        if (elBul) { elBul.max = soloUnBulto ? 1 : 10; if (soloUnBulto) elBul.value = 1; }
         if (elVal) elVal.required = adu;
         if (elDsc) elDsc.required = adu;
         // El DNI del destinatario solo es obligatorio en islas espanolas (el endpoint no lo exige fuera de la UE).

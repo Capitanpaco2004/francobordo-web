@@ -212,16 +212,23 @@ function correos_cn23_pcl($pdfPath) {
     // ¿La 1ª página es un CN23? (altura < 500pt; las etiquetas miden 842pt). Se extrae la
     // pág.1 con CompatibilityLevel=1.4 (sin object streams → el /MediaBox queda en texto
     // plano) y se busca en el probe entero.
+    /* Con multibulto hay UNA pagina CN23 por bulto, todas al principio del PDF (verificado
+     * 2026-07-23: 2 bultos -> 421pt + 421pt + etiqueta 842pt). Se cuentan las paginas de
+     * altura CN23 (<500pt) y se extraen TODAS, no solo la primera. */
     $probe = $pdfPath . '.probe.pdf';
-    if (correos_gs_run(array('-o', $probe, '-sDEVICE=pdfwrite', '-dCompatibilityLevel=1.4', '-dFirstPage=1', '-dLastPage=1', $pdfPath)) !== 0) { @unlink($probe); return null; }
+    if (correos_gs_run(array('-o', $probe, '-sDEVICE=pdfwrite', '-dCompatibilityLevel=1.4', $pdfPath)) !== 0) { @unlink($probe); return null; }
     $head = (string) @file_get_contents($probe);
     @unlink($probe);
-    if (!preg_match('/MediaBox\s*\[\s*[\d.]+\s+[\d.]+\s+[\d.]+\s+([\d.]+)/', $head, $m) || (float) $m[1] >= 500) {
+    $nCn23 = 0;
+    if (preg_match_all('/MediaBox\s*\[\s*[\d.]+\s+[\d.]+\s+[\d.]+\s+([\d.]+)/', $head, $mm)) {
+        foreach ($mm[1] as $hh) if ((float) $hh < 500) $nCn23++;
+    }
+    if ($nCn23 < 1) {
         return null;   // sin página CN23 (envío sin aduanas)
     }
     $tmp = $pcl . '.tmp';
     $rc = correos_gs_run(array('-o', $tmp, '-sDEVICE=pxlmono', '-sPAPERSIZE=a4', '-dFIXEDMEDIA', '-dFitPage',
-                               '-dFirstPage=1', '-dLastPage=1', $pdfPath));
+                               '-dFirstPage=1', '-dLastPage=' . $nCn23, $pdfPath));
     if ($rc !== 0 || !is_file($tmp) || filesize($tmp) < 500) { @unlink($tmp); return null; }
     @rename($tmp, $pcl);
     return $pcl;
@@ -535,8 +542,9 @@ if ($necesitaAduanas) {
     /* La declaracion se adjunta al bulto 0 (packageContents): con varios bultos, los 2..N viajarian
      * SIN declaracion. Se corta antes de crear la etiqueta, que ya seria facturable. Aplica a todas
      * las rutas (pedido web, free y manual), no solo a free como hasta ahora. */
-    if ($bultos > 1) {
-        out(array('ok' => false, 'error' => "destino con aduanas ($iso3 $cp): usa un solo bulto (la declaracion DUA/CN23 debe ir completa en un paquete)"));
+    if (!$esES && $bultos > 1) {
+        // Internacional: el producto Paq Estandar Internacional (PAAXI) es MONO-BULTO (Anexo I).
+        out(array('ok' => false, 'error' => "internacional con aduanas ($iso3): Paq Estandar Internacional admite un solo bulto; divide en envios separados"));
     }
     if ($manual) {
         out(array('ok' => false, 'error' => "destino aduanas ($cp) en pedido QFac-nativo $oid: requiere declaracion de aduanas con valor de mercancia (no disponible en modo manual); etiquetar a mano"));
@@ -587,15 +595,36 @@ if ($necesitaAduanas) {
             $items[$k]['netWeight'] = (string) max(1, (int) floor(((int) $it['netWeight']) * $gramos / $sumNw));
         }
     }
-    // packageContents es por paquete; declaramos todo el contenido en el primer bulto.
-    $packages[0]['packageContents'] = array(
+    /* packageContents es POR PAQUETE (verificado con create real 2026-07-23: Correos acepta la
+     * declaracion en cada bulto y devuelve un CN23 por bulto).
+     * - 1 bulto : declaracion detallada con las lineas del pedido (comportamiento de siempre).
+     * - N bultos: reparto del valor entre bultos — cada uno declara 1 linea generica con SU peso
+     *   y su parte proporcional del valor (el ultimo absorbe el resto de centimos). No sabemos
+     *   que articulo va en que caja, y aduanas exige que cada bulto vaya declarado. */
+    $pcBase = array(
         'shipmentType'            => '2',   // Mercancias
         'indDangerousGoods'       => 'N',
         'indCommercialDelivery'   => 'S',
         'indInvoiceExceedsAmount' => ($totVal > 500 ? 'S' : 'N'),
         'indDUAwithCorreos'       => 'S',   // Correos gestiona el DUA de exportacion
-        'customsData'             => $items,
     );
+    if ($bultos <= 1) {
+        $packages[0]['packageContents'] = $pcBase + array('customsData' => $items);
+    } else {
+        $descGen = isset($items[0]['description']) && $items[0]['description'] !== '' ? $items[0]['description'] : 'Articulos nauticos';
+        $acum = 0.0;
+        foreach (array_keys($packages) as $k) {
+            $valK = ($k === $bultos - 1) ? round($totVal - $acum, 2) : round($totVal / $bultos, 2);
+            $acum += $valK;
+            $packages[$k]['packageContents'] = $pcBase + array('customsData' => array(array(
+                'quantity'     => '1',
+                'description'  => $descGen,
+                'netWeight'    => (string) max(1, (int) $packages[$k]['packageWeightGrams']),
+                'netValue'     => number_format(max(0.01, $valK), 2, '.', ''),
+                'tariffNumber' => correos::TARIFA_ADUANA_DEF,
+            )));
+        }
+    }
 }
 
 $addressee = array(

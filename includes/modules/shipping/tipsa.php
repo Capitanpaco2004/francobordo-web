@@ -25,7 +25,11 @@ class tipsa
 
         // CPs restringidos para Correos Express (campo admin MODULE_TIPSA_CP_RESTRINGIDOS,
         // separados por comas; admite prefijos: 29 = provincia, 29620 = ese CP): no ofrecer ahi.
-        if (defined('MODULE_TIPSA_CP_RESTRINGIDOS') && trim((string) MODULE_TIPSA_CP_RESTRINGIDOS) !== '') {
+        // SOLO aplica a ESPAÑA (country id 195): los prefijos son de CP español (35/38/51/52 =
+        // Canarias/Ceuta/Melilla); sin este guard bloquearia CPs extranjeros coincidentes
+        // (Portugal 3500 Viseu / 3800 Aveiro, Grecia 51xxx...).
+        if (defined('MODULE_TIPSA_CP_RESTRINGIDOS') && trim((string) MODULE_TIPSA_CP_RESTRINGIDOS) !== ''
+            && (int) ($order->delivery['country']['id'] ?? 0) === 195) {
             $cpR = preg_replace('/[^0-9]/', '', (string) ($order->delivery['postcode'] ?? ''));
             if ($cpR !== '') {
                 foreach (explode(',', (string) MODULE_TIPSA_CP_RESTRINGIDOS) as $r) {

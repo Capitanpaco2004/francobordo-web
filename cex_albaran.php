@@ -238,6 +238,13 @@ $cpInt  = preg_replace('/\s+/', '', $cpRaw);
 $cpNac  = preg_match('/\d{5}/', $cpRaw, $mmcp) ? $mmcp[0] : preg_replace('/\D/', '', $cpInt);
 $cpDest = $intl ? $cpInt : $cpNac;
 
+/* CANARIAS (35/38), CEUTA (51) y MELILLA (52): BLOQUEADO (pedido del usuario 2026-07-20).
+ * Los productos insulares/aduaneros de CEX (66-69) exigen DUA y no están contratados; el 93
+ * hacia allí acaba re-facturado. El checkout ya no lo ofrece (MODULE_TIPSA_CP_RESTRINGIDOS);
+ * esto corta el resto de caminos (PDA/watcher, panel, manuales). */
+if (!$intl && preg_match('/^(35|38|51|52)/', (string) $cpNac) === 1) {
+    out(array('ok' => false, 'error' => 'Correos Express NO disponible para Canarias/Ceuta/Melilla (CP ' . $cpNac . '): enviar por otro transportista'));
+}
 /* BALEARES (CP 07xxx): ePaq24 (93) NO cubre islas -> CEX lo re-factura como Paq 14 (62, caro,
  * ~15-31€). El producto correcto y más barato es "Islas Express" (26, ~6,74€/5kg), que es el
  * que usaba la integración VStock antigua. Solo domicilio (punto/sábado no aplican a islas). */
