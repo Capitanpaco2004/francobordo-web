@@ -157,6 +157,15 @@ class delivery_estimate {
 			if( $transit > 0 )
 				$estimated = date( 'Y-m-d', strtotime( '+' . (int)$transit . ' days', strtotime( $estimated ) ) );
 
+			// La fecha final NUNCA puede caer en sabado/domingo/festivo: los transportistas
+			// no entregan esos dias. Excepcion: SEUR Sabado (seursabado), cuya promesa ES el
+			// sabado. Bug 2026-07-24 (pedido 10365883): viernes antes del corte + transito 1
+			// NATURAL estimaba entrega el SABADO con SEUR 24.
+			// Recogida en tienda (retira): la tienda ABRE los sabados 10:00-14:00, asi que
+			// el sabado SI vale como dia de recogida; domingo/festivo no.
+			if( strpos( $sm, 'seursabado' ) !== 0 )
+				$estimated = $this->nextDeliverableDay( $estimated, $destProv, strpos( $sm, 'retira' ) === 0 );
+
 			tep_db_query( "insert into orders_delivery_estimate (orders_id, estimated_date, rule_applied, comment, is_manual, admin_user, email_sent, created_at) values ('" . $orders_id . "', '" . tep_db_input( $estimated ) . "', '" . tep_db_input( $uRule ) . "', NULL, 0, NULL, 0, now())" );
 
 			return $estimated;
@@ -504,6 +513,28 @@ class delivery_estimate {
 		$holidays = $this->loadHolidays( $ts, 1, $province );
 		$ymd = date( 'Y-m-d', $ts );
 		return ! isset( $holidays[$ymd] );
+	}
+
+	/** Si $date cae en sabado/domingo/festivo, la desplaza al siguiente dia laborable
+	 *  (los transportistas no entregan esos dias; el transito se suma en naturales y
+	 *  puede aterrizar en finde). 2026-07-24.
+	 *  $allowSaturday: la recogida en tienda (retira) admite SABADO (tienda abierta
+	 *  10:00-14:00); domingos y festivos siguen saltandose. */
+	private function nextDeliverableDay( $date, $province = null, $allowSaturday = false ) {
+		$ts = strtotime( (string)$date );
+		if( $ts === false )
+			return $date;
+		$holidays = $this->loadHolidays( $ts, 10, $province );
+		$guard = 0;
+		while( $guard++ < 15 ) {
+			$dow = (int)date( 'N', $ts ); // 1=Lunes ... 7=Domingo
+			$ymd = date( 'Y-m-d', $ts );
+			$diaOk = ( $dow < 6 ) || ( $dow === 6 && $allowSaturday );
+			if( $diaOk && ! isset( $holidays[$ymd] ) )
+				return $ymd;
+			$ts = strtotime( '+1 day', $ts );
+		}
+		return date( 'Y-m-d', $ts );
 	}
 
 	private function addDays( $fromDate, $days, $province = null ) {

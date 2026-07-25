@@ -279,12 +279,15 @@ if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === '1000') && ($is
     $opts['observations'] .= ' / SEUR 10';
 }
 
-/* SEUR Sábado (servicio 57/2, solo nacional ES peninsular): el watcher lo pide
- * con svc=sabado cuando el albaran va con la agencia Vstock 'SEUR SABADO'. */
+/* Entrega en SÁBADO: desde el contrato de julio-2026 el servicio dedicado 57 YA NO
+ * EXISTE en la cuenta (ship-methods 2026-07-24; SEUR lo rechazaba con "Invalid
+ * service-product 57/2"). Ahora = servicio preferente 9/2 (SEUR 13:30, sat=S) +
+ * complementario dSat (+11,42 € s/tarifa). El watcher lo pide con svc=sabado. */
 if (!isset($dest['pickupCentreCode']) && (($in['svc'] ?? '') === 'sabado') && $iso === 'ES') {
-    $opts['service'] = '57';
+    $opts['service'] = '9';
     $opts['product'] = '2';
-    $opts['observations'] .= ' / SEUR Sabado';
+    $opts['dSat']    = true;
+    $opts['observations'] .= ' / Entrega SABADO (13:30 + dSat)';
 }
 
 /* SEUR 48h (servicio 15/130, nacional a domicilio): el watcher lo pide con svc=48
@@ -315,7 +318,9 @@ if (!$free && !$manual && !isset($opts['service']) && !isset($dest['pickupCentre
         } elseif (strpos($mod, 'seurnacional') === 0 && $iso === 'ES' && (string) $rm['date_purchased'] >= '2026-06-11') {
             $opts['service'] = '9';  $opts['product'] = '2';  $opts['observations'] .= ' / SEUR 13:30 (auto)';
         } elseif (strpos($mod, 'seursabado') === 0 && $iso === 'ES') {
-            $opts['service'] = '57'; $opts['product'] = '2';  $opts['observations'] .= ' / SEUR Sabado (auto)';
+            // servicio 57 extinto (julio-2026): sábado = 9/2 + complementario dSat
+            $opts['service'] = '9'; $opts['product'] = '2'; $opts['dSat'] = true;
+            $opts['observations'] .= ' / Entrega SABADO (auto, 13:30 + dSat)';
         }
         /* seur48 / seurpunto / seureuropack / resto: default por país (punto ya resuelto). */
     }
@@ -329,6 +334,14 @@ if (($free || $regen) && trim((string) ($in['svccode'] ?? '')) !== '') {
     $opts['service'] = preg_replace('/\D/', '', (string) $in['svccode']);
     $pc = preg_replace('/\D/', '', (string) ($in['prodcode'] ?? ''));
     if ($pc !== '') $opts['product'] = $pc;
+    // Compat panel: "57/2" (SEUR Sábado, servicio extinto julio-2026) se traduce al
+    // camino vigente = 9/2 (13:30) + complementario dSat.
+    if ($opts['service'] === '57') {
+        $opts['service'] = '9';
+        $opts['product'] = '2';
+        $opts['dSat']    = true;
+        $opts['observations'] .= ' / Entrega SABADO (13:30 + dSat)';
+    }
     if (($opts['product'] ?? '') !== '48' && isset($dest['pickupCentreCode'])) {
         unset($dest['pickupCentreCode']);
     }

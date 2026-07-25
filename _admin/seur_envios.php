@@ -90,6 +90,11 @@ if (($_POST['do'] ?? '') === 'crear_manual') {
         $mbultos = max(1, (int) ($_POST['m_bultos'] ?? 1));
         $mref = $g('m_ref'); if ($mref === '') $mref = 'M-' . date('ymd-His');
         $msvc = $g('m_service');
+        // SEUR Sabado (57/2) solo los VIERNES (sale hoy, se entrega manana).
+        if ($msvc === '57/2' && (int) date('N') !== 5) {
+            $_SESSION['seur_flash'] = array('m' => 'SEUR Sábado (57/2) solo puede grabarse los VIERNES: el envío sale hoy y se entrega mañana sábado.', 'c' => 'danger');
+            tep_redirect(tep_href_link('seur_envios.php'));
+        }
         if ($dname === '' || $dstreet === '' || $dcp === '' || $dcity === '' || $dcountry === '') {
             $_SESSION['seur_flash'] = array('m' => 'Faltan campos obligatorios: destinatario, direccion, CP, ciudad y pais.', 'c' => 'danger');
         } else {
@@ -175,6 +180,10 @@ if ($action !== '' && $shipId > 0) {
                 $err = '';
                 if ($s['tipo'] !== 'envio')         $err = 'Solo se regeneran envíos de salida desde aquí (las devoluciones se gestionan en el RMA).';
                 elseif (!empty($s['cancelled_at']))  $err = 'Ese envío ya está anulado.';
+                /* Envío MANUAL (orders_id=0): no hay pedido del que regenerar — sin esta guarda
+                 * se ANULABA en SEUR y luego fallaba "oid requerido", dejando el envío sin
+                 * etiqueta ni sustituto (caso 10365532, 24-jul-2026). */
+                elseif ((int) $s['orders_id'] <= 0)  $err = 'Envío MANUAL sin pedido asociado: Modificar no puede regenerarlo. Si necesitas cambiarlo, Anular y crear otro con "Nuevo envío manual" (para sábado, servicio "Entrega en SÁBADO").';
                 if ($err === '') {
                     // anti doble-submit: releer estado actual
                     $qf = tep_db_query('SELECT cancelled_at FROM seur_shipments WHERE id = ' . $shipId);
@@ -228,6 +237,10 @@ if ($action !== '' && $shipId > 0) {
                     // Selector "Servicio SEUR" (2026-07-07): si se elige uno, manda sobre la
                     // preservación automática. No aplica a punto SEUR (punto = siempre 2shop 1/48).
                     $svcNew = trim((string) ($_POST['svc_new'] ?? ''));
+                    // SEUR Sábado (57/2) solo tiene sentido el VIERNES: sale hoy, se entrega mañana.
+                    if ($err === '' && $svcNew === '57/2' && (int) date('N') !== 5) {
+                        $err = 'SEUR Sábado (57/2) solo se puede elegir los VIERNES: el envío tiene que salir hoy para entregarse mañana sábado.';
+                    }
                     if ($err === '' && $svcNew !== '' && strpos($svcNew, '/') !== false
                         && $modo !== 'punto' && empty($params['pudo'])) {
                         list($scN, $pcN) = explode('/', $svcNew, 2);
@@ -456,7 +469,11 @@ while ($rPaisM = tep_db_fetch_array($qPaisM)) {
         <option value="31/2">Nacional domicilio B2C (31/2)</option>
         <option value="9/2">SEUR 13:30 (9/2)</option>
         <option value="3/2">SEUR 10 (3/2)</option>
-        <option value="57/2">SEUR S&aacute;bado (57/2)</option>
+        <?php if ((int) date('N') === 5): ?>
+        <option value="57/2">Entrega en S&Aacute;BADO (13:30+s&aacute;b) &mdash; entrega MA&Ntilde;ANA</option>
+        <?php else: ?>
+        <option value="" disabled>SEUR S&aacute;bado (solo los viernes)</option>
+        <?php endif; ?>
         <option value="77/104">Internacional (77/104)</option>
       </select></label>
       <label>Tel&eacute;fono<input type="text" name="m_dphone"></label>
@@ -492,7 +509,11 @@ while ($rPaisM = tep_db_fetch_array($qPaisM)) {
             <option value="31/2">SEUR 24 — domicilio (31/2)</option>
             <option value="9/2">SEUR 13:30 (9/2)</option>
             <option value="3/2">SEUR 10 — antes de las 10h (3/2)</option>
-            <option value="57/2">SEUR Sábado (57/2)</option>
+            <?php if ((int) date('N') === 5): ?>
+            <option value="57/2">Entrega en SÁBADO (13:30+sáb) — entrega MAÑANA</option>
+            <?php else: ?>
+            <option value="" disabled>SEUR Sábado (solo los viernes)</option>
+            <?php endif; ?>
             <option value="77/104">Internacional Classic (77/104)</option>
           </select>
           <span class="muted" style="font-size:11px;display:block">Se ignora si el destino es punto SEUR (punto = 2shop).</span>
@@ -628,8 +649,31 @@ while ($rPaisM = tep_db_fetch_array($qPaisM)) {
               <input type="hidden" name="do" value="cancel"><input type="hidden" name="ship" value="<?php echo (int) $s['id']; ?>"><input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
               <button class="btn rojo" type="submit">✕ Anular</button>
             </form>
-            <?php if ($s['tipo'] === 'envio'): ?>
+            <?php if ($s['tipo'] === 'envio' && (int) $s['orders_id'] > 0): ?>
               <a class="btn verde" href="<?php echo tep_href_link('seur_envios.php', 'edit=' . (int) $s['id']); ?>">✎ Modificar</a>
+            <?php endif; ?>
+            <?php
+            /* Entrega en SABADO (57/2) en un clic — SOLO VIERNES: anula y regenera este envío
+             * como SEUR Sábado por el flujo Modificar (destino=mantener + svc_new=57/2).
+             * Elegible: pedido web, envío nacional a domicilio (sin punto, no 57 ya, no intl),
+             * y aún PRE-TRÁNSITO. Con >1 bulto usar Modificar (aquí se regenera con 1). */
+            $sabOk = ((int) date('N') === 5)
+                  && $s['tipo'] === 'envio'
+                  && (int) $s['orders_id'] >= 10000000
+                  && empty($s['pudo_id'])
+                  && (string) $s['service_code'] !== '57'
+                  && (string) $s['service_code'] !== '77'
+                  && seurModEligible(seurTrackRow($s['ref'] ?? ''));
+            if ($sabOk): ?>
+            <form method="post" style="display:inline" onsubmit="return confirm('¿Convertir a ENTREGA EN SÁBADO (57/2)? Se anula el envío actual y se regenera; la etiqueta nueva saldrá por la Zebra. DESCARTA la etiqueta anterior.');">
+              <input type="hidden" name="do" value="modify"><input type="hidden" name="ship" value="<?php echo (int) $s['id']; ?>">
+              <input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
+              <input type="hidden" name="kilos" value="<?php echo htmlspecialchars($s['kilos'] ?: '1'); ?>">
+              <input type="hidden" name="bultos" value="1">
+              <input type="hidden" name="destino" value="mantener">
+              <input type="hidden" name="svc_new" value="57/2">
+              <button class="btn" type="submit" title="Solo viernes: sale hoy, se entrega mañana sábado">🗓 Sábado</button>
+            </form>
             <?php endif; ?>
           <?php elseif ($s['cancelled_at']): ?>
             <span style="color:#999">anulado <?php echo htmlspecialchars($s['cancelled_at']); ?></span>

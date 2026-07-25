@@ -685,7 +685,11 @@ class seur {
             ),
             'parcels'      => self::parcels($opts, $ref),
             'observations' => (string) ($opts['observations'] ?? ''),
-        );
+        ) + (!empty($opts['dSat']) ? array('dSat' => true) : array());
+        // dSat = servicio complementario "Entrega en Sábado" (+11,42 € s/tarifa). Desde el
+        // contrato de julio-2026 el servicio dedicado 57 (SEUR SATURDAY) YA NO EXISTE en la
+        // cuenta (ship-methods 2026-07-24): el sábado se contrata con dSat sobre un servicio
+        // preferente con saturdayDeliveryCode=S (9/2 SEUR 13:30 ó 3/2 SEUR 10; el 31/2 NO).
     }
 
     /**
