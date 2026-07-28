@@ -493,10 +493,10 @@ class seur {
                 'email'         => self::FB_EMAIL,
             ),
             'sender'         => array(   // quien devuelve = cliente
-                'name'        => trim((string) ($rma['customers_name'] ?? '')),
+                'name'        => self::nombreMax($rma['customers_name'] ?? '', 50),
                 'phone'       => trim((string) ($rma['customers_telephone'] ?? '')),
                 'email'       => trim((string) ($rma['customers_email_address'] ?? '')),
-                'contactName' => trim((string) ($rma['customers_name'] ?? '')),
+                'contactName' => self::nombreMax($rma['customers_name'] ?? '', 50),
                 'address'     => $senderAddr,
             ),
             'receiver'       => array(   // destino = Francobordo
@@ -676,10 +676,12 @@ class seur {
                 ),
             ),
             'receiver'    => array(
-                'name'        => trim((string) ($dest['name'] ?? '')),
+                // SEUR limita name/contactName de ENVÍOS a 70 chars (400 si se pasa; caso
+                // 10366089 27-jul: cliente con razón social duplicada como nombre+apellido).
+                'name'        => self::nombreMax($dest['name'] ?? '', 70),
                 'idNumber'    => (string) ($dest['idNumber'] ?? ''),
                 'phone'       => trim((string) ($dest['phone'] ?? '')),
-                'contactName' => trim((string) ($dest['contactName'] ?? ($dest['name'] ?? ''))),
+                'contactName' => self::nombreMax($dest['contactName'] ?? ($dest['name'] ?? ''), 70),
                 'email'       => trim((string) ($dest['email'] ?? '')),
                 'address'     => $recvAddr,
             ),
@@ -690,6 +692,14 @@ class seur {
         // contrato de julio-2026 el servicio dedicado 57 (SEUR SATURDAY) YA NO EXISTE en la
         // cuenta (ship-methods 2026-07-24): el sábado se contrata con dSat sobre un servicio
         // preferente con saturdayDeliveryCode=S (9/2 SEUR 13:30 ó 3/2 SEUR 10; el 31/2 NO).
+    }
+
+    /* Recorta nombres al límite de la API SEUR (da 400 si se pasan): envíos 70 chars,
+     * recogidas 50. mb_substr para no partir un carácter UTF-8 (À, ñ...) por la mitad,
+     * que dejaría la cadena inválida y rompería el json_encode del payload. */
+    private static function nombreMax($s, $max) {
+        $s = trim((string) $s);
+        return function_exists('mb_substr') ? mb_substr($s, 0, $max, 'UTF-8') : substr($s, 0, $max);
     }
 
     /**
