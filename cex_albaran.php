@@ -171,6 +171,17 @@ if ($manual || $free) {
     $shipMod = (string) ($o['shipping_module'] ?? '');
 }
 
+/* denia=1 (watcher, albaranes con agencia "Medios Propios"): política 2026-07-29 — los
+ * pedidos "Recoger en Tienda DENIA" salen por Correos Express POR DEFECTO. Solo se crea
+ * envío si el pedido es retira con CP 03700 (su dirección de entrega ya es la tienda,
+ * Marina de Denia Edif. H Local 3); cualquier otro albarán de Medios Propios es reparto
+ * propio real y se responde skip (el watcher lo marca procesado y no vuelve a mirarlo). */
+if (($in['denia'] ?? '') === '1') {
+    $esDenia = strncmp($shipMod, 'retira', 6) === 0
+        && strncmp(preg_replace('/\D/', '', (string) ($o['delivery_postcode'] ?? '')), '03700', 5) === 0;
+    if (!$esDenia) out(array('ok' => true, 'skip' => 1, 'reason' => 'no es recogida en tienda Denia'));
+}
+
 /* Overrides de "modificar envío" (panel): pisan la dirección/datos del pedido.
  * En el flujo normal del watcher estos campos no llegan, así que no afectan. */
 foreach (array('delivery_name' => 'dname', 'delivery_street_address' => 'dstreet', 'delivery_city' => 'dcity',

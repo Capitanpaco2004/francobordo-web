@@ -144,3 +144,14 @@
 		}
 	}
 
+	// =====================================================================
+	// ChatBot Pedro — pruebas internas (2026-07-29)
+	// Visible SOLO desde la IP de la oficina; el proxy /chatbot/ de este
+	// mismo dominio aplica el mismo gate por IP (defensa en profundidad).
+	// Para abrirlo a todos los clientes: quitar la condicion de IP.
+	// =====================================================================
+	if (($_SERVER['REMOTE_ADDR'] ?? '') === '217.127.199.171') {
+		echo "\n<!-- Francobordo ChatBot Pedro (pruebas internas) -->\n";
+		echo '<script src="/chatbot/embed.js" defer></script>' . "\n";
+	}
+
