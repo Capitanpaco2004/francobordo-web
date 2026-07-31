@@ -7,6 +7,11 @@
  *  - Anular     : marca el envío como anulado en LOCAL. (La clase CEX no expone
  *                 aún anular-envío de salida; la anulación real en CEX, si procede,
  *                 se gestiona aparte.)
+ *  - Reintentar : para intentos FALLIDOS (ok=0) de un albarán SIN envío OK vigente
+ *                 (RENUNCIO del watcher tras 3 fallos, p.ej. dato corregido después).
+ *                 Encola la petición en cex_retry_queue; el watcher del .112 saca el
+ *                 albarán de su estado local processed/fails (misma lógica que
+ *                 cex_unfreeze.py) y lo reintenta si sigue en su ventana de 48h.
  *
  * Seguridad: token CSRF de sesión + patrón PRG (redirect tras POST). Entorno CEX
  * según cex_config. Gemelo de seur_envios.php. Ver memoria francobordo_correos_express_api.
@@ -138,6 +143,26 @@ if ($action !== '' && $shipId > 0) {
                 tep_db_query('UPDATE cex_shipments SET cancelled_at = NOW() WHERE id = ' . (int) $row['id']);
                 $msg = 'Envío ' . htmlspecialchars((string) $row['shipment_code']) . ' marcado como ANULADO (local).'; $msgClass = 'success';
             }
+        } elseif ($action === 'retry') {
+            /* Reencolar un albarán al que el watcher renunció (MAX_FALLS, p.ej. población
+             * vacía ya corregida por el operario). Inserta la petición en cex_retry_queue;
+             * el watcher del .112 la recoge en su siguiente pasada, saca el albarán de su
+             * estado local processed/fails (misma lógica que cex_unfreeze.py) y vuelve a
+             * intentar crear el envío. Solo alcanza albaranes de las últimas 48h (ventana
+             * de deteccion del watcher). */
+            $albR = trim((string) $row['albaran_id']);
+            if ((int) $row['ok'] === 1) { $msg = 'Este intento no está fallido — nada que reintentar.'; $msgClass = 'warning'; }
+            elseif ($albR === '') { $msg = 'Este intento no tiene albarán VStock asociado: el watcher no puede reintentarlo. Usa "Nuevo envío manual".'; $msgClass = 'error'; }
+            else {
+                $chk = tep_db_fetch_array(tep_db_query("SELECT COUNT(*) c FROM cex_shipments WHERE tipo = 'envio' AND albaran_id = '" . tep_db_input($albR) . "' AND entorno = '" . tep_db_input($env) . "' AND ok = 1 AND cancelled_at IS NULL"));
+                $pnd = tep_db_fetch_array(tep_db_query("SELECT COUNT(*) c FROM cex_retry_queue WHERE done = 0 AND albaran_id = '" . tep_db_input($albR) . "'"));
+                if ((int) $chk['c'] > 0) { $msg = 'El albarán ' . htmlspecialchars($albR) . ' ya tiene un envío OK vigente — usa Reimprimir/Modificar en esa fila.'; $msgClass = 'warning'; }
+                elseif ((int) $pnd['c'] > 0) { $msg = 'Ya hay un reintento pendiente para el albarán ' . htmlspecialchars($albR) . ' (el watcher lo recogerá en ~1 min).'; $msgClass = 'warning'; }
+                else {
+                    tep_db_perform('cex_retry_queue', array('albaran_id' => $albR, 'orders_id' => (int) $row['orders_id'], 'requested_at' => 'now()', 'done' => 0));
+                    $msg = 'Reintento encolado para el albarán ' . htmlspecialchars($albR) . ($row['orders_id'] ? ' (pedido ' . (int) $row['orders_id'] . ')' : '') . '. El watcher lo descongelará y volverá a intentar el envío en ~1 min con los datos ACTUALES del pedido; si ya están corregidos, la etiqueta saldrá por la Zebra.'; $msgClass = 'success';
+                }
+            }
         } elseif ($action === 'modify') {
             /* Regenera el envío con datos corregidos. CEX no permite anular un envío de
              * salida por API, así que: creamos uno NUEVO (regen, misma ref F{oid}), lo
@@ -197,6 +222,23 @@ while ($r = tep_db_fetch_array($q)) $rows[] = $r;
 /* nº pendientes en cola de reimpresión */
 $qp = tep_db_fetch_array(tep_db_query('SELECT COUNT(*) c FROM cex_reprint_queue WHERE done = 0'));
 $pendImpr = (int) ($qp['c'] ?? 0);
+
+/* Elegibilidad "Reintentar envío": intentos fallidos (ok=0) cuyo albarán NO tiene envío
+ * OK vigente en este entorno (RENUNCIO del watcher o fallo aún vivo). Solo lleva botón
+ * el ÚLTIMO intento del albarán; si ya hay petición pendiente en cola se indica. */
+$retryInfo = array(); $retryPend = array(); $albsErr = array();
+foreach ($rows as $s) {
+    $albE = trim((string) $s['albaran_id']);
+    if (!(int) $s['ok'] && $albE !== '') $albsErr[$albE] = true;
+}
+if ($albsErr) {
+    $inList = "'" . implode("','", array_map('tep_db_input', array_keys($albsErr))) . "'";
+    $qi = tep_db_query("SELECT albaran_id, MAX(ok = 1 AND cancelled_at IS NULL) has_ok, MAX(id) last_id
+                        FROM cex_shipments WHERE tipo = 'envio' AND entorno = '" . tep_db_input($env) . "' AND albaran_id IN ($inList) GROUP BY albaran_id");
+    while ($x = tep_db_fetch_array($qi)) $retryInfo[$x['albaran_id']] = $x;
+    $qi = tep_db_query("SELECT DISTINCT albaran_id FROM cex_retry_queue WHERE done = 0 AND albaran_id IN ($inList)");
+    while ($x = tep_db_fetch_array($qi)) $retryPend[$x['albaran_id']] = true;
+}
 
 /* Fila en modificación + dirección del pedido para prefijar el formulario. */
 $modRow = null; $modAddr = array();
@@ -314,7 +356,7 @@ if (isset($_GET['modify']) && (int) $_GET['modify'] > 0) {
         <td><?php echo $s['product_code'] == '18' ? 'Punto' : 'ePaq24'; ?></td>
         <td><?php echo $s['pudo_id'] ? htmlspecialchars((string) $s['pudo_name'] ?: $s['pudo_id']) : '—'; ?></td>
         <td><?php
-            if (!$s['ok']) echo '<span style="color:#c0392b">ERROR</span><br><small class="muted">' . htmlspecialchars(substr((string) $s['mensaje_retorno'], 0, 60)) . '</small>';
+            if (!$s['ok']) echo '<span style="color:#c0392b" title="' . htmlspecialchars((string) $s['mensaje_retorno']) . '">ERROR</span><br><small class="muted" title="' . htmlspecialchars((string) $s['mensaje_retorno']) . '">' . htmlspecialchars(substr((string) $s['mensaje_retorno'], 0, 60)) . '</small>';
             elseif ($s['cancelled_at']) echo '<span class="muted">anulado</span>';
             elseif ($trk) echo htmlspecialchars((string) $trk['estado_desc']) . ((int) $trk['entregado'] === 1 ? ' ✅' : '');
             else echo '<span class="muted">en curso</span>';
@@ -334,13 +376,26 @@ if (isset($_GET['modify']) && (int) $_GET['modify'] > 0) {
             <a class="btn" style="background:#2e9e44" href="<?php echo tep_href_link('cex_envios.php', 'modify=' . (int) $s['id']); ?>">✎ Modificar</a>
           <?php elseif ($s['cancelled_at']): ?>
             <span class="muted">anulado <?php echo htmlspecialchars((string) $s['cancelled_at']); ?></span>
-          <?php else: ?><span class="muted">—</span><?php endif; ?>
+          <?php else: /* intento fallido (ok=0) */
+            $albE = trim((string) $s['albaran_id']);
+            $eleg = ($albE !== '' && $s['entorno'] === $env && isset($retryInfo[$albE])
+                     && !(int) $retryInfo[$albE]['has_ok'] && (int) $retryInfo[$albE]['last_id'] === (int) $s['id']);
+          ?>
+            <?php if ($eleg && isset($retryPend[$albE])): ?>
+              <span class="muted" title="El watcher del .112 lo recogerá en su siguiente pasada (~1 min)">⏳ reintento pedido</span>
+            <?php elseif ($eleg): ?>
+              <form method="post" style="display:inline" onsubmit="return confirm('¿Reintentar el envío del albarán <?php echo htmlspecialchars($albE); ?>? El watcher volverá a intentar crear el envío CEX con los datos ACTUALES del pedido (corrige antes el dato que falló).');">
+                <input type="hidden" name="do" value="retry"><input type="hidden" name="ship" value="<?php echo (int) $s['id']; ?>"><input type="hidden" name="csrf" value="<?php echo htmlspecialchars($csrf); ?>">
+                <button class="btn" style="background:#e67e22" type="submit" title="Falló: <?php echo htmlspecialchars((string) $s['mensaje_retorno']); ?>">🔁 Reintentar envío</button>
+              </form>
+            <?php else: ?><span class="muted">—</span><?php endif; ?>
+          <?php endif; ?>
         </td>
       </tr>
     <?php endforeach; ?>
     <?php if (!$rows): ?><tr><td colspan="10" class="muted">Sin envíos.</td></tr><?php endif; ?>
   </table>
-  <p class="muted" style="font-size:12px;margin-top:8px">Mostrando los últimos <?php echo count($rows); ?> (máx 200). "Reimprimir" reencola el ZPL para la impresora CorreosExpressVSTK (lo recoge el watcher).</p>
+  <p class="muted" style="font-size:12px;margin-top:8px">Mostrando los últimos <?php echo count($rows); ?> (máx 200). "Reimprimir" reencola el ZPL para la impresora CorreosExpressVSTK (lo recoge el watcher). "Reintentar envío" (solo en intentos fallidos sin envío vigente) pide al watcher que descongele el albarán y lo vuelva a intentar con los datos actuales del pedido — corrige antes el dato que falló; solo alcanza albaranes de las últimas 48h.</p>
 </div>
 <?php require THEME . 'html/footer.php'; ?>
 <?php require DIR_WS_INCLUDES . 'application_bottom.php'; ?>

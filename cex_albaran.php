@@ -31,6 +31,10 @@
  *   free    1 = envio manual sin pedido (ref propia, orders_id=0, sin dedup)
  *   dry     1 = no crea nada, devuelve el payload que se enviaria
  *
+ * Modos de cola (watcher): reprints=1 / reprint_done=ids (cex_reprint_queue, ZPL del
+ * panel) y retries=1 / retry_done=ids (cex_retry_queue, boton "Reintentar envío" para
+ * albaranes RENUNCIO; el watcher los descongela de su estado local).
+ *
  * Respuesta JSON: { ok, dedup, env, shipmentCode, ecb, ref, tracking_url, zpl,
  *                   recuperado_timeout, error }
  *
@@ -86,6 +90,34 @@ if (($in['reprint_done'] ?? '') !== '') {
     if ($ids) {
         $in_ids = implode(',', $ids);
         $db->query("UPDATE cex_reprint_queue SET done = 1, done_at = NOW() WHERE id IN ($in_ids)");
+    }
+    out(array('ok' => true, 'acked' => $ids));
+}
+
+/* ---- Modo REINTENTOS: peticiones "Reintentar envío" del panel admin (albaranes a los
+ *      que el watcher renunció tras MAX_FALLS y cuyo dato ya corrigió el operario).
+ *      El watcher las recoge en cada pasada, saca el albarán de su estado local
+ *      processed/fails (misma lógica que cex_unfreeze.py) y ACKea con retry_done; el
+ *      albarán se reintenta solo si sigue en su ventana de detección de 48h. ---- */
+if (($in['retries'] ?? '') === '1') {
+    $db = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
+    if ($db->connect_errno) out(array('ok' => false, 'error' => 'db'));
+    $db->set_charset('utf8mb4');
+    $resq = array();
+    $r = $db->query("SELECT id, albaran_id, orders_id FROM cex_retry_queue WHERE done = 0 ORDER BY id LIMIT 20");
+    while ($row = $r->fetch_assoc()) {
+        $resq[] = array('id' => (int) $row['id'], 'alb' => (string) $row['albaran_id'], 'oid' => (int) $row['orders_id']);
+    }
+    out(array('ok' => true, 'retries' => $resq));
+}
+/* ---- ACK del watcher: marca done los reintentos ya descongelados ---- */
+if (($in['retry_done'] ?? '') !== '') {
+    $db = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
+    if ($db->connect_errno) out(array('ok' => false, 'error' => 'db'));
+    $ids = array_values(array_filter(array_map('intval', explode(',', (string) $in['retry_done']))));
+    if ($ids) {
+        $in_ids = implode(',', $ids);
+        $db->query("UPDATE cex_retry_queue SET done = 1, done_at = NOW() WHERE id IN ($in_ids)");
     }
     out(array('ok' => true, 'acked' => $ids));
 }
