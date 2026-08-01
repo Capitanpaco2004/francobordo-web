@@ -511,7 +511,7 @@ filter: sepia(0%) saturate(210%) hue-rotate(177deg) invert(1);-ms-filter:sepia(0
 #ctgrs{margin-bottom:250px;}
 #ctgrs .col{margin-bottom:10px;}
 #ctgrs .imge{display:block;background:#f5f5f5;text-align:center;height:128px;line-height:128px;margin-bottom:6px;}
-#ctgrs .titu{color:#393e3e;font-family:"Catamaran - Black";font-size:18px;font-weight:400;line-height:19px;text-transform:uppercase;word-break:break-word;display:block;}
+#ctgrs .titu{color:#393e3e;font-family:"Catamaran - Black";font-size:18px;font-weight:400;line-height:19px;text-transform:uppercase;word-break:break-word;display:block;text-align:center;}
 #ctgrs .col:hover .titu{color:#00a3d1;}
 #ctgrs .col:hover .imge{background:#008cc6;}
 

@@ -112,6 +112,15 @@ if ($requestPath === '/embed.js' || stripos($responseContentType, 'javascript') 
 	$body = str_replace(CHATBOT_UPSTREAM, CHATBOT_PUBLIC_URL, $body);
 }
 
+// Parche 2026-07-31: el build del widget (security-*.css) trae un reset GLOBAL
+// `img{max-width:100%;display:block}` sin scope que rompe el centrado de las
+// imagenes de la tienda (categorias/listados usan img inline + text-align:center)
+// para quien carga el widget. Se scopea aqui al root del widget hasta que se
+// arregle en el build de origen del .112 (C:\AGENTES\PROYECTOS AGENTES\ChatBot).
+if (stripos($responseContentType, 'text/css') !== false) {
+	$body = str_replace('img{max-width:100%;display:block}', '#francobordo-chatbot-root img{max-width:100%;display:block}', $body);
+}
+
 http_response_code($status);
 header('Content-Type: ' . ($responseContentType !== '' ? $responseContentType : 'application/octet-stream'));
 if (strpos($requestPath, '/assets/') === 0) {

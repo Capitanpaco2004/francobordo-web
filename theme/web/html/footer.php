@@ -5,7 +5,10 @@
 	if( preg_match( '/index|categories|product_info|search|^manufacturers|products_new|best_sellers|specials/i', basename( $_SERVER['SCRIPT_NAME'] ) ) )
 		include( DIR_WS_COMPONENTS . 'slideManufacturersFooter.php' );
 
-	echo '<div class="web-cntd thide mhide" id="toTop"><div></div></div>';
+	// (2026-07-31) Boton "subir arriba" (#toTop, triangulo azul) RETIRADO a peticion
+	// del usuario. El CSS #toTop (style.css:442) y el handler $("#toTop").click de
+	// app.js quedan inertes sin el div. Para restaurarlo, descomentar:
+	// echo '<div class="web-cntd thide mhide" id="toTop"><div></div></div>';
 
 	echo '<div xmlns:v="http://rdf.data-vocabulary.org/#" id="brcb" class="web-cntd">';
 		echo '<div class="icon tt tt-45"></div>';
