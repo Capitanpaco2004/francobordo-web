@@ -41,6 +41,7 @@ define('TEXT_POINTS_PROCESSING', 'Processing');
 define('TEXT_POINTS_CONFIRMED', 'Confirmed');
 define('TEXT_POINTS_CANCELLED', 'Cancelled');
 define('TEXT_POINTS_REDEEMED', 'Redeemed');
+define('TEXT_POINTS_RECTIFICATIVA', 'Refund');
 
 define('MY_POINTS_EXPIRE', 'Expire at: ');
 define('MY_POINTS_CURRENT_BALANCE', '<b>Points Balance :</b> %s points. <b>Valued at :</b> %s .');
@@ -52,4 +53,3 @@ define('TEXT_NO_POINTS', 'You don\'t have Qualified Points yet.');
 
 define('TEXT_DISPLAY_NUMBER_OF_RECORDS', 'Displaying <b>%d</b> to <b>%d</b> (of <b>%d</b> points records)');
 ?>
-define('TEXT_POINTS_RECTIFICATIVA', 'Refund');
