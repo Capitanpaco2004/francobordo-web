@@ -1,0 +1,5 @@
+[18-Aug-2026 04:49:24 Europe/Madrid] PHP Fatal error:  Uncaught mysqli_sql_exception: Connection refused in /home/francobordo/public_html/_admin/scripts/cron_products_liquidacion.php:36
+Stack trace:
+#0 /home/francobordo/public_html/_admin/scripts/cron_products_liquidacion.php(36): mysqli->__construct('localhost', 'francobo_admin', Object(SensitiveParameterValue), 'francobo_oscden...')
+#1 {main}
+  thrown in /home/francobordo/public_html/_admin/scripts/cron_products_liquidacion.php on line 36

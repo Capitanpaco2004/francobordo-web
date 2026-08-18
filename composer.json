@@ -1,86 +1,80 @@
 {
-  "name": "oscdenox/francobordo",
-  "description": "Francobordo - Base de tiendas online oscDenox",
-  "type": "project",
-  "version": "0.2.0",
-  "require": {
-    "php": "^8.4",
-    "mrclay/minify": "^4.0",
-    "benmorel/ebay-sdk-php": "^19.0",
-    "guzzlehttp/guzzle": "^7.8",
-    "nicolab/php-ftp-client": "^1.4",
-    "daniellucia/hooks": "*",
-    "phpoffice/phpspreadsheet": "^5.5",
-    "ezyang/htmlpurifier": "^4.13",
-    "phpmailer/phpmailer": "^7.0",
-    "oscdenox/addon-dependency-injection": "*",
-    "ramsey/uuid": "^4.2",
-    "psr/log": "^3.0",
-    "oscdenox/addon-cookie-advise-blocker": "^0.0.34",
-    "lambdish/phunctional": "^2.1",
-    "oscdenox/addon-domain-event": "*",
-    "oscdenox/addon-google-tags": "^0.0.80",
-    "oscdenox/addon-structured-data": "^0.2.15",
-    "oscdenox/addon-oct8ne": "^0.0.32",
-    "psr/container": "^2.0",
-    "tecnickcom/tcpdf": "^6.11",
-    "braintree/braintree_php": "^6.0",
-    "erusev/parsedown": "^1.7",
-    "mustangostang/spyc": "^0.6",
-    "tinymce/tinymce": "^8.3",
-    "intervention/image": "^3.11",
-    "oscdenox/addon-googlesitemap": "^0.0.3",
-    "bacon/bacon-qr-code": "^3.0",
-    "pragmarx/google2fa": "^9.0",
-    "metadrop/redsys-consultas-php": "^0.1.2",
-    "webklex/php-imap": "^6.2",
-    "phpseclib/phpseclib": "^3.0"
-  },
-  "minimum-stability": "dev",
-  "prefer-stable": true,
-  "config": {
-    "vendor-dir": "includes/vendor",
-    "allow-plugins": {
-      "cweagans/composer-patches": true
+    "name": "oscdenox/francobordo",
+    "description": "Francobordo - Base de tiendas online oscDenox",
+    "type": "project",
+    "version": "0.2.0",
+    "require": {
+        "php": "^8.4",
+        "mrclay/minify": "^4.0",
+        "benmorel/ebay-sdk-php": "^19.0",
+        "guzzlehttp/guzzle": "^7.8",
+        "nicolab/php-ftp-client": "^1.4",
+        "daniellucia/hooks": "*",
+        "phpoffice/phpspreadsheet": "^5.5",
+        "ezyang/htmlpurifier": "^4.13",
+        "phpmailer/phpmailer": "^7.0",
+        "oscdenox/addon-dependency-injection": "*",
+        "ramsey/uuid": "^4.2",
+        "psr/log": "^3.0",
+        "oscdenox/addon-cookie-advise-blocker": "^0.0.34",
+        "lambdish/phunctional": "^2.1",
+        "oscdenox/addon-domain-event": "*",
+        "oscdenox/addon-google-tags": "^0.0.80",
+        "oscdenox/addon-structured-data": "^0.2.15",
+        "oscdenox/addon-oct8ne": "^0.0.32",
+        "psr/container": "^2.0",
+        "tecnickcom/tcpdf": "^6.11",
+        "braintree/braintree_php": "^6.0",
+        "erusev/parsedown": "^1.7",
+        "mustangostang/spyc": "^0.6",
+        "tinymce/tinymce": "^8.3",
+        "intervention/image": "^3.11",
+        "oscdenox/addon-googlesitemap": "^0.0.3",
+        "bacon/bacon-qr-code": "^3.0",
+        "pragmarx/google2fa": "^9.0",
+        "metadrop/redsys-consultas-php": "^0.1.2",
+        "webklex/php-imap": "^6.2",
+        "phpseclib/phpseclib": "^3.0"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "config": {
+        "vendor-dir": "includes/vendor",
+        "allow-plugins": {
+            "cweagans/composer-patches": true
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "util\\": "includes/classes",
+            "Oscdenox\\": "src",
+            "Oscdenox\\Shipping\\": "includes/classes/",
+            "Checkout\\": "includes/modules/checkout"
+        }
+    },
+    "scripts": {
+        "pre-package-uninstall": [
+            "util\\tools::composerPrePackageUninstall"
+        ],
+        "fixtures": [
+            "util\\tools::composerFixtures"
+        ],
+        "installs": [
+            "util\\tools::composerPostInstall"
+        ],
+        "updates": [
+            "util\\tools::composerUpdatePost"
+        ]
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5",
+        "cweagans/composer-patches": "^1.7"
+    },
+    "extra": {
+        "patches": {
+            "mrclay/minify": {
+                "Fix realpath(null) deprecation": "includes/patches/minify-normalizepath-null.patch"
+            }
+        }
     }
-  },
-  "autoload": {
-    "psr-4": {
-      "util\\": "includes/classes",
-      "Oscdenox\\": "src",
-      "Oscdenox\\Shipping\\": "includes/classes/",
-      "Checkout\\": "includes/modules/checkout"
-    }
-  },
-  "scripts": {
-    "pre-package-uninstall": [
-      "util\\tools::composerPrePackageUninstall"
-    ],
-    "fixtures": [
-      "util\\tools::composerFixtures"
-    ],
-    "installs": [
-      "util\\tools::composerPostInstall"
-    ],
-    "updates": [
-      "util\\tools::composerUpdatePost"
-    ]
-  },
-  "require-dev": {
-    "phpunit/phpunit": "^11.5",
-    "cweagans/composer-patches": "^1.7"
-  },
-  "repositories": [
-    {
-      "type": "composer",
-      "url": "https://packages.oscdenox.com"
-    }
-  ],
-  "extra": {
-    "patches": {
-      "mrclay/minify": {
-        "Fix realpath(null) deprecation": "includes/patches/minify-normalizepath-null.patch"
-      }
-    }
-  }
 }
