@@ -19,7 +19,11 @@ abstract class Config
 
 		$moduleName = strings::undoCamelCase(array_values(explode('\\', $addon))[0], '-');
 
-		$moduleDirectory = $rootDirectory . '/includes/vendor/oscdenox/' . $moduleName;
+		// Namespace de los addons: kadevia/ (nuevo) con retorno a oscdenox/ (antiguo)
+		// mientras dura la migracion de marca. Se decide por lo que exista en disco,
+		// asi la tienda funciona tenga los addons en una carpeta o en la otra.
+		$vendorNs = is_dir($rootDirectory . '/includes/vendor/kadevia/' . $moduleName) ? 'kadevia' : 'oscdenox';
+		$moduleDirectory = $rootDirectory . '/includes/vendor/' . $vendorNs . '/' . $moduleName;
 		$moduleDirectory = preg_replace('/\/$/', '',is_link($moduleDirectory) ? readlink($moduleDirectory) : $moduleDirectory);
 
 		$this->configs['module'] = [
@@ -33,7 +37,7 @@ abstract class Config
 
 		$this->configs['http'] = [
 			'file' => str_replace('-', '_', $this->configs['module']['name']) . '.php',
-			'module' => $http . '/includes/vendor/oscdenox/' . $this->configs['module']['name'],
+			'module' => $http . '/includes/vendor/' . $vendorNs . '/' . $this->configs['module']['name'],
 			'root' => $http
 		];
 
@@ -45,7 +49,7 @@ abstract class Config
 			$this->configs['directory']['translation'] = $appDirectory . '/translations';
 			$this->configs['directory']['public'] = $appDirectory . '/public';
 
-			$this->configs['http']['public'] = $http . '/includes/vendor/oscdenox/' . $this->get('module.name') . '/apps/' . $this->get('module.app') . '/public';
+			$this->configs['http']['public'] = $http . '/includes/vendor/' . $vendorNs . '/' . $this->get('module.name') . '/apps/' . $this->get('module.app') . '/public';
 		}
 
 		$this->configs = array_merge($this->configs, $this->buildConfig());

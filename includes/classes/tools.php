@@ -20,6 +20,63 @@
 	{
 		private static $ot_shipping = null;
 		/**
+		 * Comprueba si el paquete que Composer va a desinstalar no se va de verdad, sino
+		 * que la tienda ha cambiado su vendor (por ejemplo oscdenox/addon-x -> kadevia/addon-x).
+		 *
+		 * Composer no entiende de renombrados: ve desinstalar un paquete e instalar otro, y
+		 * eso dispara el uninstall() del addon, que en algunos borra su configuracion y sus
+		 * tablas. Si el composer.json de la tienda sigue pidiendo el mismo addon con otro
+		 * vendor, no hay nada que desinstalar: esos datos son los que va a usar el paquete
+		 * nuevo.
+		 *
+		 * @param string $packageName Nombre completo del paquete, p.ej. "oscdenox/addon-verifactu"
+		 * @return bool
+		 */
+		private static function isVendorRename($packageName)
+		{
+			if (strpos($packageName, '/') === false) {
+				return false;
+			}
+
+			list($vendor, $addon) = explode('/', $packageName, 2);
+
+			$composerFile = getcwd() . '/composer.json';
+
+			if (!file_exists($composerFile)) {
+				return false;
+			}
+
+			$composer = json_decode(file_get_contents($composerFile), true);
+
+			if (!is_array($composer)) {
+				return false;
+			}
+
+			$requires = array();
+
+			foreach (array('require', 'require-dev') as $section) {
+				if (isset($composer[$section]) && is_array($composer[$section])) {
+					$requires = array_merge($requires, array_keys($composer[$section]));
+				}
+			}
+
+			foreach ($requires as $required) {
+				if (strpos($required, '/') === false) {
+					continue;
+				}
+
+				list($vendorRequired, $addonRequired) = explode('/', $required, 2);
+
+				// Mismo addon, distinto vendor: es un renombrado, no una desinstalacion.
+				if (strcasecmp($addonRequired, $addon) === 0 && strcasecmp($vendorRequired, $vendor) !== 0) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/**
 		 * Llamada cada vez que se elimina un paquete de composer
 		 *
 		 * @param Event $event
@@ -31,7 +88,7 @@
 			$namespaces = $package->getNames();
 			$installationManager = $event->getComposer()->getInstallationManager();
 
-			if (is_array($namespaces) && isset($namespaces[0]) && preg_match('/^oscdenox/i', $namespaces[0])) {
+			if (is_array($namespaces) && isset($namespaces[0]) && preg_match('/^(oscdenox|kadevia)/i', $namespaces[0])) {
 				// Directorio de instalacion
 				$installPath = $installationManager->getInstallPath($package);
 
@@ -47,15 +104,24 @@
 
 				// Ejecutamos uninstall
 				if (method_exists($class, 'uninstall')) {
-					require_once 'includes/configure.php';
-					require_once  'includes/functions/database.php';
-					require_once  'includes/database_tables.php';
+					// Si la tienda sigue pidiendo este mismo addon bajo otro vendor esto no es
+					// una desinstalacion, es el renombrado de marca oscdenox/ -> kadevia/. Nos
+					// saltamos el uninstall() para no borrar configuracion ni tablas que el
+					// paquete nuevo va a seguir usando. Los eventos si se limpian aqui abajo:
+					// el instalador del paquete nuevo los vuelve a registrar.
+					if (self::isVendorRename($package->getName())) {
+						$event->getIO()->write('  <info>' . $package->getName() . ': cambio de vendor, se omite uninstall() para conservar su configuracion</info>');
+					} else {
+						require_once 'includes/configure.php';
+						require_once  'includes/functions/database.php';
+						require_once  'includes/database_tables.php';
 
-					tep_db_connect();
+						tep_db_connect();
 
-					//echo "Desinstalando addon: " . $package->getName() . " (" . $class . ")\n";
+						//echo "Desinstalando addon: " . $package->getName() . " (" . $class . ")\n";
 
-					$class::uninstall();
+						$class::uninstall();
+					}
 				}
 
                 if (method_exists($class, 'event')) {
