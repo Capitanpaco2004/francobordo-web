@@ -277,12 +277,12 @@
 					}
 				}
 
-				// Fecha estimada de entrega
+				// Fecha estimada de entrega ('0000-00-00' = sin plazo definido: no se pinta fecha)
 				$sEntregaEstimada = '';
 				if( class_exists( 'delivery_estimate' ) ) {
 					$aEntrega = delivery_estimate::getCurrent( $oID );
-					if( is_array( $aEntrega ) && ! empty( $aEntrega['estimated_date'] ) )
-						$sEntregaEstimada = tep_date_short( $aEntrega['estimated_date'] );
+					if( is_array( $aEntrega ) && ! empty( $aEntrega['estimated_date'] ) && $aEntrega['estimated_date'] !== '0000-00-00' )
+						$sEntregaEstimada = (string)tep_date_short( $aEntrega['estimated_date'] );
 				}
 
 				$sColor = ! empty( $aDato['orders_status_color'] ) ? $aDato['orders_status_color'] : '#5f5f5f';

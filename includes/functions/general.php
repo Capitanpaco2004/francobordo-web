@@ -1338,7 +1338,7 @@ function tep_get_subcategories(&$subcategories_array, $parent_id = 0)
 // $raw_date needs to be in this format: YYYY-MM-DD HH:MM:SS
 function tep_date_long($raw_date)
 {
-    if (($raw_date == '0000-00-00 00:00:00') || ($raw_date == '')) {
+    if (($raw_date == '0000-00-00 00:00:00') || ($raw_date == '0000-00-00') || ($raw_date == '')) {
         return false;
     }
 
@@ -1360,7 +1360,7 @@ function tep_date_long($raw_date)
 // NOTE: Includes a workaround for dates before 01/01/1970 that fail on windows servers
 function tep_date_short($raw_date)
 {
-    if (($raw_date == '0000-00-00 00:00:00') || empty($raw_date)) {
+    if (($raw_date == '0000-00-00 00:00:00') || ($raw_date == '0000-00-00') || empty($raw_date)) {
         return false;
     }
 
