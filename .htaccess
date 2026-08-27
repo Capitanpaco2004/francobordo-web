@@ -480,13 +480,6 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
 </FilesMatch>
 # end denox-block-md
 
-# php -- BEGIN cPanel-generated handler, do not edit
-# Set the “ea-php85” package as the default “PHP” programming language.
-<IfModule mime_module>
-  AddHandler application/x-httpd-ea-php85 .php .php8 .phtml
-</IfModule>
-# php -- END cPanel-generated handler, do not edit
-
 # --- kdv-hardening-ficheros ---
 # OJO: aqui NO se usa "Require all denied". Estos .htaccess mezclan sintaxis
 # antigua (Order/Allow/Deny) con la moderna, y en ese caso mod_access_compat
@@ -495,3 +488,10 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
 RedirectMatch 404 (?i)/(composer\.(json|lock)|installed\.(json|php)|package(-lock)?\.json|yarn\.lock|auth\.json|satis\.json|\.gitmodules|\.env.*|\.gitignore|\.gitattributes|\.editorconfig|\.npmrc|phpunit\.xml.*|Dockerfile|docker-compose\.ya?ml|webpack\.config\.js|Makefile)$
 RedirectMatch 404 /\.git(/|$)
 # --- fin kdv-hardening-ficheros ---
+
+# php -- BEGIN cPanel-generated handler, do not edit
+# Set the “ea-php85” package as the default “PHP” programming language.
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php85 .php .php8 .phtml
+</IfModule>
+# php -- END cPanel-generated handler, do not edit
