@@ -92,7 +92,14 @@ if (!defined('SECURITY_KEY') || !defined('SECURITY_SALT')) {
 
 // ErrorBacktrace
 //$errorBacktrace = errorBacktrace::getInstance(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
-ini_set('display_errors', 1);
+// Seguridad 2026-08-29: los errores PHP no deben mostrarse al visitante en produccion
+// (filtran rutas, consultas SQL y trazas). Se siguen registrando en el error_log.
+// Se mantienen visibles en CLI (depuracion manual) y en el entorno de desarrollo.
+$fbShowErrors = (PHP_SAPI === 'cli')
+    || (isset($_SERVER['HTTP_HOST']) && strncmp($_SERVER['HTTP_HOST'], 'develop.', 8) === 0);
+ini_set('display_errors', $fbShowErrors ? '1' : '0');
+ini_set('log_errors', '1');
+unset($fbShowErrors);
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING);
 
 // DebugBar

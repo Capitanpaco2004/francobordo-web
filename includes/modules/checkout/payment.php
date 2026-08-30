@@ -192,13 +192,25 @@ class Payment
                 if (isset($_POST['customer_shopping_points_spending']) && is_numeric($_POST['customer_shopping_points_spending']) && ($_POST['customer_shopping_points_spending'] > 0)) {
                     $customer_shopping_points_spending = false;
 
-                    if (tep_calc_shopping_pvalue($_POST['customer_shopping_points_spending']) < $order->info['total'] && !is_object($$payment) || (tep_get_shopping_points($customer_id) < $_POST['customer_shopping_points_spending'])) {
+                    // #FB-PUNTOS-TOPE (2026-08-29): esta es la UNICA de las tres validaciones de
+                    // checkout que persiste el valor en sesion. La condicion original era
+                    // (A && B) || C y se atravesaba entera pidiendo MAS puntos que el total: con
+                    // pvalue >= total la parte A es falsa y C solo mira el saldo. Se conserva tal
+                    // cual (con parentesis explicitos) para no rechazar nada que hoy se acepte,
+                    // pero el valor que se GUARDA ya no es el del POST: se recorta al saldo REAL
+                    // de BD. El tope por importe del pedido lo aplica ot_redemptions, que es el
+                    // unico punto donde $order->info['total'] es el total definitivo (aqui aun no
+                    // han pasado seguro/comisiones, y capar con este total recortaria canjes
+                    // legitimos de quien paga el pedido entero con puntos).
+                    $nSaldoRealPuntos = (int) tep_get_shopping_points($customer_id);
+
+                    if (((tep_calc_shopping_pvalue($_POST['customer_shopping_points_spending']) < $order->info['total']) && !is_object($$payment)) || ($nSaldoRealPuntos < $_POST['customer_shopping_points_spending'])) {
                         $customer_shopping_points_spending = false;
                         $this->redirect = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode(REDEEM_SYSTEM_ERROR_POINTS_NOT), 'SSL');
                         return false;
                     } else {
-                        $customer_shopping_points_spending = $_POST['customer_shopping_points_spending'];
-                        $_SESSION['customer_shopping_points_spending'] = $_POST['customer_shopping_points_spending'];
+                        $customer_shopping_points_spending = max(0, min((int) floor((float) $_POST['customer_shopping_points_spending']), $nSaldoRealPuntos));
+                        $_SESSION['customer_shopping_points_spending'] = $customer_shopping_points_spending;
                         if (!tep_session_is_registered('customer_shopping_points_spending')) {
                             tep_session_register('customer_shopping_points_spending');
                         }

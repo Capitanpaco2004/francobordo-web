@@ -34,6 +34,11 @@ Disallow: /address_book_process.php
 Disallow: /advanced_search.php
 Disallow: /advanced_search_result.php
 Disallow: /advanced_search_result.php*
+# Buscador interno (anadido 2026-08-29): las paginas de resultados no aportan valor de
+# indexacion y generan combinaciones infinitas de parametros. Era un agujero de crawl
+# budget: 103k peticiones en el log, el 87% de un solo bot atrapado en bucle.
+Disallow: /search.php
+Disallow: /*?buscar=
 Disallow: /comparador.php
 Disallow: /checkout_confirmation.php
 Disallow: /checkout_payment.php
@@ -148,6 +153,10 @@ Disallow: /address_book.php
 Disallow: /address_book_process.php
 Disallow: /advanced_search.php
 Disallow: /advanced_search_result.php
+# Buscador interno: aqui es donde GPTBot se quedaba en bucle (98,4% de sus peticiones,
+# 88.858 respuestas 200 = CPU+BD gastadas para nada). Anadido 2026-08-29.
+Disallow: /search.php
+Disallow: /*?buscar=
 Disallow: /comparador.php
 Disallow: /checkout_confirmation.php
 Disallow: /checkout_payment.php

@@ -61,7 +61,7 @@ function faq_toc () {
 	}
 //	$result=tep_db_fetch_array(tep_db_db_query(DB_DATABASE, "SELECT faq_id, question FROM " . TABLE_FAQ . " WHERE $query visible='1' ORDER BY v_order"));
 	$result=tep_db_fetch_array(tep_db_query("SELECT faq_id, question FROM " . TABLE_FAQ . " WHERE $query visible='1' ORDER BY v_order"));
-	if ($result[faq_id]) {$old_faq_id.="$result[faq_id]&";	$result[toc]=href(tep_href_link(FILENAME_FAQ, '', 'NONSSL') . "#$result[faq_id]", '<span style="color:#0000ff">' . $result[question] . '</span>');}
+	if (!empty($result['faq_id'])) {$old_faq_id.="$result[faq_id]&";	$result['toc']=href(tep_href_link(FILENAME_FAQ, '', 'NONSSL') . "#$result[faq_id]", '<span style="color:#0000ff">' . $result['question'] . '</span>');}
 return $result;
 }
 
@@ -75,9 +75,9 @@ function read_faq () {
 	}
 // $result=tep_db_fetch_array(tep_db_db_query(DB_DATABASE, "SELECT faq_id, question, answer FROM " . TABLE_FAQ . " WHERE $query visible='1' ORDER BY v_order"));
  $result=tep_db_fetch_array(tep_db_query("SELECT faq_id, question, answer FROM " . TABLE_FAQ . " WHERE $query visible='1' ORDER BY v_order"));
-	if ($result[faq_id]) {
+	if (!empty($result['faq_id'])) {
 		$old_faq_id.="$result[faq_id]&";
-		$result[faq]="<b><a name=$result[faq_id]>$result[question]</a></b><br>$result[answer]";
+		$result['faq']="<b><a name=$result[faq_id]>$result[question]</a></b><br>$result[answer]";
 	}
 return $result;
 }

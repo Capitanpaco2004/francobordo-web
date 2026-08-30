@@ -54,6 +54,14 @@ class ot_promocion {
 
 		}
 
+		// #FB-PUNTOS-TOPE (2026-08-29): suelo de seguridad. Este modulo corre con sort_order 899,
+		// es decir DESPUES del tope de canje de puntos de ot_redemptions (sort 80), y restaba sin
+		// limite: sin este suelo el total del pedido podia volver a quedar NEGATIVO por la via
+		// puntos + promocion. La promocion descuenta como maximo lo que queda por pagar.
+		if ($nResult > 0 && $nResult > $order->info['total']) {
+			$nResult = max(0, (float) $order->info['total']);
+		}
+
 		if ($nResult > 0) {
 			$this->output[] = ['title' => $this->title . ':',
 							   'text'  => '-' . $currencies->format($nResult),

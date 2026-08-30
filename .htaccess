@@ -88,6 +88,17 @@ AddType model/step .step .stp
     Require all denied
 </FilesMatch>
 
+## Ficheros de BACKUP/temporales: NUNCA servibles. Anadido 2026-08-29.
+## Sin esto, cualquier *.bak/*.old/*.orig/... se sirve en TEXTO PLANO con 200 (no lo ejecuta PHP
+## porque no acaba en .php) => fuga del codigo fuente y de DB_SERVER_PASSWORD. Verificado en vivo:
+## /api/api.php.bak-20260716 y /api-orders.php.bak.* devolvian 200 con el fuente. 856 ficheros asi
+## bajo public_html, y fbdeploy crea uno nuevo en cada despliegue. La campana de escaneo de
+## credenciales de agosto-2026 pedia exactamente estas extensiones.
+## Comprobado contra 22h de access log: NINGUNA peticion legitima casa con este patron.
+<FilesMatch "\.(bak|old|orig|save|swp|swo|copy|backup|disabled)([-.].*)?$|~$|\.php\.[0-9]">
+    Require all denied
+</FilesMatch>
+
 ## Manejo de errores de Apache. Cuando se produzca uno de estos errores, redirigimos a una pagina especial desarrollada por nosotros.
 ErrorDocument 404 /error404.html
 ErrorDocument 500 /error404.html

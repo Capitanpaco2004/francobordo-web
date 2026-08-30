@@ -214,6 +214,22 @@ class paypal_rest {
             tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('No se ha completado el pago con PayPal'), 'SSL'));
         }
 
+        // #FB-PAYPAL-REPLAY (2026-08-29): serializa por order_id de PayPal ANTES de validar nada.
+        // Los guardias anti-replay de mas abajo leen marcas que solo se escriben en after_process(),
+        // y entre before_process() y after_process() se construye el pedido entero y se envian dos
+        // correos: la ventana son SEGUNDOS, no milisegundos. Sin este lock, N peticiones simultaneas
+        // con el MISMO pago pasan las comprobaciones a la vez y crean N pedidos con un solo cobro.
+        // El lock se libera al cerrar la conexion (fin de la peticion), es decir DESPUES de
+        // after_process(). Valido porque USE_PCONNECT='false' y tep_db_connect() no usa prefijo 'p:'.
+        $rPpLock = tep_db_query("SELECT GET_LOCK('" . tep_db_input('fbpp_' . substr($sOrderId, 0, 40)) . "', 10) AS l");
+        $aPpLock = tep_db_fetch_array($rPpLock);
+        if ( empty($aPpLock['l']) ) {
+            @error_log('[paypal] LOCK no obtenido order=' . $sOrderId . ' customer=' . (int)$customer_id);
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('Tu pago se esta procesando. Espera unos segundos y revisa tus pedidos antes de volver a intentarlo.'), 'SSL'));
+        }
+
+        $sIntent = ( defined('MODULE_PAYMENT_PAYPAL_REST_INTENT') && MODULE_PAYMENT_PAYPAL_REST_INTENT === 'AUTHORIZE' ) ? 'AUTHORIZE' : 'CAPTURE';
+
         require_once DIR_FS_CATALOG . 'includes/modules/payment/PayPalRest/Client.php';
         try {
             $oClient = new \PayPalRest\Client();
@@ -222,19 +238,73 @@ class paypal_rest {
             tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('Error verificando el pago: ' . $e->getMessage()), 'SSL'));
         }
 
+        // APPROVED = el comprador aprobo pero PayPal NO ha cobrado todavia: la
+        // autorizacion caduca en ~3h y el dinero no entra nunca. Solo COMPLETED.
         $sStatus = $aOrder['status'] ?? '';
-        if ( $sStatus !== 'COMPLETED' && $sStatus !== 'APPROVED' ) {
+        if ( $sStatus !== 'COMPLETED' ) {
+            @error_log('[paypal_rest] estado no COMPLETED order=' . $sOrderId . ' status=' . $sStatus . ' customer=' . (int)$customer_id);
             tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('El pago con PayPal no se ha completado (estado: ' . $sStatus . ')'), 'SSL'));
+        }
+
+        // El pedido de PayPal tiene que ser de ESTE cliente: create-order.php graba
+        // reference_id = 'cust-<customer_id>-<YmdHis>'.
+        $sReference = (string)( $aOrder['purchase_units'][0]['reference_id'] ?? '' );
+        if ( strpos($sReference, 'cust-' . (int)$customer_id . '-') !== 0 ) {
+            @error_log('[paypal_rest] reference_id ajeno order=' . $sOrderId . ' ref=' . $sReference . ' customer=' . (int)$customer_id);
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('El pago no corresponde a esta sesion. La compra no se ha completado.'), 'SSL'));
+        }
+
+        // Cobro REAL segun PayPal (captura COMPLETED con intent CAPTURE). Si esta
+        // lista viene vacia no hay dinero, por mucho que el pedido diga COMPLETED
+        // (caso real: order COMPLETED con captures[0].status = DECLINED).
+        $aPayments = \PayPalRest\Client::listSettledPayments($aOrder, $sIntent);
+        if ( empty($aPayments) ) {
+            @error_log('[paypal_rest] sin cobro registrado order=' . $sOrderId . ' intent=' . $sIntent . ' customer=' . (int)$customer_id);
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('PayPal no ha registrado el cobro. La compra no se ha completado.'), 'SSL'));
+        }
+
+        // El capture_id llega por POST desde el navegador: solo vale si PayPal lo
+        // confirma. Antes solo se comprobaba que no estuviese vacio.
+        $aPayment = null;
+        foreach ( $aPayments as $aTry ) {
+            if ( $aTry['id'] !== '' && $aTry['id'] === $sCaptureId ) { $aPayment = $aTry; break; }
+        }
+        if ( $aPayment === null ) {
+            @error_log('[paypal_rest] capture_id no confirmado por PayPal order=' . $sOrderId . ' post=' . $sCaptureId . ' customer=' . (int)$customer_id);
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('No se ha podido verificar el cobro con PayPal. La compra no se ha completado.'), 'SSL'));
         }
 
         // Reconciliacion de importe: el pago de PayPal debe coincidir con el total
         // del pedido (calculado en servidor). Evita pagar de menos manipulando el carrito.
-        if ( ! \PayPalRest\Client::verifyCapturedAmount($aOrder, tep_round($order->info['total'], 2), 'EUR') ) {
+        if ( ! \PayPalRest\Client::verifyCapturedAmount($aOrder, tep_round($order->info['total'], 2), 'EUR', $sIntent) ) {
             @error_log('[paypal_rest] importe NO coincide order=' . $sOrderId . ' total_esperado=' . tep_round($order->info['total'], 2));
             tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('El importe del pago no coincide con el del pedido. La compra no se ha completado.'), 'SSL'));
         }
 
-        $this->transaction_id = $sCaptureId;
+        // Anti-replay: un mismo pago de PayPal no puede generar dos pedidos.
+        // (a) el order_id de PayPal ya tiene un pedido asociado.
+        $rReplay = tep_db_query(
+            "SELECT orders_id FROM redsys_payment_movements"
+            . " WHERE module IN ('paypal_rest', 'paypal_googlepay', 'paypal_applepay')"
+            . " AND reference = '" . tep_db_input(substr($sOrderId, 0, 20)) . "'"
+            . " AND orders_id > 0 LIMIT 1"
+        );
+        if ( tep_db_num_rows($rReplay) > 0 ) {
+            $aReplay = tep_db_fetch_array($rReplay);
+            @error_log('[paypal_rest] REPLAY order=' . $sOrderId . ' ya usado en pedido ' . (int)$aReplay['orders_id'] . ' customer=' . (int)$customer_id);
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('Este pago de PayPal ya se ha utilizado en un pedido anterior.'), 'SSL'));
+        }
+        // (b) el capture ya esta grabado en un pedido.
+        $rReplay2 = tep_db_query(
+            "SELECT orders_id FROM orders WHERE paypal_transaction_id = '" . tep_db_input($aPayment['id']) . "' LIMIT 1"
+        );
+        if ( tep_db_num_rows($rReplay2) > 0 ) {
+            $aReplay2 = tep_db_fetch_array($rReplay2);
+            @error_log('[paypal_rest] REPLAY capture=' . $aPayment['id'] . ' ya usado en pedido ' . (int)$aReplay2['orders_id'] . ' customer=' . (int)$customer_id);
+            tep_redirect(tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode('Este pago de PayPal ya se ha utilizado en un pedido anterior.'), 'SSL'));
+        }
+
+        $this->transaction_id = $aPayment['id'];
 
         tep_db_perform('redsys_payment_movements', array(
             'reference'    => substr($sOrderId, 0, 20),

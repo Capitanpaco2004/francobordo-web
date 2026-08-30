@@ -179,7 +179,7 @@ class Affiliates
         $sql = sprintf(
             'SELECT id FROM %s WHERE coupon = "%s" AND affiliate_active = 1 LIMIT 1',
             TABLE_AFFILIATES,
-            $coupon
+            tep_db_input($coupon)
         );
         $sql = tep_db_query($sql);
 
@@ -501,7 +501,7 @@ class Affiliates
     }
 
 	public static function setSessionAffiliateID(string $coupon){
-		$query = tep_db_query("SELECT id FROM affiliates WHERE coupon = \"{$coupon}\"");
+		$query = tep_db_query("SELECT id FROM affiliates WHERE coupon = \"" . tep_db_input($coupon) . "\"");
 		if(tep_db_num_rows($query)>0){
 			$id = tep_db_fetch_array($query);
 			$_SESSION['id_affiliate'] = $id['id'];

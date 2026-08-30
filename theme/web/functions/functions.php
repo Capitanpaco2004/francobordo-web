@@ -112,21 +112,32 @@ function changePriceCustomer($sSql, $aArgumentos = array())
         $sSql = $aDatosSplit->sql_query;
     }
 
-    // Productos, devolvemos la consulta o un array de productos
-    if ($bProductsArray) {
-        // Consultamos
-        $aDatos = tep_db_query($sSql);
+    // Productos, devolvemos la consulta o un array de productos.
+    // Resiliencia: un $sSql malformado (bots SQLi contra el buscador, o input raro en
+    // filtros manufacturer/precio) lanzaba PDOException → Fatal 500. Degradamos a "sin
+    // resultados" y dejamos un breadcrumb compacto (NO el log principal) para poder cazar
+    // un bug REAL si lo hubiera (como el 'AND' del autocomplete). tep_db_num_rows/fetch_array
+    // ya toleran false. La query PRINCIPAL de otros listados no cambia si es válida.
+    try {
+        if ($bProductsArray) {
+            // Consultamos
+            $aDatos = tep_db_query($sSql);
 
-        // Total
-        $nTotal = tep_db_num_rows($aDatos);
+            // Total
+            $nTotal = tep_db_num_rows($aDatos);
 
-        // Obtenemos los productos
-        while ($aDato = tep_db_fetch_array($aDatos)) {
-            $aProductos[] = $aDato;
+            // Obtenemos los productos
+            while ($aDato = tep_db_fetch_array($aDatos)) {
+                $aProductos[] = $aDato;
+            }
+        } else {
+            $aProductos = tep_db_query($sSql);
+            $nTotal = tep_db_num_rows($aProductos);
         }
-    } else {
-        $aProductos = tep_db_query($sSql);
-        $nTotal = tep_db_num_rows($aProductos);
+    } catch (\Throwable $__eList) {
+        $aProductos = $bProductsArray ? array() : false;
+        $nTotal = 0;
+        @error_log(date('Y-m-d H:i:s') . "\t" . ($_SERVER['REQUEST_URI'] ?? 'cli') . "\t" . substr($__eList->getMessage(), 0, 180) . "\n", 3, '/home/francobordo/logs/listing_query_fail.log');
     }
 
     // Total de productos

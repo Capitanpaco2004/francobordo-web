@@ -43,13 +43,40 @@ class ot_redemptions {
 			return;
 		}
 
+		// #FB-PUNTOS-TOPE (2026-08-29): TOPE AUTORITATIVO del canje. Este es el unico punto del
+		// flujo en el que $order->info['total'] es el importe real a pagar (subtotal + IVA + envio
+		// + seguro + comisiones + cupon) y TODAVIA sin descontar los puntos, es decir, el techo que
+		// el canje no puede sobrepasar. Sin este tope el total del pedido podia quedar NEGATIVO
+		// (33 pedidos historicos, el peor -63,96 EUR).
+		// calculate_max_points() devuelve min(puntos_pedidos, total / REDEEM_POINT_VALUE,
+		// POINTS_MAX_VALUE) redondeado a la baja, respetando las reglas de negocio ya existentes
+		// (REDEMPTION_DISCOUNTED y RESTRICTION_*). NO cambia cuantos euros vale cada punto.
+		$nPuntosPedidos = (int) floor((float) $customer_shopping_points_spending);
+		$nPuntosAplicar = (int) calculate_max_points($nPuntosPedidos);
+		if ($nPuntosAplicar < 0) {
+			$nPuntosAplicar = 0;
+		}
+
+		if ($nPuntosAplicar !== $nPuntosPedidos) {
+			// Propagamos el valor recortado (la variable es global) para que checkout_process
+			// descuente del saldo EXACTAMENTE los mismos puntos que se descuentan del pedido.
+			$customer_shopping_points_spending = $nPuntosAplicar;
+			if (isset($_SESSION['customer_shopping_points_spending'])) {
+				$_SESSION['customer_shopping_points_spending'] = $nPuntosAplicar;
+			}
+		}
+
+		if ($nPuntosAplicar <= 0) {
+			return;
+		}
+
 		// REDEEM_POINT_VALUE se configura CON IVA inc. (lo que el cliente ve en my_points y
 		// en su saldo). Ese valor con IVA es lo que el cliente AHORRA. Internamente la línea
 		// del desglose se grava SIN IVA (base), de forma que:
 		//   - el desglose web cuadra linealmente (subtotal + envío − base + IVA = total)
 		//   - QFacWin, al aplicarle su IVA a la base, muestra el importe con IVA correcto (= ahorro)
 		// (Opción B — 2026-05-19, sustituye a la Opción A que mostraba el valor con IVA en la línea)
-		$nPointValueConIva = tep_calc_shopping_pvalue($customer_shopping_points_spending);
+		$nPointValueConIva = tep_calc_shopping_pvalue($nPuntosAplicar);
 
 		// Peso bruto del carrito por tipo de IVA — para prorratear base/IVA del descuento entre grupos
 		$aGrupos     = [];

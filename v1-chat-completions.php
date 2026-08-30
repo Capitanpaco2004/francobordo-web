@@ -2,7 +2,7 @@
 /**
  * Proxy OpenAI-compatible para que el bot de Oct8ne (u otros consumidores)
  * llame a nuestro RAG en LAN. Recibe POST /v1/chat/completions y reenvia el
- * payload tal cual al RAG via Tailscale (http://100.82.226.46:8002), devolviendo
+ * payload tal cual al RAG via Tailscale (http://100.82.226.46:8020), devolviendo
  * la respuesta del modelo en formato OpenAI.
  *
  * Auth:
@@ -81,7 +81,7 @@ if ($body === false || $body === '') {
 }
 
 // 6) Proxy al RAG por Tailscale
-$rag_url = 'http://100.82.226.46:8002/v1/chat/completions';
+$rag_url = 'http://100.82.226.46:8020/v1/chat/completions'; // 2026-08-29: 8002 paso a artefacto sellado chatbot (409); 8020 = instancia RAG dedicada Kayako/Oct8ne
 $t0 = microtime(true);
 $ch = curl_init($rag_url);
 curl_setopt_array($ch, [

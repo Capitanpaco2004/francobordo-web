@@ -255,35 +255,87 @@ class Client {
     }
 
     /**
+     * Devuelve los COBROS REALES que PayPal tiene registrados en la unidad de
+     * compra del pedido. NO son los datos que envia el navegador ni el importe
+     * que pedimos nosotros al crear la orden: es lo que PayPal dice que ha
+     * movido de verdad.
+     *
+     * - intent CAPTURE   -> capturas con status COMPLETED.
+     * - intent AUTHORIZE -> autorizaciones vivas (CREATED / PARTIALLY_CAPTURED / CAPTURED).
+     *
+     * Un pedido en APPROVED (el comprador aprobo pero NADIE ha llamado a
+     * /capture) no tiene ningun elemento aqui: devuelve array vacio. Idem si la
+     * captura salio DECLINED (caso real observado en el log: order.status =
+     * COMPLETED con captures[0].status = DECLINED).
+     *
+     * @param array  $aOrder  Respuesta de getOrder() / captureOrder() (Orders v2)
+     * @param string $sIntent 'CAPTURE' (por defecto) o 'AUTHORIZE'
+     * @return array Lista de array('id','status','amount','kind'); vacia si no hay cobro
+     */
+    public static function listSettledPayments( array $aOrder, $sIntent = 'CAPTURE' ) {
+        $aUnit = isset($aOrder['purchase_units'][0]) ? $aOrder['purchase_units'][0] : null;
+        if ( ! is_array($aUnit) ) {
+            return array();
+        }
+
+        if ( strtoupper((string)$sIntent) === 'AUTHORIZE' ) {
+            $sKind   = 'authorization';
+            $aValid  = array('CREATED', 'PARTIALLY_CAPTURED', 'CAPTURED');
+            $aList   = isset($aUnit['payments']['authorizations']) ? $aUnit['payments']['authorizations'] : null;
+        } else {
+            $sKind   = 'capture';
+            $aValid  = array('COMPLETED');
+            $aList   = isset($aUnit['payments']['captures']) ? $aUnit['payments']['captures'] : null;
+        }
+        if ( ! is_array($aList) ) {
+            return array();
+        }
+
+        $aOut = array();
+        foreach ( $aList as $aPay ) {
+            if ( ! is_array($aPay) ) continue;
+            if ( ! in_array((string)($aPay['status'] ?? ''), $aValid, true) ) continue;
+            if ( ! isset($aPay['amount']['value']) ) continue;
+            $aOut[] = array(
+                'id'     => (string)($aPay['id'] ?? ''),
+                'status' => (string)$aPay['status'],
+                'amount' => $aPay['amount'],
+                'kind'   => $sKind,
+            );
+        }
+        return $aOut;
+    }
+
+    /** Primer cobro real registrado, o null si PayPal no ha cobrado nada. */
+    public static function findSettledPayment( array $aOrder, $sIntent = 'CAPTURE' ) {
+        $aPayments = self::listSettledPayments($aOrder, $sIntent);
+        return empty($aPayments) ? null : $aPayments[0];
+    }
+
+    /**
      * Reconcilia el importe/moneda realmente capturado en PayPal contra el total
      * esperado del pedido (calculado en servidor). Devuelve true SOLO si la moneda
      * coincide y el importe cuadra al centimo. Defensa contra fraude por
      * manipulacion de importe: NO basta con fiarse del 'status' del pedido.
      *
+     * IMPORTANTE: si PayPal no ha cobrado nada devuelve false. Antes se recaia
+     * en purchase_units[0].amount — que es el importe que enviamos NOSOTROS al
+     * crear la orden — con lo que la comprobacion cuadraba SIEMPRE y un pedido
+     * meramente APPROVED (autorizacion que caduca en ~3h sin cobro) pasaba el
+     * filtro.
+     *
      * @param array      $aOrder         Respuesta de getOrder() (PayPal Orders v2)
      * @param float|int  $fExpectedTotal Total esperado del pedido (servidor)
      * @param string     $sExpectedCurrency Moneda esperada (por defecto EUR)
+     * @param string     $sIntent        'CAPTURE' (por defecto) o 'AUTHORIZE'
      */
-    public static function verifyCapturedAmount( array $aOrder, $fExpectedTotal, $sExpectedCurrency = 'EUR' ) {
-        $aUnit = isset($aOrder['purchase_units'][0]) ? $aOrder['purchase_units'][0] : null;
-        if ( ! is_array($aUnit) ) {
+    public static function verifyCapturedAmount( array $aOrder, $fExpectedTotal, $sExpectedCurrency = 'EUR', $sIntent = 'CAPTURE' ) {
+        $aPayment = self::findSettledPayment($aOrder, $sIntent);
+        if ( $aPayment === null ) {
             return false;
         }
 
-        // Preferimos el importe REALMENTE capturado (captura COMPLETED);
-        // si aun no hay captura, usamos el amount de la unidad de compra.
-        $aAmount = null;
-        if ( isset($aUnit['payments']['captures']) && is_array($aUnit['payments']['captures']) ) {
-            foreach ( $aUnit['payments']['captures'] as $aCap ) {
-                if ( ($aCap['status'] ?? '') === 'COMPLETED' && isset($aCap['amount']['value']) ) {
-                    $aAmount = $aCap['amount'];
-                    break;
-                }
-            }
-        }
-        if ( $aAmount === null ) {
-            $aAmount = isset($aUnit['amount']) ? $aUnit['amount'] : null;
-        }
+        $aAmount = $aPayment['amount'];
         if ( ! is_array($aAmount) || ! isset($aAmount['value']) ) {
             return false;
         }

@@ -283,12 +283,21 @@ class Confirmation
             if (isset($_POST['customer_shopping_points_spending']) && is_numeric($_POST['customer_shopping_points_spending']) && ($_POST['customer_shopping_points_spending'] > 0)) {
                 $customer_shopping_points_spending = false;
 
-                if (tep_calc_shopping_pvalue($_POST['customer_shopping_points_spending']) < $order->info['total'] && !is_object($$payment) || (tep_get_shopping_points($customer_id) < $_POST['customer_shopping_points_spending'])) {
+                // #FB-PUNTOS-TOPE (2026-08-29): misma correccion que en checkout/payment.php. La
+                // condicion (A && B) || C se conserva con parentesis explicitos (no rechaza nada
+                // nuevo) y el valor aceptado se recorta al saldo REAL de BD. Aqui NO se puede usar
+                // calculate_max_points() como tope: en este punto $order ya ha pasado por
+                // order_total, o sea que $order->info['total'] LLEVA restado el canje y el tope
+                // saldria falsamente bajo. El tope por importe lo aplica ot_redemptions sobre el
+                // total pre-descuento, que ademas ya ha saneado la sesion antes de llegar aqui.
+                $nSaldoRealPuntos = (int) tep_get_shopping_points($customer_id);
+
+                if (((tep_calc_shopping_pvalue($_POST['customer_shopping_points_spending']) < $order->info['total']) && !is_object($$payment)) || ($nSaldoRealPuntos < $_POST['customer_shopping_points_spending'])) {
                     $customer_shopping_points_spending = false;
                     $this->redirect = tep_href_link(FILENAME_CHECKOUT_PAYMENT, 'error_message=' . urlencode(REDEEM_SYSTEM_ERROR_POINTS_NOT), 'SSL');
                     return false;
                 } else {
-                    $customer_shopping_points_spending = $_POST['customer_shopping_points_spending'];
+                    $customer_shopping_points_spending = max(0, min((int) floor((float) $_POST['customer_shopping_points_spending']), $nSaldoRealPuntos));
                     if (!tep_session_is_registered('customer_shopping_points_spending')) {
                         tep_session_register('customer_shopping_points_spending');
                     }

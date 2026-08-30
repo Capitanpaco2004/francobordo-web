@@ -102,15 +102,20 @@ lm($ENFORCE ? '== ENFORCE ==' : '== DRY-RUN (no banea) ==');
 // Captura IPs de clientes LOGUEADOS o INVITADOS en el funnel de compra y las persiste 30d, para que
 // las reglas anti-scraper (guard sincrono + este cron) NUNCA baneen a un comprador real aunque su
 // sesion viva ya haya expirado. Patrones LIKE PRECISOS (evitar %cart% que casa cartas/cartridge).
+// ANCLADOS AL INICIO desde 2026-08-29: los comodines por delante hacian la exencion ENVENENABLE.
+// Caso real: el escaner de credenciales 136.117.214.122 pidio '/api/account' y '/login', casó con
+// '%/account%', entro en scraper_customer_ips como source='funnel' y quedo INMUNE 30 dias al
+// anti-scraper entero (el guard comprueba is_customer antes que la blacklist). Un cliente real
+// siempre llega por /checkout/..., /account/..., /create_account o shopping_cart, nunca por /api/account.
 $snap = @$mysqli->query("INSERT INTO scraper_customer_ips (ip, last_seen, source)
     SELECT ip_address, NOW(), IF(customer_id>0,'login','funnel')
     FROM whos_online
     WHERE ip_address IS NOT NULL AND ip_address<>''
       AND ( customer_id>0
-         OR last_page_url LIKE '%/checkout/%'
+         OR last_page_url LIKE '/checkout/%'
          OR last_page_url LIKE '%shopping_cart%'
-         OR last_page_url LIKE '%/account%'
-         OR last_page_url LIKE '%create_account%' )
+         OR last_page_url LIKE '/account/%'
+         OR last_page_url LIKE '/create_account%' )
     ON DUPLICATE KEY UPDATE last_seen=NOW(), source=VALUES(source)");
 if ($snap === false) lm('WARN snapshot customer_ips: ' . $mysqli->error);
 else lm('Snapshot customer_ips: ' . $mysqli->affected_rows . ' filas upsert');

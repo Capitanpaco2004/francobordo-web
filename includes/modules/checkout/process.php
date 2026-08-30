@@ -158,8 +158,32 @@ class Process
 
         // Cargamos la clase de totalización
         require_once DIR_WS_CLASSES . 'order_total.php';
+
+        // #FB-PUNTOS-TOPE (2026-08-29): hasta ahora el canje se aplicaba tal cual venia de la
+        // SESION, sin re-verificar el saldo en BD y sin limitarlo al importe del pedido; 33
+        // pedidos historicos acabaron con total NEGATIVO. Aqui, en el unico punto que decide de
+        // verdad (creacion del pedido), releemos el saldo REAL de BD y recortamos lo que diga la
+        // sesion si es mayor. El tope por importe del pedido lo aplica ot_redemptions durante la
+        // totalizacion de abajo (unico sitio donde $order->info['total'] es el total definitivo
+        // sin puntos: aqui todavia no han pasado seguro/comisiones).
+        $nPuntosSesion = (int) floor((float) ($_SESSION['customer_shopping_points_spending'] ?? $GLOBALS['customer_shopping_points_spending'] ?? 0));
+        if ((USE_POINTS_SYSTEM == 'true') && (USE_REDEEM_SYSTEM == 'true') && ($nPuntosSesion > 0)) {
+            $nSaldoRealPuntos = (int) tep_get_shopping_points($customer_id);
+            $nPuntosCanje     = max(0, min($nPuntosSesion, $nSaldoRealPuntos));
+
+            $GLOBALS['customer_shopping_points_spending']  = $nPuntosCanje;
+            $_SESSION['customer_shopping_points_spending'] = $nPuntosCanje;
+            $customer_shopping_points_spending            = $nPuntosCanje;
+        }
+
         $order_total_modules = new \order_total;
         $order_totals = $order_total_modules->process();
+
+        // #FB-PUNTOS-TOPE: ot_redemptions puede haber recortado el canje al total real del
+        // pedido. Re-sincronizamos la copia local que hizo extract($GLOBALS) al entrar en el
+        // metodo, para que mas abajo tep_redeemed_points descuente del saldo EXACTAMENTE los
+        // puntos que se han descontado del pedido (ni mas, ni menos).
+        $customer_shopping_points_spending = isset($GLOBALS['customer_shopping_points_spending']) ? (int) $GLOBALS['customer_shopping_points_spending'] : 0;
 
         // Ultimo ID de pedido
         $_oders_max_query = tep_db_query("select max(orders_id) as max_id from " . TABLE_ORDERS . "");
@@ -457,8 +481,13 @@ class Process
                 }
             }
             // customer shoppping points account balanced
-            if ($customer_shopping_points_spending) {
-                tep_redeemed_points($customer_id, $insert_id, $customer_shopping_points_spending);
+            if ($customer_shopping_points_spending > 0) {
+                // #FB-PUNTOS-TOPE: tep_redeemed_points devuelve false si el saldo no daba (carrera
+                // entre dos pedidos simultaneos del mismo cliente). El pedido ya esta creado con
+                // el descuento, asi que dejamos traza para poder conciliarlo a mano.
+                if (tep_redeemed_points($customer_id, $insert_id, $customer_shopping_points_spending) === false) {
+                    error_log('[puntos] pedido ' . (int) $insert_id . ' creado con descuento de ' . (int) $customer_shopping_points_spending . ' puntos que NO se han podido descontar del saldo (customers_id=' . (int) $customer_id . ')');
+                }
             }
         }
 

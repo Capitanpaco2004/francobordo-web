@@ -4,7 +4,12 @@
  *   0) Allowlist por UA con token secreto (descargador de docs del RAG) -> return inmediato
  *   1) Allowlist hardcoded (LAN, self, casa, Redsys, Googlebot, Bingbot, Meta, Ahrefs, Petalbot)
  *   2) Allowlist DB (tabla scraper_allowlist) — añadible desde panel admin
- *   3) 403 inmediato si IP en scraper_blacklist (no expirada)
+ *   3) 403 inmediato si IP en scraper_blacklist (no expirada). Los bans con reason "scanner%"
+ *      son AUTORITATIVOS: ganan a la exención por compra (is_customer), que es envenenable.
+ *   3b) ANTI-SPOOF de bots verificables: si el UA declara un crawler que publica rangos de IP
+ *      (OpenAI/Anthropic/Perplexity/Google/Bing) y la IP NO está en ellos, se anota en
+ *      scraper_radar (kind spoofed_ai_bot) y —solo para las familias IA— pierde la exención
+ *      de bot declarado. Fail-open si bot_ranges.inc.php falta o está rancio.
  *   4a) CONDUCTUAL (agnóstico al UA): rate-limit del firehose /products_new.php.
  *       >=15 hits / 10 min desde una IP -> auto-blacklist 24h (reason ratelimit_catalog).
  *       Es la defensa durable: NO depende del User-Agent, así que aguanta la rotación de UAs.
@@ -97,13 +102,26 @@ try {
     // (tabla scraper_customer_ips, poblada desde whos_online por el cron rDNS). Anadido 2026-06-25
     // tras FP: clientes B2B/residenciales baneados por las reglas sincronas. Un comprador real
     // NUNCA debe ser bloqueado por el anti-scraper, aunque su sesion viva ya haya expirado.
+    // is_hardblock = ban MANUAL/de escaneo (reason que empieza por "scanner"). Anadido 2026-08-29:
+    // la exencion is_customer se puede ENVENENAR — un escaner que pide /login o /api/account entra
+    // en whos_online, el cron lo copia a scraper_customer_ips y queda inmune 30 dias (caso real:
+    // 136.117.214.122, escaner de credenciales, marcado source='funnel'). Los bans automaticos por
+    // rate-limit SIGUEN cediendo ante is_customer (preserva el fix de FP del 2026-06-25), pero un
+    // ban explicito de escaner es AUTORITATIVO y se comprueba antes que nada.
     $_sg_res = mysqli_query($_sg_link, "SELECT
         EXISTS(SELECT 1 FROM scraper_allowlist WHERE ip = \"$_sg_ipe\") AS is_allow,
         EXISTS(SELECT 1 FROM scraper_blacklist WHERE ip = \"$_sg_ipe\" AND expires_at > NOW()) AS is_block,
+        EXISTS(SELECT 1 FROM scraper_blacklist WHERE ip = \"$_sg_ipe\" AND expires_at > NOW() AND reason LIKE \"scanner%\") AS is_hardblock,
         EXISTS(SELECT 1 FROM scraper_customer_ips WHERE ip = \"$_sg_ipe\" AND last_seen > NOW() - INTERVAL 30 DAY) AS is_customer");
     $_sg_row = $_sg_res ? mysqli_fetch_assoc($_sg_res) : null;
     if ($_sg_res) mysqli_free_result($_sg_res);
 
+    // Ban de escaner: gana a is_customer (pero NO a la allowlist explicita, que sigue siendo la
+    // valvula de escape manual desde el panel si algun dia hubiese un FP).
+    if ($_sg_row && (int)$_sg_row["is_hardblock"] === 1 && (int)$_sg_row["is_allow"] !== 1) {
+        mysqli_close($_sg_link);
+        _sg_deny_403();
+    }
     if ($_sg_row && ((int)$_sg_row["is_allow"] === 1 || (int)$_sg_row["is_customer"] === 1)) {
         mysqli_close($_sg_link);
         return; // allowlist DB o comprador reciente: nunca banear
@@ -122,6 +140,39 @@ try {
     $_sg_declared_bot_regex = "#(PetalBot|AspiegelBot|Googlebot|GoogleOther|Storebot-Google|AdsBot-Google|Google-InspectionTool|APIs-Google|FeedFetcher-Google|bingbot|BingPreview|adidxbot|msnbot|YandexBot|DuckDuckBot|FacebookExternalHit|facebookexternalhit|meta-externalagent|Twitterbot|WhatsApp|Pinterest|LinkedInBot|TelegramBot|Discordbot|Slackbot|Amazonbot|AhrefsBot|Slurp|SemrushBot|MJ12bot|DotBot|Applebot|idealo|ClaudeBot|Claude-Web|anthropic-ai|GPTBot|OAI-SearchBot|ChatGPT-User|PerplexityBot)#i";
     $_sg_is_declared = ($_sg_ua !== "" && preg_match($_sg_declared_bot_regex, $_sg_ua));
     $_sg_script = basename($_SERVER["SCRIPT_NAME"] ?? "");
+
+    // (3b) ANTI-SPOOF de bots verificables — anadido 2026-08-29.
+    //   El punto debil de $_sg_declared_bot_regex es que se FIA DEL UA. La campana de escaneo de
+    //   credenciales/SSRF de agosto-2026 rotaba cientos de UAs de crawlers IA (GPTBot, ClaudeBot,
+    //   Claude-User, PerplexityBot, OAI-SearchBot, GrokBot...) precisamente para caer en esa exencion.
+    //   El FCrDNS del radar (cron_scraper_radar.php) no sirve para bots IA: no tienen PTR fiable.
+    //   Los proveedores publican en su lugar listas JSON de prefijos, que cron_bot_ranges_update.php
+    //   cachea en includes/bot_ranges.inc.php.
+    //
+    //   FAIL-OPEN por diseno (leccion FP 2026-06-25): si el fichero falta o esta rancio (>7 dias),
+    //   o si la familia no esta en el, se confia en el UA igual que antes. Un fallo de red o un
+    //   feed caido NUNCA puede convertir un crawler legitimo en "spoof".
+    //
+    //   $_sg_spoof_enforce: familias en las que un spoof PIERDE la exencion (queda sujeto a los
+    //   rate-limits 4a/4b). Solo las de IA. Google y Bing quedan en OBSERVACION (solo radar) porque
+    //   son las que rastrean el catalogo a fondo y sus listas van con retraso: degradarlas por una
+    //   IP nueva aun no publicada seria pegarse un tiro en el SEO.
+    $_sg_spoof_enforce = ["gptbot", "oai-searchbot", "chatgpt-user", "anthropic", "perplexitybot", "perplexity-user"];
+    if ($_sg_is_declared) {
+        $_sg_fam = _sg_bot_family($_sg_ua);
+        if ($_sg_fam !== null) {
+            $_sg_ranges = _sg_bot_ranges();                       // null => fail-open
+            if ($_sg_ranges !== null && isset($_sg_ranges[$_sg_fam])
+                && !_sg_ip_in_ranges($_sg_ip, $_sg_ranges[$_sg_fam])) {
+                $_sg_det = mysqli_real_escape_string($_sg_link,
+                    "UA dice '$_sg_fam' pero la IP no esta en los rangos publicados por el proveedor");
+                mysqli_query($_sg_link, "INSERT INTO scraper_radar (ip, kind, detail, hits)
+                    VALUES (\"$_sg_ipe\", \"spoofed_ai_bot\", \"$_sg_det\", 1)
+                    ON DUPLICATE KEY UPDATE hits = hits + 1, last_seen = NOW(), detail = VALUES(detail)");
+                if (in_array($_sg_fam, $_sg_spoof_enforce, true)) $_sg_is_declared = false;
+            }
+        }
+    }
 
     // (4a) CONDUCTUAL (agnostico al UA): rate-limit del firehose de catalogo.
     //      /products_new.php es el endpoint que la flota de scraping barre pagina a pagina
@@ -200,6 +251,75 @@ try {
     return;
 }
 
+
+/**
+ * Familia verificable que declara el UA, o null si el UA no declara ninguna de las que
+ * publican rangos de IP. Solo estas se pueden comprobar; el resto (Applebot, Yandex, Meta,
+ * LinkedIn, Telegram, Ahrefs...) sigue confiando en el UA como hasta ahora.
+ */
+function _sg_bot_family(string $ua): ?string {
+    static $map = [
+        "#ChatGPT-User#i"                                 => "chatgpt-user",
+        "#OAI-SearchBot#i"                                => "oai-searchbot",
+        "#GPTBot#i"                                       => "gptbot",
+        "#(ClaudeBot|Claude-User|Claude-Web|Claude-SearchBot|anthropic-ai)#i" => "anthropic",
+        "#PerplexityBot#i"                                => "perplexitybot",
+        "#Perplexity-User#i"                              => "perplexity-user",
+        "#(Googlebot|GoogleOther|Storebot-Google|AdsBot-Google|Google-InspectionTool|APIs-Google|FeedFetcher-Google)#i" => "google",
+        "#(bingbot|BingPreview|adidxbot|msnbot)#i"        => "bingbot",
+    ];
+    foreach ($map as $re => $fam) if (preg_match($re, $ua)) return $fam;
+    return null;
+}
+
+/**
+ * Rangos publicados, cacheados en memoria por request. Devuelve null (=> fail-open) si el
+ * fichero no existe, no se puede leer o tiene mas de 7 dias (feeds sin actualizar).
+ */
+function _sg_bot_ranges(): ?array {
+    static $cache = false;
+    if ($cache !== false) return $cache;
+    $cache = null;
+    $f = __DIR__ . "/bot_ranges.inc.php";
+    if (is_readable($f)) {
+        $d = @include $f;
+        if (is_array($d) && !empty($d["families"]) && !empty($d["generated_at"])
+            && (time() - (int)$d["generated_at"]) < 7 * 86400) {
+            $cache = $d["families"];
+        }
+    }
+    return $cache;
+}
+
+/** ¿Esta $ip dentro de los prefijos de la familia? IPv4 por busqueda binaria, IPv6 lineal. */
+function _sg_ip_in_ranges(string $ip, array $fam): bool {
+    if (strpos($ip, ":") === false) {
+        $n = ip2long($ip);
+        if ($n === false) return false;
+        $n &= 0xFFFFFFFF;
+        $v4 = $fam["v4"] ?? [];
+        $lo = 0; $hi = count($v4) - 1;          // ordenado por inicio en el generador
+        while ($lo <= $hi) {
+            $mid = ($lo + $hi) >> 1;
+            if ($n < $v4[$mid][0])      $hi = $mid - 1;
+            elseif ($n > $v4[$mid][1])  $lo = $mid + 1;
+            else                        return true;
+        }
+        return false;
+    }
+    $bin = @inet_pton($ip);
+    if ($bin === false || strlen($bin) !== 16) return false;
+    $hex = bin2hex($bin);
+    foreach ($fam["v6"] ?? [] as $p) {
+        $nib = intdiv((int)$p[1], 4);                       // nibbles completos que hay que comparar
+        if ($nib > 0 && strncmp($hex, $p[0], $nib) !== 0) continue;
+        $rest = (int)$p[1] % 4;
+        if ($rest === 0) return true;
+        $m = (0xF << (4 - $rest)) & 0xF;                    // nibble parcial
+        if ((hexdec($hex[$nib]) & $m) === (hexdec($p[0][$nib]) & $m)) return true;
+    }
+    return false;
+}
 
 function _sg_deny_403() {
     http_response_code(403);

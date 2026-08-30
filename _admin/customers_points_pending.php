@@ -35,6 +35,14 @@
           . " INNER JOIN " . TABLE_CUSTOMERS . " c ON pp.customer_id = c.customers_id "
           . " WHERE pp.points_status = 1 AND pp.points_pending > 0 "
           . "   AND o.orders_status IN (3, 5)"
+            // #FB-RV-BULK (2026-08-29): las filas de tipo RV (puntos por opinion) guardan
+            // un products_id en orders_id, NO un pedido. Sin este filtro, si ese numero
+            // coincidia con el id de un pedido entregado (256 productos activos estan en
+            // ese caso), los puntos de la opinion se acreditaban solos con el boton masivo.
+            // Las RV deben aprobarse una a una, mirando la opinion.
+          . "   AND pp.points_type <> 'RV' "
+            // Y el pedido tiene que ser del MISMO cliente al que se le abonan los puntos.
+          . "   AND o.customers_id = pp.customer_id"
         );
 
         while ($row = tep_db_fetch_array($aPendings)) {

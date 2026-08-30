@@ -50,14 +50,14 @@
 			if( $_POST['id'] )
 			{
 				foreach( $_POST['id'] as $key => $value )
-					$sAtributos .= $key . '-' . $value . ',';
+					$sAtributos .= (int)$key . '-' . $value . ',';
 			}
 			
 			// Atributos
 			$sAtributos = substr( $sAtributos, 0, -1 );
 		
 			// Comprobamos si esta insertado
-			$aDatos = tep_db_query( 'select id from products_notifications where products_id = ' . (int)$sProductsId . ' and atributo="' . $sAtributos . '" and idioma = ' . $languages_id . ' and customers_email_address = "' . $_POST['email'] . '"' );
+			$aDatos = tep_db_query( 'select id from products_notifications where products_id = ' . (int)$sProductsId . ' and atributo="' . tep_db_input( $sAtributos ) . '" and idioma = ' . (int)$languages_id . ' and customers_email_address = "' . tep_db_input( $_POST['email'] ) . '"' );
 
 			if( tep_db_num_rows( $aDatos ) == 0 )
 			{
@@ -76,7 +76,7 @@
 			// Si estamos logueados nos suscribimos al avisame si esta disponible automaticamente
 			if( tep_session_is_registered('customer_id') )
 			{
-				$aRows = tep_db_query( 'select id_term_pivacy_trade from rgpd_account_term where id_term_pivacy_trade = 3 and customers_id = "' . $customer_id . '"' );
+				$aRows = tep_db_query( 'select id_term_pivacy_trade from rgpd_account_term where id_term_pivacy_trade = 3 and customers_id = "' . (int)$customer_id . '"' );
 				
 				if( tep_db_num_rows( $aRows ) == 0 )
 				{				
@@ -115,15 +115,15 @@
 				echo $sError . '</ul></div>'; 
 
 			echo '<div id="rcmd-emil-cntd" style="position: relative;">';
-				echo '<form method="post" action="' . tep_href_link( 'notify.php?id=' . $_GET['id'] ) . '&action=true" onsubmit="return app.get(\'alert\').formAjax(this);">';
+				echo '<form method="post" action="' . tep_href_link( 'notify.php?id=' . htmlspecialchars( (string)( $_GET['id'] ?? '' ), ENT_QUOTES, 'UTF-8' ) ) . '&action=true" onsubmit="return app.get(\'alert\').formAjax(this);">';
 					echo '<p>
 						<label for="nombre">' . ENTRY_FIRST_NAME . '</label>
-						<input value="' . $_POST['nombre'] . '" type="text" id="nombre" tabindex="1" autocomplete="off" name="nombre" />
+						<input value="' . htmlspecialchars( (string)( $_POST['nombre'] ?? '' ), ENT_QUOTES, 'UTF-8' ) . '" type="text" id="nombre" tabindex="1" autocomplete="off" name="nombre" />
 					</p>';
 
 					echo '<p>
 						<label for="email">' . ENTRY_EMAIL_ADDRESS . '</label>
-						<input value="' . $_POST['email'] . '" type="text" id="email" tabindex="2" autocomplete="off" name="email" />
+						<input value="' . htmlspecialchars( (string)( $_POST['email'] ?? '' ), ENT_QUOTES, 'UTF-8' ) . '" type="text" id="email" tabindex="2" autocomplete="off" name="email" />
 					</p>';
 					
 					echo '<div style="margin: 10px 0px 20px;">' . $rgpd->formCheckTermsTrade( 3 ) . '</div>';

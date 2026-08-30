@@ -13,7 +13,7 @@ class RequestPostEntryIdentifierHandler extends AbstractEntryIdentifierHandler
 
 	public function id(): ?string
 	{
-		if (isset($_POST[$this->sessionName])) {
+		if (isset($_POST[$this->sessionName]) && $this->isValidIdentifier($_POST[$this->sessionName])) {
 			return $_POST[$this->sessionName];
 		}
 

@@ -77,7 +77,7 @@ final class SessionHandler
 			$url = $this->getCurrentUrl();
 			$parsed = parse_url($url);
 
-			$query = $parsed['query'];
+			$query = $parsed['query'] ?? ''; // URL sin query string → null → parse_str(null) deprecated
 
 			parse_str($query, $params);
 
@@ -204,9 +204,16 @@ final class SessionHandler
 
 		$id = $this->entryIdentifier->id();
 
+		// Defensa en profundidad: la validacion primaria vive en los EntryIdentifierHandler,
+		// pero aqui volvemos a exigir el patron para que ningun identificador con forma
+		// inesperada llegue a una consulta ni a session_id().
+		if (!is_null($id) && !preg_match(EntryIdentifierInterface::IDENTIFIER_PATTERN, (string)$id)) {
+			$id = null;
+		}
+
 		// @TODO el token es solo del customer ya que contiene los valores almacenados en otra tabla y hace join mediante dicho token. Por aqui pasa el admin que nada tiene que ver con token
 		if ($this->sessionHandler instanceof SessionCustomerInterface && !($this->sessionHandler instanceof SessionCustomerInFileTemp) && isset($_GET[$this->name]) && !is_null($id)) {
-			$row = pharaonix_queryOne('SELECT token FROM customers_session WHERE sesskey = "' . $id .'"');
+			$row = pharaonix_queryOne('SELECT token FROM customers_session WHERE sesskey = "' . tep_db_input($id) .'"');
 
 			if ($row->num_rows > 0) {
 				$this->cookie->token = $row->records['token'];

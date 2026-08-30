@@ -188,22 +188,38 @@ function tep_add_pending_points($customer_id, $insert_id, $points_toadd, $points
     }
 }
 
-// Resta del saldo lo canjeado y registra el movimiento negativo en el historial
+// Resta del saldo lo canjeado y registra el movimiento negativo en el historial.
+// #FB-PUNTOS-TOPE (2026-08-29): el descuento del saldo es ahora ATOMICO y CONDICIONAL.
+// Antes, si el saldo era insuficiente NO se abortaba: se ponia el saldo a NULL y el pedido
+// conservaba el descuento completo (regalo silencioso, ademas de borrar los puntos que
+// quedaran). Ahora el UPDATE lleva la guarda `customers_shopping_points >= N`: si no afecta
+// a ninguna fila se hace ROLLBACK, no se registra el movimiento y queda traza en el log.
+// La guarda mitiga tambien el doble gasto por concurrencia: de dos peticiones simultaneas,
+// la segunda no afecta a ninguna fila y su canje se aborta.
+// @return bool true si los puntos se han descontado realmente del saldo.
 function tep_redeemed_points($customer_id, $insert_id, $customer_shopping_points_spending)
 {
     // Convención francobordo 2026-05-15: los puntos canjeados se redondean a entero
     $customer_shopping_points_spending = (int) round($customer_shopping_points_spending);
     if ($customer_shopping_points_spending <= 0) {
-        return;
+        return false;
     }
 
     tep_db_query('START TRANSACTION');
     try {
-        if ((tep_get_shopping_points($customer_id) - $customer_shopping_points_spending) > 0) {
-            tep_db_query("update " . TABLE_CUSTOMERS . " set customers_shopping_points = customers_shopping_points - '" . $customer_shopping_points_spending . "' where customers_id = '" . (int) $customer_id . "' limit 1");
-        } else {
-            tep_db_query("update " . TABLE_CUSTOMERS . " set customers_shopping_points = null, customers_points_expires = null where customers_id = '" . (int) $customer_id . "' limit 1");
+        $points_update = tep_db_query("update " . TABLE_CUSTOMERS . " set customers_shopping_points = customers_shopping_points - '" . $customer_shopping_points_spending . "' where customers_id = '" . (int) $customer_id . "' and customers_shopping_points >= '" . $customer_shopping_points_spending . "' limit 1");
+
+        if (tep_db_affected_rows($points_update) < 1) {
+            // Saldo insuficiente (o consumido por otra peticion en paralelo): no se toca el
+            // saldo, no se registra el movimiento y se aborta el canje.
+            tep_db_query('ROLLBACK');
+            error_log('[puntos] canje ABORTADO por saldo insuficiente: customers_id=' . (int) $customer_id . ' orders_id=' . (int) $insert_id . ' puntos=' . $customer_shopping_points_spending);
+
+            return false;
         }
+
+        // Si el saldo queda agotado limpiamos la caducidad, como hacia la rama antigua
+        tep_db_query("update " . TABLE_CUSTOMERS . " set customers_points_expires = null where customers_id = '" . (int) $customer_id . "' and customers_shopping_points <= '0' limit 1");
 
         if (DISPLAY_POINTS_REDEEMED == 'true') {
             tep_db_perform(TABLE_CUSTOMERS_POINTS_PENDING, [
@@ -221,6 +237,8 @@ function tep_redeemed_points($customer_id, $insert_id, $customer_shopping_points
         tep_db_query('ROLLBACK');
         throw $e;
     }
+
+    return true;
 }
 
 function tep_add_welcome_points($customer_id)

@@ -239,11 +239,11 @@ class SalesManagoQueue
     /** Re-queue all dead events for another round. */
     public static function reviveDead(): int
     {
-        tep_db_query("UPDATE sm_event_queue
+        $st = tep_db_query("UPDATE sm_event_queue
                       SET status='pending', attempts=0, last_error=NULL,
                           last_http_code=NULL, next_attempt_at=NULL, worker_token=NULL
                       WHERE status='dead'");
-        return (int) tep_db_affected_rows();
+        return (int) tep_db_affected_rows($st); // requiere el PDOStatement (firma PDO)
     }
 
     // -----------------------------------------------------------------

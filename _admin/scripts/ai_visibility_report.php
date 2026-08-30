@@ -81,6 +81,9 @@ function aiv_collect() {
 
     $botRe   = '/bot|crawl|spider|slurp|OAI-SearchBot|ChatGPT-User|GPTBot|Perplexity|Claude|anthropic|python|curl|wget|libwww|Go-http|HeadlessChrome|facebookexternal/i';
     $assetRe = '/\.(js|css|png|jpe?g|gif|webp|svg|ico|woff2?|ttf|eot|map|txt|xml|pdf)(\?|$)/i';
+    // Endpoints XHR/polling que NO son visitas de pagina (el widget del chatbot hacia cientos por visita
+    // y, al llevar la pagina con ?utm_source=chatgpt como referrer, inflaban los "clics"). FIX 2026-08-29.
+    $apiRe   = '#^/(chatbot/|api/|oct8ne/|ajax|notifications\.php|.*\.(webmanifest|json)$)#i';
     $lineRe  = '/^(\S+) \S+ \S+ \[([^:\]]+)[^\]]*\] "(?:\S+) (\S+)[^"]*" \d+ \S+ "([^"]*)" "([^"]*)"/';
     $dateMap = array(); // '03/Jul/2026' => '2026-07-03'
     $n = 0;
@@ -121,11 +124,14 @@ function aiv_collect() {
 
         // --- humanos llegando desde ChatGPT ---
         if (preg_match($botRe, $ua)) continue;              // por si algun bot raro llego aqui
-        $isUtm = (stripos($path, 'utm_source=chatgpt') !== false)
-              || (stripos($ref, 'utm_source=chatgpt') !== false);
+        // Un "clic" = ENTRADA real desde ChatGPT: el utm viaja en la URL PEDIDA.
+        // (Antes tambien se contaba el utm en el REFERRER: cada peticion XHR posterior de la misma
+        //  visita lo arrastraba -> hasta 227 clics por IP. FIX 2026-08-29.)
+        $isUtm = (stripos($path, 'utm_source=chatgpt') !== false);
         $isRef = (stripos($ref, 'https://chatgpt.com') === 0);
         if (!$isUtm && !$isRef) continue;
         if (preg_match($assetRe, $pathClean)) continue;     // solo paginas, no recursos
+        if (preg_match($apiRe, $pathClean)) continue;       // ni endpoints XHR/polling
 
         if ($isUtm) $day['clicks']++;
         if ($isRef) $day['ref_clicks']++;
@@ -256,7 +262,9 @@ function aiv_report($test = false) {
     $b[] = '== TOP 10 PAGINAS CLICADAS DESDE CHATGPT ==';
     $b[] = aiv_top($cur['click_pages'], 10);
     $b[] = '';
-    $b[] = 'Notas: los clics son INFRACUENTA (la app movil de ChatGPT no manda referrer ni utm).';
+    $b[] = 'Notas: un clic = ENTRADA con utm_source=chatgpt en la URL (desde 29/08 no se cuentan las';
+    $b[] = 'llamadas XHR posteriores del widget de chat, que inflaban la cifra). Sigue siendo INFRACUENTA:';
+    $b[] = 'la app movil de ChatGPT no manda referrer ni utm.';
     $b[] = 'Ventas: atribucion propia (orders_ai_source). Complemento: Bing Webmaster Tools > AI Performance (Copilot).';
     $b[] = 'Fuente: access log nic1 (colector horario; el log rota y se descarta, de ahi el colector).';
 

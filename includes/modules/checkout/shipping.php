@@ -345,15 +345,29 @@ class Shipping
 
     private function _customerShoppingPoints()
     {
+        // #FB-PUNTOS-TOPE (2026-08-29): $order y $payment NO estan en el ambito de este metodo
+        // privado (no hay `global`), asi que la parte A de la condicion -- pvalue < total &&
+        // !is_object($$payment) -- se evalua siempre a falso y este bloque nunca ha llegado a
+        // persistir nada (tep_session_register solo enlaza $_SESSION con el global, que aqui no
+        // se toca). NO se anaden esos globals a proposito: activarlos convertiria un camino
+        // muerto en un rechazo nuevo para clientes legitimos. Si se declara $customer_id, que
+        // solo sirve para releer el saldo REAL (tep_get_shopping_points ya lo resolvia por su
+        // propio `global`; se declara aqui para no depender de ese efecto lateral).
+        global $customer_id;
+
         //Puntos por compra
         if (isset($_POST['customer_shopping_points_spending']) && is_numeric($_POST['customer_shopping_points_spending']) && ($_POST['customer_shopping_points_spending'] > 0)) {
             $customer_shopping_points_spending = false;
 
-            if (tep_calc_shopping_pvalue($_POST['customer_shopping_points_spending']) < $order->info['total'] && !is_object($$payment) || (tep_get_shopping_points($customer_id) < $_POST['customer_shopping_points_spending'])) {
+            // Condicion original (A && B) || C, con parentesis explicitos; el valor aceptado se
+            // recorta al saldo REAL de BD en vez de tomarse crudo del POST.
+            $nSaldoRealPuntos = (int) tep_get_shopping_points($customer_id);
+
+            if (((tep_calc_shopping_pvalue($_POST['customer_shopping_points_spending']) < $order->info['total']) && !is_object($$payment)) || ($nSaldoRealPuntos < $_POST['customer_shopping_points_spending'])) {
                 $customer_shopping_points_spending = false;
                 tep_redirect(tep_href_link(FILENAME_CHECKOUT_SHIPPING, 'error_message=' . urlencode(REDEEM_SYSTEM_ERROR_POINTS_NOT), 'SSL'));
             } else {
-                $customer_shopping_points_spending = $_POST['customer_shopping_points_spending'];
+                $customer_shopping_points_spending = max(0, min((int) floor((float) $_POST['customer_shopping_points_spending']), $nSaldoRealPuntos));
                 if (!tep_session_is_registered('customer_shopping_points_spending')) {
                     tep_session_register('customer_shopping_points_spending');
                 }

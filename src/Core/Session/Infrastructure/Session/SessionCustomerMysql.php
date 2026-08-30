@@ -71,7 +71,7 @@ class SessionCustomerMysql implements SessionCustomerInterface, SessionHandlerIn
 	{
 		global $pdo;
 
-		$row = pharaonix_queryOne('SELECT token FROM customers_session where sesskey = "' . $session_id . '"')->records;
+		$row = pharaonix_queryOne('SELECT token FROM customers_session where sesskey = "' . tep_db_input($session_id) . '"')->records;
 		$token = $row['token'] ?? null;
 
 		if ($token) {

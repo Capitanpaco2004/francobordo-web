@@ -20,10 +20,10 @@ class CookieEntryIdentifierHandler extends AbstractEntryIdentifierHandler
 
 	public function id(): ?string
 	{
-		$isPersited = $this->sessionHandler->exists($this->cookie->sessionId);
+		$sessionId = $this->cookie->sessionId;
 
-		if (isset($this->cookie->sessionId) && $isPersited) {
-			return $this->cookie->sessionId;
+		if (isset($this->cookie->sessionId) && $this->isValidIdentifier($sessionId) && $this->sessionHandler->exists($sessionId)) {
+			return $sessionId;
 		}
 
 		return parent::id();

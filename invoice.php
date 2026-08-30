@@ -1,7 +1,23 @@
 <?php
 	require('includes/application_top.php');
 
-	$oID = tep_db_prepare_input($_GET['oID']);
+	// SEGURIDAD 2026-08-29: esta pagina servia la factura de CUALQUIER pedido sin
+	// autenticacion (direccion, email, NIF y lineas del pedido -> brecha RGPD).
+	// Ahora exige sesion de cliente + propiedad del pedido, mismo patron que
+	// account/account_invoice_download.php. La respuesta es identica para 'pedido
+	// inexistente' y para 'pedido de otro cliente' (sin oraculo de enumeracion).
+	if (!$customerCore->hasLogin()) {
+		$navigation->set_snapshot();
+		tep_redirect(tep_href_link(FILENAME_LOGIN, '', 'SSL'), 302);
+	}
+
+	$oID = isset($_GET['oID']) ? (int)$_GET['oID'] : 0;
+
+	$owner_check = tep_db_query("select orders_id from " . TABLE_ORDERS . " where orders_id = '" . (int)$oID . "' and customers_id = '" . (int)$customer_id . "' limit 1");
+	if (!tep_db_num_rows($owner_check)) {
+		tep_redirect(tep_href_link(FILENAME_ACCOUNT_HISTORY, '', 'SSL'), 302);
+	}
+
 	$pad = "0000";
 	$orders_query = tep_db_query("SELECT orders_id from " . TABLE_ORDERS . " where orders_id = '" . (int)$oID . "'");
 	$order_data = tep_db_fetch_array($orders_query);

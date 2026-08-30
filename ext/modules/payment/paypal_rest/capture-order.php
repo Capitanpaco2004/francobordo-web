@@ -75,9 +75,16 @@ try {
         $sStatus    = $aPU['payments']['authorizations'][0]['status'] ?? $sStatus;
     }
 
-    if ($sCaptureId === '' || !in_array($sStatus, ['COMPLETED','CREATED','APPROVED'], true)) {
+    // Estados validos segun el intent: una captura solo vale COMPLETED; una
+    // autorizacion, CREATED. 'APPROVED' es estado de PEDIDO (aprobado por el
+    // comprador, sin cobrar) y nunca de captura/autorizacion: no se acepta.
+    $aValidStatus = ($sIntent === 'AUTHORIZE') ? ['CREATED'] : ['COMPLETED'];
+    if ($sCaptureId === '' || !in_array($sStatus, $aValidStatus, true)) {
         pp_log('Unexpected status='.$sStatus.' capture_id='.$sCaptureId.' resp='.json_encode($resp));
-        pp_emit(['error'=>'unexpected_paypal_status','status'=>$sStatus,'resp'=>$resp], 502);
+        // #FB-PAYPAL-PII (2026-08-29): NO devolver $resp al navegador. La respuesta de PayPal
+        // incluye payment_source con el nombre del titular y los last_digits de la tarjeta
+        // (visto en las 4 lineas DECLINED reales de junio-2026). Ya queda entera en pp_log().
+        pp_emit(['error'=>'unexpected_paypal_status','status'=>$sStatus], 502);
     }
 
     pp_log('OK order_id='.$sOrderId.' capture_id='.$sCaptureId.' status='.$sStatus);

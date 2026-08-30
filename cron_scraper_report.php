@@ -122,9 +122,13 @@ if ($allow) {
 // --- RADAR: amenazas emergentes (NO baneadas, solo detectadas) ---
 $radar_spoof = array_filter($radar, fn($r) => $r['kind'] === 'spoofed_bot');
 $radar_walk  = array_filter($radar, fn($r) => $r['kind'] === 'catalog_walker');
+// spoofed_ai_bot: lo marca el guard sincrono comparando la IP contra los rangos que publican
+// OpenAI/Anthropic/Perplexity/Google/Bing (includes/bot_ranges.inc.php). Anadido 2026-08-29
+// tras la campana de escaneo de credenciales que rotaba UAs de crawlers IA.
+$radar_ai    = array_filter($radar, fn($r) => $r['kind'] === 'spoofed_ai_bot');
 $h .= '<h3 style="margin-top:25px;">&#x1F4E1; Radar (detecci&oacute;n pasiva, NO baneado &mdash; revisi&oacute;n manual)</h3>';
 if (!$radar) {
-    $h .= '<p style="color:#2a7;font-size:13px;">&#x2705; Sin amenazas emergentes en 24h (ni bots falsificados ni paginadores de cat&aacute;logo no cazados).</p>';
+    $h .= '<p style="color:#2a7;font-size:13px;">&#x2705; Sin amenazas emergentes en 24h (ni bots/crawlers IA falsificados ni paginadores de cat&aacute;logo no cazados).</p>';
 } else {
     if ($radar_walk) {
         $h .= '<p style="font-size:13px;margin:8px 0 4px;"><strong>&#x1F577; Paginadores de cat&aacute;logo NO cazados</strong> (IPs que barren products_new sin comprar y que las reglas por-IP no atrapan &mdash; posible flota nueva):</p>';
@@ -139,6 +143,14 @@ if (!$radar) {
         $h .= '<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="background:#fff3f0;"><th style="padding:5px;text-align:left;border-bottom:1px solid #ddd;">IP</th><th style="padding:5px;text-align:left;border-bottom:1px solid #ddd;">Detalle</th></tr>';
         foreach ($radar_spoof as $r) {
             $h .= '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px;font-family:monospace;">' . htmlspecialchars($r['ip']) . '</td><td style="padding:5px;color:#777;">' . htmlspecialchars($r['detail']) . '</td></tr>';
+        }
+        $h .= '</table>';
+    }
+    if ($radar_ai) {
+        $h .= '<p style="font-size:13px;margin:14px 0 4px;"><strong>&#x1F916; Crawlers IA falsificados</strong> (UA dice GPTBot/ClaudeBot/Perplexity/Googlebot/bingbot pero la IP NO est&aacute; en los rangos que publica el proveedor):</p>';
+        $h .= '<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr style="background:#fff3f0;"><th style="padding:5px;text-align:left;border-bottom:1px solid #ddd;">IP</th><th style="padding:5px;text-align:left;border-bottom:1px solid #ddd;">Detalle</th><th style="padding:5px;text-align:right;border-bottom:1px solid #ddd;">Hits</th></tr>';
+        foreach ($radar_ai as $r) {
+            $h .= '<tr style="border-bottom:1px solid #eee;"><td style="padding:5px;font-family:monospace;">' . htmlspecialchars($r['ip']) . '</td><td style="padding:5px;color:#777;">' . htmlspecialchars($r['detail']) . '</td><td style="padding:5px;text-align:right;">' . (int)$r['hits'] . '</td></tr>';
         }
         $h .= '</table>';
     }

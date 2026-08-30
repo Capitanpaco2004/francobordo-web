@@ -17,7 +17,7 @@ class RequestGetEntryIdentifierHandler extends AbstractEntryIdentifierHandler
 
 	public function id(): ?string
 	{
-		if (isset($_GET[$this->sessionName]) && $this->configuration->get('request_type')) {
+		if (isset($_GET[$this->sessionName]) && $this->configuration->get('request_type') && $this->isValidIdentifier($_GET[$this->sessionName])) {
 			return $_GET[$this->sessionName];
 		}
 
