@@ -808,7 +808,7 @@ function getRmaList() {
     FROM ' . TABLE_RMA .' r
     LEFT JOIN ' . TABLE_CUSTOMERS .' c ON c.customers_id = r.customers_id
     LEFT JOIN ' . TABLE_RMA_TYPES_RETURN_DESCRIPTION .' trd ON trd.id_type_return = r.type_return AND trd.languages_id = ' . $languages_id . '
-    LEFT JOIN ' . TABLE_RMA_OPTIONS_DESCRIPTION .' tod ON tod.id = r.option_return AND tod.languages_id = ' . $languages_id .'
+    LEFT JOIN ' . TABLE_RMA_OPTIONS_DESCRIPTION .' tod ON tod.id_rma = r.option_return AND tod.languages_id = ' . $languages_id .'
     LEFT JOIN ' . TABLE_RMA_PAYMENT_METHODS_DESCRIPTION .' pmd ON pmd.id_payment_method = r.payment_method AND pmd.languages_id = ' . $languages_id .'
     LEFT JOIN ' . TABLE_RMA_STATUS .' rs ON rs.id = r.status
     LEFT JOIN ' . TABLE_RMA_STATUS_DESCRIPTION .' rsd ON rsd.id_status = r.status AND rsd.languages_id = ' . $languages_id .'

@@ -22,6 +22,77 @@ class SequraHelper {
 		return hash_hmac('sha256', $value, MODULE_PAYMENT_SEQURA_PASS);
 	}
 
+	/* #FB-SEQURA-SIG ----------------------------------------------------
+	   Firma ampliada para pay-with-sequra.php (pago de presupuesto).
+
+	   La clave y LOS DOS EXTREMOS son nuestros: SeQura no firma nada, solo
+	   devuelve tal cual el blob `notification_parameters` que le mandamos en
+	   la solicitud. Por eso podemos ampliar la firma unilateralmente sin
+	   romper ningun contrato externo.
+
+	   Se firma sid|oID|importe_en_centimos|ts: un par (sid,firma) valido deja
+	   de servir para confirmar OTRO pedido ni OTRO importe. La firma sign(sid)
+	   a secas no ataba ninguna de las dos cosas.
+	   ------------------------------------------------------------------ */
+	const NOTIFY_VERSION = 'v2';
+	const NOTIFY_MAX_AGE = 86400; /* 24 h */
+
+	static function payPayload($sid, $oID, $amount_cents, $ts) {
+		return implode('|', array(self::NOTIFY_VERSION, (string)$sid, (int)$oID, (int)$amount_cents, (int)$ts));
+	}
+
+	static function signPay($sid, $oID, $amount_cents, $ts) {
+		return self::sign(self::payPayload($sid, $oID, $amount_cents, $ts));
+	}
+
+	/* true SOLO si la notificacion trae una firma nuestra valida para ESE oID.
+	   Obligatoria: si falta cualquier campo, es false. Sin rama opcional. */
+	static function verifyPay($oID) {
+		$sid = isset($_POST['sid'])       && is_string($_POST['sid'])       ? $_POST['sid']       : '';
+		$sig = isset($_POST['signature']) && is_string($_POST['signature']) ? $_POST['signature'] : '';
+		$amt = isset($_POST['amt'])       && is_scalar($_POST['amt'])       ? (int)$_POST['amt']  : -1;
+		$ts  = isset($_POST['ts'])        && is_scalar($_POST['ts'])        ? (int)$_POST['ts']   : 0;
+		if ($sid === '' || $sig === '' || $amt < 0 || $ts <= 0) {
+			return false;
+		}
+		if (abs(time() - $ts) > self::NOTIFY_MAX_AGE) {
+			return false;
+		}
+		return hash_equals(self::signPay($sid, $oID, $amt, $ts), $sig);
+	}
+
+	/* Importe del pedido en centimos, para firmarlo y para contrastarlo.
+
+	   OJO: NO se puede usar $order->info['total'] con un pedido cargado de la
+	   base de datos. En esa rama order.php lo rellena con el TEXTO formateado
+	   de orders_total ("82,20&euro;"), no con un numero: multiplicarlo en PHP 8
+	   trunca en la coma (82 en vez de 82,20) y ademas suelta un warning.
+	   La columna numerica es orders_total.value, que order.php si expone en
+	   $order->totals. Devuelve -1 si no hay ot_total: sin importe no se firma. */
+	static function orderAmountCents($order) {
+		if (!isset($order->totals) || !is_array($order->totals)) {
+			return -1;
+		}
+		foreach ($order->totals as $ot) {
+			if (isset($ot['class']) && $ot['class'] === 'ot_total') {
+				$cv = isset($order->info['currency_value']) ? (float)$order->info['currency_value'] : 1.0;
+				if ($cv <= 0) { $cv = 1.0; }
+				return (int)round((float)$ot['value'] * $cv * 100);
+			}
+		}
+		return -1;
+	}
+
+	/* Unico cuerpo de error para todos los rechazos: no revela si el pedido
+	   existe, en que estado esta ni de quien es. */
+	static function forbid() {
+		if (!headers_sent()) {
+			http_response_code(403);
+			header('Content-Type: text/plain; charset=utf-8');
+		}
+		exit('Forbidden');
+	}
+
 	/**
 	 * @param $file
 	 * @param $data

@@ -1486,6 +1486,57 @@ if( tep_not_null($action) )
 				}
 				</script>
 				<?php /* EOF Tickets Kayako */ ?>
+				<?php /* BOF Devoluciones RMA (2026-08-30): RMAs abiertos sobre este pedido */ ?>
+				<?php
+					$iRmaLang = (int)(isset($languages_id) && (int)$languages_id > 0 ? $languages_id : 3);
+					$aOrderRmas = array();
+					$rma_box_query = tep_db_query("select r.id_rma, r.status, r.quantity, r.products_id, r.date_added, r.ticket,
+					                                      rs.color,
+					                                      rsd.text as status_text,
+					                                      tod.text as option_text,
+					                                      trd.text as type_text,
+					                                      (select op.products_name from " . TABLE_ORDERS_PRODUCTS . " op
+					                                        where op.orders_id = r.orders_id and op.products_id = r.products_id limit 1) as products_name
+					                                 from rma r
+					                                 left join rma_status rs on rs.id = r.status
+					                                 left join rma_status_description rsd on rsd.id_status = r.status and rsd.languages_id = '" . $iRmaLang . "'
+					                                 left join rma_options_returns_description tod on tod.id_rma = r.option_return and tod.languages_id = '" . $iRmaLang . "'
+					                                 left join rma_types_return_description trd on trd.id_type_return = r.type_return and trd.languages_id = '" . $iRmaLang . "'
+					                                where r.orders_id = '" . (int)$oID . "'
+					                                order by r.id_rma desc");
+					while ($aRmaRow = tep_db_fetch_array($rma_box_query)) { $aOrderRmas[] = $aRmaRow; }
+				?>
+				<div class="box-tbl grid" style="width:100%;margin-top:4%;">
+					<div class="box-head">
+						<h6>Devoluciones (RMA)<?php echo (count($aOrderRmas) > 0 ? ' &middot; ' . count($aOrderRmas) : ''); ?></h6>
+						<div class="clear"></div>
+					</div>
+					<div class="box-txt">
+						<?php if (count($aOrderRmas) == 0): ?>
+							<p style="color:#888;">Este pedido no tiene devoluciones.</p>
+						<?php endif; ?>
+						<?php foreach ($aOrderRmas as $iRmaIdx => $aRma): ?>
+							<div style="margin-bottom:8px;<?php echo ($iRmaIdx > 0 ? 'border-top:1px solid #eee;padding-top:8px;' : ''); ?>">
+								<a href="<?php echo tep_href_link('rma.php', 'action=view&id=' . (int)$aRma['id_rma']); ?>" target="_blank" style="font-weight:bold;"><i class="fa fa-external-link" style="margin-right:4px;"></i>RMA <?php echo (int)$aRma['id_rma']; ?></a>
+								<small style="color:#888;">&nbsp;<?php echo date('d/m/Y', strtotime($aRma['date_added'])); ?></small>
+								<br>
+								<span style="display:inline-block;width:10px;height:10px;border-radius:100%;margin-right:5px;background-color:<?php echo htmlspecialchars((string)$aRma['color'], ENT_QUOTES, 'UTF-8'); ?>"></span><small><strong><?php echo htmlspecialchars((string)($aRma['status_text'] != '' ? $aRma['status_text'] : 'Estado ' . (int)$aRma['status']), ENT_QUOTES, 'UTF-8'); ?></strong></small>
+								<br>
+								<small style="color:#555;"><?php echo ((int)$aRma['quantity'] > 0 ? (int)$aRma['quantity'] . ' &times; ' : ''); ?><?php echo htmlspecialchars((string)($aRma['products_name'] != '' ? $aRma['products_name'] : 'Producto #' . (int)$aRma['products_id']), ENT_QUOTES, 'UTF-8'); ?></small>
+								<?php if ((string)$aRma['option_text'] !== ''): ?>
+									<br><small style="color:#888;"><?php echo htmlspecialchars(strip_tags((string)$aRma['option_text']), ENT_QUOTES, 'UTF-8'); ?></small>
+								<?php endif; ?>
+								<?php if ((string)$aRma['type_text'] !== ''): ?>
+									<br><small style="color:#888;"><?php echo htmlspecialchars(strip_tags((string)$aRma['type_text']), ENT_QUOTES, 'UTF-8'); ?></small>
+								<?php endif; ?>
+								<?php if (fb_kayako_valid_mask((string)$aRma['ticket'])): ?>
+									<br><small>Ticket: <a href="<?php echo fb_kayako_staff_url((string)$aRma['ticket']); ?>" target="_blank"><?php echo htmlspecialchars((string)$aRma['ticket'], ENT_QUOTES, 'UTF-8'); ?></a></small>
+								<?php endif; ?>
+							</div>
+						<?php endforeach; ?>
+					</div>
+				</div>
+				<?php /* EOF Devoluciones RMA */ ?>
 			</div>
 
 			<div style="float:left;width:33.33%;padding:0 1%;box-sizing:border-box;">
@@ -2303,7 +2354,18 @@ $orders_query_raw = "
         o.customers_name, o.delivery_state, o.customers_id, o.payment_method,
         o.date_purchased, o.last_modified, o.currency, o.currency_value,
         s.orders_status_name, s.color as status_color, ot.text AS order_total, cg.customers_group_name,
-        ot_ship.title AS shipping_title, ot_ship.value AS shipping_value
+        ot_ship.title AS shipping_title, ot_ship.value AS shipping_value,
+        /* Indicador de devoluciones (2026-08-30): subconsultas correlacionadas, sólo sobre
+           las filas de la página (el LIMIT lo añade splitPageResults al final).
+           Baratas gracias al índice rma.idx_orders_id. */
+        (SELECT COUNT(*) FROM rma r WHERE r.orders_id = o.orders_id) AS rma_count,
+        (SELECT r.id_rma FROM rma r WHERE r.orders_id = o.orders_id
+          ORDER BY r.id_rma DESC LIMIT 1) AS rma_last_id,
+        (SELECT rs.color FROM rma r LEFT JOIN " . TABLE_RMA_STATUS . " rs ON rs.id = r.status
+          WHERE r.orders_id = o.orders_id ORDER BY r.id_rma DESC LIMIT 1) AS rma_last_color,
+        (SELECT rsd.text FROM rma r LEFT JOIN " . TABLE_RMA_STATUS_DESCRIPTION . " rsd
+                ON rsd.id_status = r.status AND rsd.languages_id = '" . ((int)$languages_id > 0 ? (int)$languages_id : 3) . "'
+          WHERE r.orders_id = o.orders_id ORDER BY r.id_rma DESC LIMIT 1) AS rma_last_status
     FROM " . TABLE_ORDERS . " o
     LEFT JOIN " . TABLE_ORDERS_TOTAL . " ot
            ON (o.orders_id = ot.orders_id AND ot.class = 'ot_total')
@@ -2448,7 +2510,28 @@ $orders_query = tep_db_query($orders_query_raw);
 		}
 ?>
 				<td align="center" class="checkbox_orders"><input style="position: relative; top: 7px; margin: 0px;" type="checkbox" value="<?php echo $orders['orders_id']; ?>" name="orders"></td>
-                <td class="dataTableContent">#<?php echo $orders['orders_id']; ?></td>
+                <td class="dataTableContent">#<?php echo $orders['orders_id']; ?><?php
+					/* Indicador de devoluciones (2026-08-30): badge con el color del estado del
+					   último RMA. 1 RMA -> a su ficha; varios -> a la caja del pedido.
+					   stopPropagation porque el <tr> entero navega al pedido con su onclick. */
+					if ((int)$orders['rma_count'] > 0) {
+						$nRmaCount  = (int)$orders['rma_count'];
+						$sRmaColor  = !empty($orders['rma_last_color']) ? (string)$orders['rma_last_color'] : '#7f8c8d';
+						$sRmaTxtCol = isDarkColor($sRmaColor) ? '#ffffff' : '#333333';
+						$sRmaState  = (string)$orders['rma_last_status'];
+						$sRmaHref   = ($nRmaCount === 1)
+							? tep_href_link('rma.php', 'action=view&id=' . (int)$orders['rma_last_id'])
+							: tep_href_link(FILENAME_ORDERS, 'oID=' . (int)$orders['orders_id'] . '&action=edit');
+						$sRmaTitle  = ($nRmaCount === 1)
+							? 'Devolución RMA ' . (int)$orders['rma_last_id'] . ($sRmaState !== '' ? ' — ' . $sRmaState : '')
+							: $nRmaCount . ' devoluciones — última: RMA ' . (int)$orders['rma_last_id'] . ($sRmaState !== '' ? ' (' . $sRmaState . ')' : '');
+						echo '<br><a href="' . $sRmaHref . '" target="_blank" onclick="event.stopPropagation();"'
+						   . ' title="' . htmlspecialchars($sRmaTitle, ENT_QUOTES, 'UTF-8') . '"'
+						   . ' style="display:inline-block;margin-top:3px;background-color:' . htmlspecialchars($sRmaColor, ENT_QUOTES, 'UTF-8')
+						   . ';color:' . $sRmaTxtCol . ';padding:2px 7px;border-radius:12px;font-size:10px;white-space:nowrap;text-decoration:none;">'
+						   . '<i class="fas fa-undo" style="margin-right:3px;"></i>RMA' . ($nRmaCount > 1 ? ' &times;' . $nRmaCount : '') . '</a>';
+					}
+				?></td>
 				<td class="dataTableContent"><?php echo ($orders['ebay_id'] ? tep_image(DIR_WS_IMAGES . 'ebay.png').'<br /><small style="font-size: 8px; opacity: 0.6;">'.htmlspecialchars((string)$orders['ebay_id'], ENT_QUOTES, 'UTF-8').'</small>' : ''); ?><?php echo ($orders['amazon_id'] ? tep_image(DIR_WS_IMAGES . 'amazon.png').'<br /><small style="font-size: 8px; opacity: 0.6;">'.htmlspecialchars((string)$orders['amazon_id'], ENT_QUOTES, 'UTF-8').'</small>' : ''); ?></td>
                 <td class="dataTableContent"><?php echo '<a href="' . tep_href_link(FILENAME_ORDERS, tep_get_all_get_params(array('oID', 'action')) . 'oID=' . $orders['orders_id'] . '&action=edit') . '">' . tep_image(DIR_WS_ICONS . 'preview.png', ICON_PREVIEW) . '</a>&nbsp;' . htmlspecialchars((string)$orders['customers_name'], ENT_QUOTES, 'UTF-8'); ?></td><!-- next td added for SPPC -->
                 <td class="dataTableContent"><?php echo $orders['customers_id']; ?></td>

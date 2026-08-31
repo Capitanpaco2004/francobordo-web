@@ -32,16 +32,30 @@ $oID = isset($_REQUEST['oID'])?(int)$_REQUEST['oID']:false;
 
 // if there is no order id
 if (!$oID) {
-    die();
-}  
+    SequraHelper::forbid();
+}
+
+/* #FB-SEQURA-SIG
+   Cualquier POST a este endpoint es una notificacion de pago. La firma es
+   OBLIGATORIA y se comprueba AQUI: antes de cargar el pedido y antes del
+   include. Si no valida no se toca la base de datos ni se revela nada.
+   La firma ata sid|oID|importe|ts (SequraHelper::verifyPay), asi que un par
+   valido ya no sirve para confirmar otro pedido ni otro importe: antes solo
+   cubria el sid, que es el de la sesion del propio atacante. */
+$fb_is_notification = (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST')
+    || isset($_POST['signature']);
+if ($fb_is_notification && !SequraHelper::verifyPay($oID)) {
+    SequraHelper::forbid();
+}
+
 //Get the order and recreate cart from it
 $order = new order($oID);
 if (!$order ) {
-    die();
+    SequraHelper::forbid();
 }
 
 if (!in_array($order->info['orders_status'], $allowed_statuses)) {
-    die('El pedido no está en el estado esperado');
+    SequraHelper::forbid();
 }
 $payment = 'sequra_pp';
 if (isset($_GET['payment'])) $payment = $_GET['payment'];
@@ -69,35 +83,56 @@ foreach($order->totals as $ot){
     }
 }
 
-if ( isset($_POST['signature'])) {
-    require('ipn-pay-with-sequra.php');
+// if the customer is not logged on, redirect them to the login page
+if (!$fb_is_notification) {
+    if (!tep_session_is_registered('customer_id')) {
+        $navigation->set_snapshot(array('mode' => 'SSL', 'page' => 'pay-with-sequra.php?oID='.$oID));
+        tep_redirect(tep_href_link(FILENAME_LOGIN, '', 'SSL'));
+    }
+    /* Antes esto imprimia un aviso y SEGUIA ejecutando: sin exit no era una
+       comprobacion, era un cartel. */
+    if ($customer_id != $order->customer['id']) {
+        SequraHelper::forbid();
+    }
 }
 
-// if the customer is not logged on, redirect them to the login page
-if (!tep_session_is_registered('customer_id')) {
-    $navigation->set_snapshot(array('mode' => 'SSL', 'page' => 'pay-with-sequra.php?oID='.$_REQUEST['oID']));
-    tep_redirect(tep_href_link(FILENAME_LOGIN, '', 'SSL'));
+/* #FB-SEQURA-SIG El include va DESPUES del login y de la comprobacion de
+   propiedad. En la notificacion firmada no hay sesion de cliente, asi que
+   alli la propiedad se comprueba dentro del include: el order_ref tiene que
+   pertenecer a una solicitud creada por el dueno del pedido. */
+if ($fb_is_notification) {
+    require('ipn-pay-with-sequra.php');
+    /* Antes se seguia hasta el final del fichero y se lanzaba una solicitud
+       NUEVA a SeQura (mas una fila en `sequra`) en cada notificacion. */
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'ok';
+    require(DIR_WS_INCLUDES . 'application_bottom.php');
+    exit;
 }
-if($customer_id != $order->customer['id']) {
-    ?><html>
-        <body>
-    No corresponde con el usuario del prespuesto <a ref="<?php echo tep_href_link(FILENAME_LOGIN, '', 'SSL');?>">volver</a>
-        </body>
-    </html>
-    <?php
-}
+
 $data = $builder->build();
 
 // Fix data built in Builder
+$fb_ts  = time();
+/* Importe real en centimos (orders_total.value, NO el texto formateado que
+   order.php mete en info['total'] al cargar de la BD). */
+$fb_amt = SequraHelper::orderAmountCents($order);
+if ($fb_amt < 0) {
+    SequraHelper::forbid();
+}
 $data['merchant']['proactive'] = '1';
 $data['merchant']['notification_parameters']['oID'] = (string)$oID;
+$data['merchant']['notification_parameters']['amt'] = (string)$fb_amt;
+$data['merchant']['notification_parameters']['ts'] = (string)$fb_ts;
+$data['merchant']['notification_parameters']['signature'] = SequraHelper::signPay(tep_session_id(), $oID, $fb_amt, $fb_ts);
 $data['merchant']['notify_url'] = str_replace('ipn-sequra.php','pay-with-sequra.php',$data['merchant']['notify_url']);
 
 $client->startSolicitation($data);
 if ($client->succeeded()) {
     $uri                   = $client->getOrderUri();
     $paymentdata = array(
-        'amount' => (int)$amount,
+        /* $amount no existia en este fichero: la fila se grababa con 0. */
+        'amount' => $fb_amt,
         'serialized_order' => urlencode(serialize($order)),
         'uri' => $uri,
         'customer_id' => $customer_id
@@ -127,4 +162,3 @@ if ($client->succeeded()) {
 </html>
 <?php
 require(DIR_WS_INCLUDES . 'application_bottom.php');
-

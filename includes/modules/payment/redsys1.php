@@ -226,7 +226,90 @@ class redsys1 {
 		return $process_button_string;
     }
 
+	/******  #FB-REDSYS-REPLAY (2026-08-30) - notificacion servidor-servidor de Redsys  ******/
+	// La notificacion es la UNICA peticion que llega con Ds_MerchantParameters + Ds_Signature.
+	// El navegador del cliente NO pasa por checkout/process en el flujo Redsys: vuelve por
+	// Ds_Merchant_UrlOK a checkout/success. Los POST de navegador de otros medios de pago
+	// llegan sin campos Ds_* y no entran por aqui, asi que siguen recibiendo su redireccion.
+	public $fbNotifParams  = null;   // Ds_* decodificados (SIN validar; la firma se verifica aparte)
+	public $fbNotifHttp    = null;   // array(codigo, cuerpo) que hay que devolverle a Redsys
+	public $fbNotifObNivel = 0;      // nivel de buffers de salida antes de abrir el nuestro
+
+	function fbEsNotificacion() {
+		return isset($_POST['Ds_MerchantParameters']) && isset($_POST['Ds_Signature']);
+	}
+
+	// Lee un parametro de la notificacion (base64url + JSON). Esto NO valida nada y NO
+	// sustituye a ninguna comprobacion: la firma HMAC-SHA256 se sigue verificando igual
+	// que siempre unas lineas mas abajo, y sigue abortando si no cuadra.
+	function fbNotifParam($sClave) {
+		if ($this->fbNotifParams === null) {
+			$this->fbNotifParams = array();
+			if ($this->fbEsNotificacion()) {
+				$aTmp = json_decode(base64_decode(strtr((string)$_POST['Ds_MerchantParameters'], '-_', '+/')), true);
+				if (is_array($aTmp)) $this->fbNotifParams = $aTmp;
+			}
+		}
+		if (isset($this->fbNotifParams[$sClave])) return (string)$this->fbNotifParams[$sClave];
+		$sAlt = strtoupper($sClave);
+		if (isset($this->fbNotifParams[$sAlt])) return (string)$this->fbNotifParams[$sAlt];
+		return '';
+	}
+
+	// Ds_Order saneado: nombre del lock y clave de idempotencia.
+	function fbNotifReferencia() {
+		return substr(preg_replace('/[^0-9A-Za-z]/', '', $this->fbNotifParam('Ds_Order')), 0, 20);
+	}
+
+	// Importe realmente cobrado por el banco, en euros (Ds_Amount viaja en centimos).
+	function fbNotifImporte() {
+		$sImporte = $this->fbNotifParam('Ds_Amount');
+		return preg_match('/^[0-9]+$/', $sImporte) ? ((int)$sImporte / 100) : null;
+	}
+
+	// Respuesta HTTP para Redsys. El router de checkout termina SIEMPRE en tep_redirect(),
+	// que emite 301, y Redsys reintenta toda notificacion que no responda 200: en el access
+	// log el 100% de las notificaciones correctas recibe 301. Como el router no es
+	// alcanzable desde el modulo, sustituimos la cabecera en el shutdown, que se ejecuta
+	// despues del exit() de tep_redirect y antes de que PHP vuelque los buffers de salida.
+	function fbNotifRespuesta($nCodigo, $sCuerpo) {
+		$this->fbNotifHttp = array((int)$nCodigo, (string)$sCuerpo);
+	}
+
+	function fbNotifShutdown() {
+		if (!is_array($this->fbNotifHttp)) return;
+		while (ob_get_level() > $this->fbNotifObNivel) { @ob_end_clean(); }
+		if (!headers_sent()) {
+			@header_remove('Location');
+			@header('Content-Type: text/plain; charset=utf-8');
+			@http_response_code($this->fbNotifHttp[0]);
+		}
+		echo $this->fbNotifHttp[1];
+	}
+	/******  fin #FB-REDSYS-REPLAY  ******/
+
     function before_process() {
+        global $customer_id;
+
+		// #FB-REDSYS-REPLAY: se serializa por Ds_Order ANTES de cualquier comprobacion y se
+		// corta el reproceso de una referencia ya consumida. El 2026-03-29 la referencia
+		// 11774802408 genero DOS pedidos (10356674 y 10356675, a 7 s) con un unico cargo de
+		// 51,73 EUR. El lock se libera al cerrar la peticion: USE_PCONNECT='false' y
+		// tep_db_connect() no usa el prefijo 'p:'. Mismo patron que #FB-PAYPAL-REPLAY en
+		// includes/modules/payment/paypal_rest.php.
+		if ($this->fbEsNotificacion()) {
+			$this->fbNotifObNivel = ob_get_level();
+			ob_start();
+			register_shutdown_function(array($this, 'fbNotifShutdown'));
+			// Por defecto NO confirmamos nada: si la peticion muere sin llegar a
+			// after_process() el pedido no existe y Redsys tiene que reintentar.
+			$this->fbNotifRespuesta(500, 'KO');
+
+			$sFbRef = $this->fbNotifReferencia();
+			if ($sFbRef === '') {
+				@error_log('[FB-REDSYS-REPLAY] notificacion sin Ds_Order legible module=redsys1 customer=' . (int)$customer_id);
+			}
+		}
 		$idLog = generateIdLog();
 		$logActivo = MODULE_PAYMENT_REDSYS1_LOG;
 		$valido = FALSE;
@@ -300,8 +383,48 @@ class redsys1 {
 			if ($firma_local != $firma_remota || FALSE === $valido) {
 				//El proceso no puede ser completado, error de autenticación
 				escribirLog($idLog." -- La firma no es correcta.",$logActivo);
+				// #FB-REDSYS-REPLAY: se mantiene el 200 de siempre (con la firma mal, reintentar no arregla nada).
+				$this->fbNotifRespuesta(200, 'FALLO DE FIRMA');
 				die ("FALLO DE FIRMA");
 				exit;
+			}
+
+			// #FB-REDSYS-LOCK-TRAS-FIRMA (2026-08-30): el lock y la guarda de duplicado se toman
+			// AQUI, DESPUES de verificar la firma. Antes se tomaban al principio de before_process(),
+			// lo que daba a cualquiera SIN AUTENTICAR un recurso que bloquear: basta un POST con
+			// Ds_MerchantParameters y Ds_Signature arbitrarios, y el Ds_Order es predecible ('1'.time()).
+			// Mover el lock es seguro porque la verificacion de firma es calculo HMAC puro y no toca
+			// la BD: el lock se sigue tomando ANTES del INSERT del movimiento y de la creacion del
+			// pedido, que es lo unico que hay que serializar.
+			if ($this->fbEsNotificacion() && $sFbRef !== '') {
+				$rFbLock = tep_db_query("select get_lock('" . tep_db_input('fbrs_' . $sFbRef) . "', 15) as l");
+				$aFbLock = tep_db_fetch_array($rFbLock);
+				if (empty($aFbLock['l'])) {
+					// Fallo CERRADO: sin lock no se crea pedido. 503 para que Redsys reintente;
+					// el reintento encontrara la referencia consumida y respondera 200.
+					@error_log('[FB-REDSYS-REPLAY] LOCK no obtenido module=redsys1 ref=' . $sFbRef . ' customer=' . (int)$customer_id);
+					$this->fbNotifRespuesta(503, 'REINTENTAR');
+					die('REINTENTAR');
+				}
+
+				$rFbDup = tep_db_query("select id, orders_id from redsys_payment_movements where module = 'redsys1' and reference = '" . tep_db_input($sFbRef) . "' and admin_id = 0 and value > 0 order by id desc limit 1");
+				if ($aFbDup = tep_db_fetch_array($rFbDup)) {
+					// #FB-REDSYS-REPLAY: la referencia YA tiene movimiento -> se considera consumida y no
+					// se crea ningun pedido nuevo. 200 para que Redsys deje de reintentar.
+					//
+					// OJO, esto se probo con la rama contraria (recrear el pedido si orders_id=0) y ERA
+					// PELIGROSO: el movimiento se INSERTA en before_process pero solo se ENLAZA con el
+					// pedido en after_process, con el INSERT del pedido y DOS tep_mail por medio. Un fatal
+					// en esa ventana deja el movimiento con orders_id=0 AUNQUE EL PEDIDO YA EXISTA, asi que
+					// recrear duplicaba el pedido de un unico cargo. Medido: de 40 movimientos con
+					// orders_id=0 en 12 meses, 35 tienen pedido del mismo cliente en el MISMO SEGUNDO y
+					// ninguno es un cobro sin pedido. Por eso aqui se falla CERRADO.
+					// Si algun dia hiciera falta recrear, primero hay que enlazar el movimiento con el
+					// pedido justo despues del INSERT del pedido, no en after_process.
+					@error_log('[FB-REDSYS-REPLAY] referencia YA procesada module=redsys1 ref=' . $sFbRef . ' movimiento=' . (int)$aFbDup['id'] . ' pedido=' . (int)$aFbDup['orders_id'] . ' customer=' . (int)$customer_id);
+					$this->fbNotifRespuesta(200, 'OK');
+					die('OK');
+				}
 			}
 
 			$iresponse=(int)$respuesta;
@@ -336,6 +459,9 @@ class redsys1 {
 				} else {
 					escribirLog($idLog." -- Error de respuesta. Manteniendo carrito.",$logActivo);
 				}
+				// #FB-REDSYS-REPLAY: pago DENEGADO por el banco. Se mantiene el 200 de siempre: no
+				// hay pedido que registrar y devolver 5xx solo provocaria reintentos inutiles.
+				$this->fbNotifRespuesta(200, 'FALLO EN LA RESPUESTA');
 				die ("FALLO EN LA RESPUESTA");
 				exit;
 			}
@@ -349,7 +475,35 @@ class redsys1 {
     }
 
     function after_process() {
-		global $order, $insert_id, $cart;
+		global $order, $insert_id, $cart, $customer_id;
+
+		// #FB-REDSYS-NOTIF: el pedido YA esta creado (el INSERT ocurre entre before_process
+		// y after_process), asi que confirmamos la notificacion con 200 OK en lugar del 301
+		// del router, que hace que Redsys la reintente.
+		if ($this->fbEsNotificacion()) {
+			$this->fbNotifRespuesta(200, 'OK');
+
+			// #FB-REDSYS-DESCUADRE: el importe NO bloquea. Sobre 12 meses (15.216 cobros)
+			// hay 105 cobros cuyo Ds_Amount no coincide con el total grabado - 1 de cada 60
+			// desde 2026-06 - y solo 6 quedan por debajo de 2 EUR, con 78 por encima de 10
+			// EUR: ninguna tolerancia da cero falsos positivos. Abortar dejaria ~100 cargos
+			// al anio cobrados y sin pedido, que es peor que un pedido con el importe a
+			// revisar. Se crea el pedido y se deja traza para reconciliar a mano.
+			$nFbCobrado = $this->fbNotifImporte();
+			if ($nFbCobrado !== null && is_object($order) && isset($order->info['total'])) {
+				$nFbCambio  = isset($order->info['currency_value']) ? (float)$order->info['currency_value'] : 1;
+				$nFbPedido  = round((float)$order->info['total'] * $nFbCambio, 2);
+				$nFbCobrado = round($nFbCobrado, 2);
+				if (abs($nFbCobrado - $nFbPedido) > 0.005) {
+					@error_log('[FB-REDSYS-DESCUADRE] pedido=' . (int)$insert_id
+						. ' module=redsys1 ref=' . $this->fbNotifReferencia()
+						. ' ds_amount=' . number_format($nFbCobrado, 2, '.', '')
+						. ' total_pedido=' . number_format($nFbPedido, 2, '.', '')
+						. ' diferencia=' . number_format($nFbCobrado - $nFbPedido, 2, '.', '')
+						. ' customer=' . (int)$customer_id);
+				}
+			}
+		}
 
 		if (tep_session_is_registered('cartID')) {
 			$cart->reset(true);
@@ -362,12 +516,20 @@ class redsys1 {
              * @author Daniel Lucia <daniel.lucia@denox.es>
              */
             if (!empty($_POST) && isset($_POST["Ds_MerchantParameters"])) {
-                $sql = sprintf(
-                    'UPDATE redsys_payment_movements SET orders_id = %d WHERE customer_id = %d ORDER BY id DESC LIMIT 1',
-                    $insert_id,
-                    $customer_id
-                );
-                tep_db_query($sql);
+                // #FB-REDSYS-REPLAY: el movimiento se enlaza por (module, reference) y ya no por
+                // "el ultimo movimiento del cliente", que dejaba filas sin orders_id (40 en
+                // los ultimos 12 meses) y podia enlazar la fila equivocada.
+                $sFbRef = $this->fbNotifReferencia();
+                if ($sFbRef !== '') {
+                    tep_db_query("update redsys_payment_movements set orders_id = " . (int)$insert_id . " where module = 'redsys1' and reference = '" . tep_db_input($sFbRef) . "' and admin_id = 0 and value > 0 and orders_id = 0 order by id desc limit 1");
+                } else {
+                    $sql = sprintf(
+                        'UPDATE redsys_payment_movements SET orders_id = %d WHERE customer_id = %d AND module = "redsys1" ORDER BY id DESC LIMIT 1',
+                        $insert_id,
+                        $customer_id
+                    );
+                    tep_db_query($sql);
+                }
 			}
 		}
     }

@@ -120,7 +120,16 @@ if(!class_exists('sequra')){
 			strtoupper(get_class($this)) . "_STATUS'";
 			$check_query = tep_db_query( $sql );
 
-			return ! ! tep_db_num_rows( $check_query );
+			/* #FB-SEQURA-ENABLED  ATENCION: NO DESPLEGAR SIN CONFIRMAR.
+			   Antes se devolvia la EXISTENCIA de la fila, no su valor, asi que
+			   sequra_pp quedaba ACTIVO con MODULE_PAYMENT_SEQURA_PP_STATUS='False'.
+			   Ese modulo es hoy el UNICO que cobra por SeQura: 129 pedidos y
+			   64.696,35 EUR en 12 meses. Desplegar esto tal cual lo APAGA. */
+			$check_row = tep_db_fetch_array( $check_query );
+			if ( ! $check_row ) {
+				return false;
+			}
+			return strtolower( trim( $check_row['configuration_value'] ) ) === 'true';
 		}
 
 		function isOrderAmountInRange() {
@@ -220,8 +229,16 @@ if(!class_exists('sequra')){
 		}
 
 		function before_process() {
-			if ( $_POST['signature'] != SequraHelper::sign( tep_session_id() ) ) {
-				die( 'Hacking attenpt' );
+			/* #FB-SEQURA-SIG Firma OBLIGATORIA y comparacion en tiempo constante.
+			   El FORMATO no cambia (sigue siendo sign(sid)) A PROPOSITO: este es el
+			   camino del checkout normal, mueve dinero real a diario y sus
+			   notification_parameters viajan de ida y vuelta por SeQura. Ampliarlo
+			   aqui exige probar antes en sandbox que SeQura hace eco de parametros
+			   extra; ver deployNotes. Ademas el oID no existe todavia en este punto
+			   (el pedido se crea despues), asi que no se puede atar. */
+			$fb_sig = isset( $_POST['signature'] ) && is_string( $_POST['signature'] ) ? $_POST['signature'] : '';
+			if ( $fb_sig === '' || ! hash_equals( SequraHelper::sign( tep_session_id() ), $fb_sig ) ) {
+				SequraHelper::forbid();
 			}
 			$client     = SequraHelper::getClient();
 			$builder    = SequraHelper::getBuilder();
@@ -250,10 +267,14 @@ if(!class_exists('sequra')){
 			}
 			$client->updateOrder( $_SESSION['SeQuraURI'], $this->data );
 			$data = array( "orders_id" => $insert_id );
-			tep_db_perform( $this->table_name, $data, 'update', "uri='" . $_SESSION['SeQuraURI'] . "'" );
+			/* #FB-SEQURA-SIG WHERE sin escapar. tep_db_perform pega $parameters
+			   VERBATIM (includes/functions/database.php:162). pay-with-sequra.php
+			   escribia esta MISMA clave de sesion desde $_POST['order_ref'], asi
+			   que era inyectable desde el otro flujo. */
+			tep_db_perform( $this->table_name, $data, 'update', "uri='" . tep_db_input( isset( $_SESSION['SeQuraURI'] ) ? (string)$_SESSION['SeQuraURI'] : '' ) . "'" );
 			if ( ! $client->succeeded() ) {
 				$data = array( "orders_status" => self::REJECTED_STATUS );
-				tep_db_perform( TABLE_ORDERS, $data, 'update', "orders_id='" . $insert_id . "'" );
+				tep_db_perform( TABLE_ORDERS, $data, 'update', "orders_id='" . (int)$insert_id . "'" );
 				$info['orders_id'] = $insert_id;
 				http_response_code( 410 );
 				//echo SequraHelper::render('error', $info); /*TODO: Crear pagina para estos casos*/

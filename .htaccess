@@ -98,6 +98,16 @@ AddType model/step .step .stp
 <FilesMatch "\.(bak|old|orig|save|swp|swo|copy|backup|disabled)([-.].*)?$|~$|\.php\.[0-9]">
     Require all denied
 </FilesMatch>
+## fb-hardening-backups-gap (2026-08-29): huecos que la regla de arriba NO cubre.
+## Se anade APARTE a proposito: ampliar su ".orig" romperia FCKeditor, que carga por HTTP
+## "fckeditor.original.html". Aqui solo van (a) extensiones que faltaban (.bkp .antiguo .tmp)
+## y (b) el sufijo pegado SIN separador, que su regex no coge porque exige [-.] tras la
+## extension: p.ej. includes/classes/language.php.bak2-20260528 servia el fuente en claro,
+## e import/feed/VDM/*.csv.tmp.* servia 12,5 MB del feed de producto.
+## Verificado contra el arbol completo: 0 falsos positivos sobre assets servibles.
+<FilesMatch "\.(bkp|antiguo|tmp)[^/]*$|\.(bak|old|save|swp|swo|copy|backup|disabled)[0-9][^/]*$">
+    Require all denied
+</FilesMatch>
 
 ## Manejo de errores de Apache. Cuando se produzca uno de estos errores, redirigimos a una pagina especial desarrollada por nosotros.
 ErrorDocument 404 /error404.html
