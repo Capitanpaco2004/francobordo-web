@@ -652,9 +652,20 @@ class seur {
         // Entrega 2shop (punto de recogida): obligatorio pickupCentreCode en receiver.
         if (!empty($dest['pickupCentreCode'])) $recvAddr['pickupCentreCode'] = (string) $dest['pickupCentreCode'];
 
+        $svcFinal = (string) ($opts['service'] ?? $svc);
+        $prdFinal = (string) ($opts['product'] ?? $prd);
+        // GRECIA (2026-08-31, pedido 10368500): el validador de /shipments RECHAZA el Classic
+        // B2C 77/104 hacia GR con el 400 criptico "Error trying to retrieve cities from API
+        // catalogue", aunque ship-methods (destBU 89) SI lo liste. El que graba es el Classic
+        // B2B 77/70 (verificado real: Atenas de prueba anulada + Nikiti F10368500R7). Se
+        // fuerza 70 en todo envio 77 a GR salvo 2shop (48, que exige pickupCentreCode).
+        if ($svcFinal === self::SVC_INTERNAC && $recvAddr['country'] === 'GR' && $prdFinal !== self::PRD_INT_2SHOP) {
+            $prdFinal = self::PRD_INT_B2B;
+        }
+
         return array(
-            'serviceCode' => (string) ($opts['service'] ?? $svc),
-            'productCode' => (string) ($opts['product'] ?? $prd),
+            'serviceCode' => $svcFinal,
+            'productCode' => $prdFinal,
             'ref'         => $ref,
             'customer'    => array(
                 'accountNumber' => self::CCC,
