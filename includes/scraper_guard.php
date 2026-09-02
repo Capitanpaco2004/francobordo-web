@@ -154,10 +154,17 @@ try {
     //   feed caido NUNCA puede convertir un crawler legitimo en "spoof".
     //
     //   $_sg_spoof_enforce: familias en las que un spoof PIERDE la exencion (queda sujeto a los
-    //   rate-limits 4a/4b). Solo las de IA. Google y Bing quedan en OBSERVACION (solo radar) porque
-    //   son las que rastrean el catalogo a fondo y sus listas van con retraso: degradarlas por una
-    //   IP nueva aun no publicada seria pegarse un tiro en el SEO.
-    $_sg_spoof_enforce = ["gptbot", "oai-searchbot", "chatgpt-user", "anthropic", "perplexitybot", "perplexity-user"];
+    //   rate-limits 4a/4b). HOY ESTA VACIO -> todo es observacion; ver el comentario de abajo.
+    // 2026-09-01: VACIADO tras auditar 3 dias de datos. La verificacion queda en OBSERVACION PURA
+    // (solo radar) para TODAS las familias. Motivo: las listas publicadas VAN CON RETRASO.
+    // Evidencia: 81 IPs marcadas como 'oai-searchbot' falso (66 en rangos Azure), 183 hits; al
+    // mirar QUE pedian resultaron ser OAI-SearchBot REAL - paginas de producto + JS + CSS + PNG
+    // (renderizado completo), CERO rutas de escaneo, UA canonico. searchbot.json publica solo 35
+    // prefijos y no cubre el pool de Azure que usan. Enforcing ahi = arriesgar la visibilidad IA
+    // a cambio de casi nada: en 3 dias, 0 baneos derivados de esta regla.
+    // El valor real de esta comprobacion es DETECTAR, no bloquear (misma leccion que el radar).
+    // Para reactivar el enforcing de una familia, anadir su clave a este array.
+    $_sg_spoof_enforce = [];
     if ($_sg_is_declared) {
         $_sg_fam = _sg_bot_family($_sg_ua);
         if ($_sg_fam !== null) {

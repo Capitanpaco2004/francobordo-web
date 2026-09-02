@@ -19,7 +19,15 @@
  * Cron: 25 4 * * * /usr/bin/php /home/francobordo/public_html/_admin/scripts/cron_bot_ranges_update.php >> /home/francobordo/logs/bot_ranges.log 2>&1
  */
 
-if (PHP_SAPI !== 'cli') { http_response_code(403); exit("CLI only\n"); }
+// OJO: en nic1 `/usr/bin/php` es el wrapper CGI (SAPI cgi-fcgi), NO el CLI real
+// (`/usr/local/bin/php`). Una guarda `PHP_SAPI !== 'cli'` a secas rechazaba el cron: 3 dias
+// sin actualizar rangos (2026-08-29 -> 09-01). Lo que hay que impedir es la ejecucion SERVIDA
+// POR WEB, y eso se detecta por REQUEST_METHOD/REMOTE_ADDR, no por el SAPI.
+if (!empty($_SERVER['REQUEST_METHOD']) || !empty($_SERVER['REMOTE_ADDR'])) {
+    http_response_code(403);
+    exit("Solo por linea de comandos
+");
+}
 
 const OUT_FILE = '/home/francobordo/public_html/includes/bot_ranges.inc.php';
 const LOCK_FILE = '/home/francobordo/tmp/bot_ranges.lock';

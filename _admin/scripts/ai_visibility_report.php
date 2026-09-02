@@ -238,7 +238,8 @@ function aiv_report($test = false) {
         $b[] = '>> VENTAS atribuidas a ChatGPT (pedidos reales de la tienda):';
         $b[] = '   Ingresos: ' . number_format($sCur['revenue'], 2, ',', '.') . ' EUR ' . $revDelta;
         $b[] = '   Pedidos: ' . $fmt($sCur['orders']) . '  |  Ticket medio: ' . number_format($ticket, 0, ',', '.') . ' EUR';
-        $b[] = '   -> First-touch (utm_source=chatgpt o referrer chatgpt.com), desde 2026-07-13. Cifra BRUTA (no filtra estado del pedido).';
+        $b[] = '   -> First-touch con ventana de 30 dias (cookie first-party desde 2026-09-01; solo-sesion del 13-jul al 01-sep:';
+        $b[] = '      esos numeros infracontaban). Cifra BRUTA (no filtra estado del pedido).';
     } else {
         $b[] = '>> VENTAS atribuidas a ChatGPT (pedidos): no disponible -> ' . $serr;
     }

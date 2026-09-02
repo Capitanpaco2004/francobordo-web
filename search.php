@@ -44,6 +44,22 @@ foreach ($aWordDelete as $sWord) {
 }
 $sSearch = trim(preg_replace('/\s+/', ' ', $sSearch));
 
+// FIX 2026-09-01 (bug "where"/"from"): la tienda inyecta clausulas sobre la SQL ya montada
+// localizandolas por regex/strpos: changePriceCustomer() mete el LEFT JOIN de specials con
+// /\bWHERE\b/i y las columnas con /from/i, los filtros de precio/fabricante usan /where/i,
+// y splitPageResults() busca GROUP BY, ' from', ' having' y ' order by'.
+// Si el termino buscado contiene esas palabras, el reemplazo cae DENTRO del literal
+// MATCH(...) AGAINST("...") y rompe la consulta (error 1064). Las eliminamos del termino:
+// son palabras funcionales inglesas sin valor de busqueda en el catalogo.
+// 'where' y 'from' se quitan como SUBCADENA porque los patrones de origen no usan \b.
+if (!function_exists('fb_strip_sql_clause_words')) {
+    function fb_strip_sql_clause_words($sText) {
+        $aPatterns = array('/group\s+by/i', '/order\s+by/i', '/\bhaving\b/i', '/where/i', '/from/i');
+        return trim(preg_replace('/\s+/', ' ', preg_replace($aPatterns, ' ', (string) $sText)));
+    }
+}
+$sSearch = fb_strip_sql_clause_words($sSearch);
+
 $sCachePath = null;
 if ($bAutocomplete && $sSearch !== '' && strlen($sSearch) >= 3) {
     $sCacheDir = DIR_FS_CATALOG . 'cache/denox_ac/';
@@ -180,6 +196,8 @@ $sOrder = '';
 
 // Singular y plural
 $sSearch = getPluralSingular( $sSearch );
+// getPluralSingular() puede reintroducir variantes: volvemos a limpiar antes de montar el SQL.
+$sSearch = fb_strip_sql_clause_words($sSearch);
 
 // Saneado para FULLTEXT BOOLEAN MODE: neutraliza los operadores especiales ( + - < > ( ) ~ * " @ ' )
 // que, sin balancear (típico de bots de SQLi contra el buscador), rompen la sintaxis del operador

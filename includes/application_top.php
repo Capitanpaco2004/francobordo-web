@@ -194,6 +194,9 @@ isset($_SESSION) ? extract($_SESSION, EXTR_OVERWRITE + EXTR_REFS) : null;
 // Atribucion IA: capta utm_source/referrer de ChatGPT&cia en la sesion (first-touch, blindado). Anadido 2026-07-13
 if (is_file(__DIR__ . '/fb_ai_attribution.php')) { include_once __DIR__ . '/fb_ai_attribution.php'; if (function_exists('fb_ai_capture')) fb_ai_capture(); }
 
+// Pixel OpenAI Ads: registra el listener del footer (blindado; ver includes/oai_ads_pixel.php). Anadido 2026-09-01
+if (is_file(__DIR__ . '/oai_ads_pixel.php')) { include_once __DIR__ . '/oai_ads_pixel.php'; }
+
 // Establecemos SID una vez, incluso si está vacío
 $SID = (session_id() !== '' && !ini_get('session.use_cookies')) ? session_name() . '=' . session_id() : '';
 

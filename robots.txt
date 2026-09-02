@@ -15,6 +15,7 @@ Disallow: /chat/
 Disallow: /lists/
 Disallow: /feeds/
 Allow: /fm-feeds/francobordo.txt
+Allow: /fm-feeds/francobordo_openai.txt
 Disallow: /fm-feeds/
 Disallow: /googlesitemap/
 Disallow: /html2pdf/
@@ -135,6 +136,7 @@ Disallow: /ext/
 Disallow: /chat/
 Disallow: /lists/
 Disallow: /feeds/
+Allow: /fm-feeds/francobordo_openai.txt
 Disallow: /fm-feeds/
 Disallow: /googlesitemap/
 Disallow: /html2pdf/
