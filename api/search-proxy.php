@@ -20,11 +20,24 @@
 declare(strict_types=1);
 
 // --- Config (server-side; nunca expuesto al cliente) ---
-const MEILI_BASE     = 'http://217.127.199.171:28700';
-const MEILI_SEARCH_KEY = 'e86c194b8e7077d7524edc11e596b9eac5e9beba32d01639c29e366dd47ccd0a';  // search-only, patrón products* (ES+EN)
+// MEILI_BASE y MEILI_SEARCH_KEY viven FUERA del docroot y fuera del mirror de git.
+// Estuvieron hardcodeadas aquí hasta 2026-09-02 y acabaron publicadas en el repo
+// espejo público; la clave se rotó y el transporte pasó a Tailscale.
+require_once '/home/francobordo/search_proxy_config.php';
 const MAX_BODY       = 65536;   // 64 KB
-const CURL_TIMEOUT   = 25;
+const CURL_TIMEOUT   = 25;      // solo como red de seguridad; cada llamada fija su tope en ms
 const CURL_CONNECT_T = 2;
+// Topes por llamada (ms). Sin esto un Meili que acepta y no contesta retiene un
+// worker de PHP-FPM 25 s por intento, y el pool del dominio son 15 workers.
+const T_STRICT_MS    = 800;
+const T_BM25_MS      = 1200;
+const T_PLAIN_MS     = 1500;
+// Antiabuso: el cliente controlaba limit/offset/attributesToRetrieve, lo que
+// convertía el proxy en una API de volcado de catálogo.
+const MAX_LIMIT      = 48;
+const MAX_OFFSET     = 1000;
+const RL_MAX_PER_MIN = 240;     // generoso: el widget busca a cada pulsación
+const RL_DIR         = '/home/francobordo/_search/logs/rl';
 
 // Índice según idioma (whitelist — no permitimos índices arbitrarios)
 $INDEX_BY_LANG = [
@@ -60,14 +73,46 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 // --- Endpoint whitelist ---
 $endpoint = $_GET['endpoint'] ?? 'search';
+// multi-search y facet-search RETIRADOS 2026-09-02: el widget no los usa (una sola
+// URL con endpoint=search) y por ellos se escapaban las reglas de negocio —
+// multi-search ignoraba la exclusión de marca y facet-search devolvía el censo
+// completo de marcas con sus recuentos.
 $ENDPOINTS = [
-    'search'       => '/indexes/' . $INDEX_NAME . '/search',
-    'multi-search' => '/multi-search',
-    'facet-search' => '/indexes/' . $INDEX_NAME . '/facet-search',
+    'search' => '/indexes/' . $INDEX_NAME . '/search',
 ];
 if (!isset($ENDPOINTS[$endpoint])) {
     http_response_code(400);
     echo json_encode(['error' => 'unknown endpoint', 'allowed' => array_keys($ENDPOINTS)]);
+    exit;
+}
+
+// --- Rate limit por IP (cubo por minuto en fichero; falla ABIERTO siempre) ---
+// Sin APCu en este servidor. Es barato: un fichero pequeño por IP y minuto.
+function fb_rate_limited(): bool {
+    try {
+        $ip = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '';
+        if ($ip === '') return false;
+        $ip = trim(explode(',', $ip)[0]);
+        if (!is_dir(RL_DIR)) { @mkdir(RL_DIR, 0755, true); }
+        $f = RL_DIR . '/' . substr(md5($ip), 0, 16) . '-' . date('YmdHi');
+        $n = (int) @file_get_contents($f);
+        if ($n >= RL_MAX_PER_MIN) return true;
+        @file_put_contents($f, (string)($n + 1), LOCK_EX);
+        // GC oportunista: borra cubos de minutos pasados
+        if (mt_rand(0, 199) === 0) {
+            foreach (@glob(RL_DIR . '/*') ?: [] as $old) {
+                if (@filemtime($old) < time() - 180) @unlink($old);
+            }
+        }
+        return false;
+    } catch (Throwable $e) {
+        return false;   // nunca bloquear por un fallo del limitador
+    }
+}
+if (fb_rate_limited()) {
+    http_response_code(429);
+    header('Retry-After: 60');
+    echo json_encode(['error' => 'too many requests']);
     exit;
 }
 
@@ -136,6 +181,28 @@ function fb_embedder_tripped(): bool {
 function fb_embedder_trip(): void  { @touch(EMBED_BREAKER_FILE); }
 function fb_embedder_reset(): void { if (@filemtime(EMBED_BREAKER_FILE) !== false) @unlink(EMBED_BREAKER_FILE); }
 
+// --- Endurecido del cuerpo: topes y campos devueltos ---
+// El cliente controlaba limit/offset/attributesToRetrieve: 1.000 productos con
+// precio, EAN, stock y ref_prov en una sola llamada. Además el widget no acotaba
+// campos y cada resultado viajaba con description/categorías/variantes (139 MB
+// servidos en un día). $withRefProv sólo se activa en la rama estricta por código,
+// que es la única que necesita la referencia de proveedor.
+function fb_harden_body(array $b, bool $withRefProv = false): array {
+    $b['limit']  = min(max((int)($b['limit']  ?? 24), 1), MAX_LIMIT);
+    $b['offset'] = min(max((int)($b['offset'] ?? 0), 0), MAX_OFFSET);
+    $allowed = [
+        'id', 'pid', 'aid', 'title', 'brand', 'price', 'image', 'link',
+        'in_stock', 'availability', 'stock_qty', 'ean', 'mpn',
+    ];
+    if ($withRefProv) $allowed[] = 'ref_prov';
+    $req = $b['attributesToRetrieve'] ?? null;
+    $b['attributesToRetrieve'] = (is_array($req) && $req && !in_array('*', $req, true))
+        ? array_values(array_intersect($req, $allowed))
+        : $allowed;
+    if (!$b['attributesToRetrieve']) $b['attributesToRetrieve'] = $allowed;
+    return $b;
+}
+
 // --- Exclusión de marca al buscar su propio nombre ---
 // Cuando el cliente busca el nombre de ciertas marcas, NO queremos mostrar los
 // productos de ESA marca (p.ej. al buscar "seaflo" se ocultan los de brand=Seaflo,
@@ -150,9 +217,17 @@ function fb_inject_brand_exclusions(array $bodyJson): array {
     $tokens = preg_split('/[^a-z0-9]+/', $q, -1, PREG_SPLIT_NO_EMPTY) ?: [];
     $extra = [];
     foreach ($tokens as $tok) {
-        if (isset(HIDE_BRAND_WHEN_SEARCHED[$tok])) {
-            $brand = str_replace(['\\', '"'], ['\\\\', '\\"'], HIDE_BRAND_WHEN_SEARCHED[$tok]);
-            $extra['brand != "' . $brand . '"'] = true;   // clave = dedup
+        foreach (HIDE_BRAND_WHEN_SEARCHED as $needle => $brandName) {
+            // Match por PREFIJO en ambos sentidos, desde 4 caracteres: con match
+            // exacto se escapaban "seafl" (mientras se teclea, que es donde el
+            // cliente mira) y "seaflow"/"seaflos". El legacy search.php ya usaba
+            // prefijo; esto alinea el proxy con él, no al revés.
+            $hit = (strlen($tok) >= 4 && (str_starts_with($tok, $needle) || str_starts_with($needle, $tok)))
+                || $tok === $needle;
+            if ($hit) {
+                $brand = str_replace(['\\', '"'], ['\\\\', '\\"'], $brandName);
+                $extra['brand != "' . $brand . '"'] = true;   // clave = dedup
+            }
         }
     }
     if (!$extra) return $bodyJson;
@@ -186,17 +261,35 @@ if ($endpoint === 'search' && is_array($bodyJson)) {
     if ($rawQ !== ''
         && preg_match('/^[A-Za-z0-9][A-Za-z0-9._\/\-]{1,31}$/', $rawQ)
         && preg_match('/\d/', $rawQ)) {
+        $esc = str_replace(['\\', '"'], ['\\\\', '\\"'], $rawQ);
         $clauses = [];
         if (preg_match('/^\d+$/', $rawQ)) {
             $clauses[] = 'pid = ' . $rawQ;
+            // EAN: 12-14 dígitos. Sin esto un código inexistente caía a la búsqueda
+            // difusa y devolvía OTRO producto a 1-2 erratas de distancia, que en
+            // mostrador y almacén es un error caro.
+            if (preg_match('/^\d{12,14}$/', $rawQ)) {
+                $clauses[] = 'ean = "' . $esc . '"';
+            }
         }
-        $clauses[] = 'ref_prov = "' . str_replace(['\\', '"'], ['\\\\', '\\"'], $rawQ) . '"';
+        $clauses[] = 'ref_prov = "' . $esc . '"';
         $strict = $bodyJson;
         $strict['q'] = '';
-        $strict['filter'] = implode(' OR ', $clauses);   // reemplaza filtros de faceta
+        // COMBINAR con los filtros de faceta, no reemplazarlos: buscar un código
+        // con la marca Osculati marcada devolvía productos Lalizas.
+        $prev = $bodyJson['filter'] ?? null;
+        $codeFilter = '(' . implode(' OR ', $clauses) . ')';
+        if (is_array($prev) && $prev) {
+            $strict['filter'] = array_merge($prev, [$codeFilter]);
+        } elseif (is_string($prev) && trim($prev) !== '') {
+            $strict['filter'] = '(' . $prev . ') AND ' . $codeFilter;
+        } else {
+            $strict['filter'] = $codeFilter;
+        }
         unset($strict['hybrid']);                        // exacto: sin semántico
         $strict['showRankingScore'] = true;
-        [$sResp, $sCode, $sErr] = fb_meili_post($url, json_encode($strict));
+        $strict = fb_harden_body($strict, true);         // aquí sí se devuelve ref_prov
+        [$sResp, $sCode, $sErr] = fb_meili_post($url, json_encode($strict), T_STRICT_MS);
         if ($sResp !== false && $sCode === 200) {
             $sJson = json_decode($sResp, true);
             if (is_array($sJson) && !empty($sJson['hits'])) {
@@ -211,6 +304,7 @@ if ($resp === null) {
     if ($endpoint === 'search' && is_array($bodyJson)) {
         $bodyJson = fb_inject_brand_exclusions($bodyJson);
         $bodyJson['showRankingScore'] = true;
+        $bodyJson = fb_harden_body($bodyJson);   // topes + campos devueltos
         $body = json_encode($bodyJson);
 
         if (isset($bodyJson['hybrid'])) {
@@ -218,9 +312,14 @@ if ($resp === null) {
             $tryHybrid = !fb_embedder_tripped();   // breaker: si cayó hace poco, ni lo intentamos
             if ($tryHybrid) {
                 [$resp, $code, $err] = fb_meili_post($url, $body, HYBRID_TIMEOUT_MS);
-                if ($resp === false || $code !== 200) {
-                    fb_embedder_trip();            // marca embedder lento/caído
+                // El breaker solo debe saltar por caída/lentitud real. Antes lo
+                // disparaba CUALQUIER no-200: un 400 por cuerpo malformado apagaba
+                // el semántico 30 s para todos, y era trivial de provocar desde fuera.
+                if ($resp === false || $code >= 500) {
+                    fb_embedder_trip();            // embedder lento/caído
                     $resp = null;                  // fuerza fallback BM25 abajo
+                } elseif ($code !== 200) {
+                    $resp = null;                  // error del cliente: reintenta sin semántico
                 } else {
                     fb_embedder_reset();           // recuperado
                 }
@@ -229,10 +328,10 @@ if ($resp === null) {
                 // Fallback BM25: misma query sin la parte semántica -> instantáneo.
                 $bm25 = $bodyJson;
                 unset($bm25['hybrid']);
-                [$resp, $code, $err] = fb_meili_post($url, json_encode($bm25));
+                [$resp, $code, $err] = fb_meili_post($url, json_encode($bm25), T_BM25_MS);
             }
         } else {
-            [$resp, $code, $err] = fb_meili_post($url, $body);
+            [$resp, $code, $err] = fb_meili_post($url, $body, T_PLAIN_MS);
         }
     } else {
         [$resp, $code, $err] = fb_meili_post($url, $body);
@@ -284,8 +383,12 @@ if ($endpoint === 'search' && $lang === 'es') {
             $logDir = '/home/francobordo/_search/logs';
             @mkdir($logDir, 0755, true);
             $logFile = $logDir . '/search_events_' . date('Y-m-d') . '.log';
+            // El log es TSV y lo consume el aprendiz de sinónimos: si $q lleva
+            // tabuladores o saltos de línea se pueden forjar filas enteras.
+            $qSafe  = strtr($q,  ["\t" => ' ', "\n" => ' ', "\r" => ' ']);
+            $qnSafe = strtr((string)$qn, ["\t" => ' ', "\n" => ' ', "\r" => ' ']);
             $line = sprintf("%s\t%d\t%d\t%.4f\t%s\t%s\n",
-                date('c'), $n, $took, $top_score, $qn, $q);
+                date('c'), $n, $took, $top_score, $qnSafe, $qSafe);
             @file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
         }
     } catch (Throwable $e) {

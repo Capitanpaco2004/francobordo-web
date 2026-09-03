@@ -10,6 +10,8 @@ ini_set('max_input_time', -1);
 const LALIZAS_DIR     = '/home/francobordo/public_html/import/Lalizas/';
 const XML_PATH        = '/home/francobordo/public_html/import/feed/lalizas.xml';
 const B2B_DESC_PATH   = '/home/francobordo/public_html/import/Lalizas/cache/b2b_desc.json'; // EAN→{desc,lang} de webs de marca
+const API_CACHE_PATH  = '/home/francobordo/public_html/import/Lalizas/cache/api_products.json'; // caché de la API oficial
+const API_FETCH_PATH  = '/home/francobordo/public_html/import/Lalizas/lalizas_api_fetch.php';
 define('IMG_ABS_DIR',    dirname(dirname(__FILE__)) . '/images/productos/');
 
 const PARENT_CATEGORY_NAME_ES  = 'Lalizas Nuevos';
@@ -32,6 +34,15 @@ const VETUS_VAT_RATE    = 0.21;
 const LCP_VARIANT_RATIO = 0.55;
 const LCP_VARIANT_HIGH  = 0.70;
 const PRICE_DISPERSION_MAX = 5.0;
+// Agrupación por la API oficial: la jerarquía padre→items la manda Lalizas, no se adivina.
+// Tope de seguridad por si la API devolviese un padre desmesurado. Subido de 60 a 110 el
+// 02-09-2026: con 60 se quedaban fuera las escalas de embarque (82 refs) y las mangueras con
+// acoplamiento (100), y eso las partía en ~164 fichas sueltas casi idénticas. Lo que pase de
+// aquí se deja suelto y se registra en el log, nunca se recorta en silencio.
+const MAX_FAMILY_ITEMS = 110;
+// Orden de preferencia para elegir qué atributo etiqueta la variante. Se compara normalizado
+// (sin acentos, minúsculas) contra el nombre del atributo en ES o EN.
+const ATTR_LABEL_PREFERENCE = ['tamano','talla','size','longitud','length','diametro interior','inner diam','diametro','diameter','capacidad','capacity','color','colour','peso','weight','material','modelo','model'];
 
 // Item Group (col C xlsx) → manufacturers_id en BD (genéricos → Lalizas=3).
 const MFG_MAP = [
@@ -70,9 +81,24 @@ $action = $_POST['action'] ?? $_GET['action'] ?? '';
 $max    = isset($_POST['max']) ? (int) $_POST['max'] : (isset($_GET['max']) ? (int) $_GET['max'] : 0);
 $dryRun = isset($_POST['dry_run']) || isset($_GET['dry_run']) || $action === 'dry_run';
 $skipTranslation = isset($_POST['skip_translation']) || isset($_GET['skip_translation']);
-// Atributos OPCIONALES (off por defecto) y ESTRICTOS cuando se activan.
-$groupVariants   = isset($_POST['group_variants']) || isset($_GET['group_variants']);
-$skipVariants    = !$groupVariants;
+// Agrupación de variantes:
+//   none    = cada SKU suelto (comportamiento histórico)
+//   api     = jerarquía oficial de la API; lo que la API no cubre queda suelto
+//   api_lcp = API donde llega y heurística LCP estricta para el resto
+//   lcp     = solo heurística LCP (lo que hacía group_variants=1)
+$apiCacheExists  = file_exists(API_CACHE_PATH);
+$variantMode     = strtolower(trim((string) ($_POST['variant_mode'] ?? $_GET['variant_mode'] ?? '')));
+if ($variantMode === '') {
+    // Compatibilidad con las URLs antiguas: group_variants=1 era la heurística LCP.
+    if (isset($_POST['group_variants']) || isset($_GET['group_variants'])) $variantMode = 'lcp';
+    else $variantMode = $apiCacheExists ? 'api' : 'none';
+}
+if (!in_array($variantMode, ['none', 'api', 'api_lcp', 'lcp'], true)) $variantMode = 'none';
+if (!$apiCacheExists && ($variantMode === 'api' || $variantMode === 'api_lcp')) {
+    $variantMode = ($variantMode === 'api_lcp') ? 'lcp' : 'none';   // sin caché no hay jerarquía oficial
+}
+$useApiGrouping  = ($variantMode === 'api' || $variantMode === 'api_lcp');
+$useLcpGrouping  = ($variantMode === 'lcp' || $variantMode === 'api_lcp');
 $selectedBrand   = trim((string) ($_POST['brand'] ?? $_GET['brand'] ?? 'all'));   // Item Group (col C) o 'all'
 $onlyCodesRaw    = trim((string) ($_POST['codes'] ?? $_GET['codes'] ?? ''));
 $onlyCodes       = [];
@@ -390,7 +416,151 @@ function loadXmlMedia($path) {
     return [$byEan, $byCode];
 }
 
-$isAction = ($action === 'execute' || $action === 'dry_run');
+/**
+ * Caché de la Product Catalogue API (la genera import/Lalizas/lalizas_api_fetch.php).
+ * Devuelve [by_code, parents, meta]. by_code está indexado por la referencia Lalizas,
+ * que es la misma clave que la col. A de la xlsx y el <Code> del lalizas.xml.
+ */
+function loadApiCache($path) {
+    if (!file_exists($path)) return [[], [], []];
+    $j = json_decode((string) file_get_contents($path), true);
+    if (!is_array($j)) return [[], [], []];
+    $meta = ['generated' => $j['generated'] ?? '', 'total_parents' => (int) ($j['total_parents'] ?? 0), 'total_items' => (int) ($j['total_items'] ?? 0)];
+    return [$j['by_code'] ?? [], $j['parents'] ?? [], $meta];
+}
+
+/**
+ * Estado de la caché de la API sin cargar los 5 MB de JSON: los contadores están en la
+ * cabecera del fichero, así que basta con leer los primeros bytes.
+ */
+function apiCacheStatus($path) {
+    if (!file_exists($path)) return ['exists' => false];
+    $head = (string) @file_get_contents($path, false, null, 0, 300);
+    $parents = preg_match('/"total_parents":\s*(\d+)/', $head, $m1) ? (int) $m1[1] : 0;
+    $items   = preg_match('/"total_items":\s*(\d+)/', $head, $m2) ? (int) $m2[1] : 0;
+    return ['exists' => true, 'mtime' => filemtime($path), 'bytes' => filesize($path), 'parents' => $parents, 'items' => $items];
+}
+
+/** Elige el texto de un mapa {locale:texto}: idioma pedido, luego es/en, luego cualquiera. */
+function apiPickLocale($map, $prefer = 'es') {
+    if (!is_array($map) || empty($map)) return '';
+    foreach ([$prefer, 'es', 'en'] as $loc) {
+        if (isset($map[$loc]) && trim((string) $map[$loc]) !== '') return trim((string) $map[$loc]);
+    }
+    foreach ($map as $v) { $v = trim((string) $v); if ($v !== '') return $v; }
+    return '';
+}
+
+/**
+ * Normaliza el nombre de un atributo para comparar. Ojo: en el catálogo de Lalizas hay
+ * nombres tecleados con mayúsculas griegas confundibles (p.ej. "Τamaño" empieza por Tau,
+ * no por T latina), así que hay que mapearlas antes de nada.
+ */
+function apiNormAttrName($s) {
+    $s = (string) $s;
+    $confusables = ['Α'=>'A','Β'=>'B','Ε'=>'E','Ζ'=>'Z','Η'=>'H','Ι'=>'I','Κ'=>'K','Μ'=>'M','Ν'=>'N','Ο'=>'O','Ρ'=>'P','Τ'=>'T','Υ'=>'Y','Χ'=>'X',
+                    'А'=>'A','В'=>'B','Е'=>'E','К'=>'K','М'=>'M','Н'=>'H','О'=>'O','Р'=>'P','С'=>'C','Т'=>'T','У'=>'Y','Х'=>'X'];
+    $s = strtr($s, $confusables);
+    if (function_exists('iconv')) { $c = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s); if ($c !== false && $c !== '') $s = $c; }
+    $s = strtolower($s);
+    $s = preg_replace('/[^a-z0-9]+/', ' ', $s);
+    return trim(preg_replace('/\s+/', ' ', $s));
+}
+
+/**
+ * Índice de preferencia del atributo (menor = mejor etiqueta). PHP_INT_MAX si no está.
+ * La coincidencia EXACTA gana siempre a la parcial: si no, "Tamaño del pecho (cm)"
+ * empata con "Talla" por contener "tamano" y acaba etiquetando la variante con la
+ * medida de pecho en vez de con la talla.
+ */
+function apiAttrRank($normName) {
+    foreach (ATTR_LABEL_PREFERENCE as $i => $pref) if ($normName === $pref) return $i;
+    foreach (ATTR_LABEL_PREFERENCE as $i => $pref) if (strpos($normName, $pref) !== false) return 1000 + $i;
+    return PHP_INT_MAX;
+}
+
+/** Valor de atributo listo para etiquetar. Los rellenos ("-", "n/a"…) cuentan como vacío. */
+function apiCleanAttrValue($v) {
+    $v = trim(preg_replace('/\s+/u', ' ', (string) $v));
+    if (in_array(mb_strtolower($v, 'UTF-8'), ['', '-', '--', '—', 'n/a', 'na', 'none', 'null'], true)) return '';
+    return $v;
+}
+
+/**
+ * Etiquetas de variante a partir de los atributos oficiales de la API.
+ * Usa los atributos que VARÍAN dentro de la familia, empezando por el más significativo
+ * (talla, longitud, diámetro…), y añade más solo si hacen falta para que sean únicas.
+ * Devuelve [labelsEs, labelsEn] o null si no se puede etiquetar con garantías.
+ */
+function computeApiLabels(array $items, array $apiByCode) {
+    $attrsByCode = []; $order = []; $present = [];
+    foreach ($items as $code => $_) {
+        $attrsByCode[$code] = [];
+        foreach (($apiByCode[$code]['attributes'] ?? []) as $a) {
+            $key = apiNormAttrName(apiPickLocale($a['name'] ?? [], 'en'));
+            if ($key === '') continue;
+            $attrsByCode[$code][$key] = $a;
+            if (!isset($order[$key])) $order[$key] = count($order);
+            $present[$key] = ($present[$key] ?? 0) + 1;
+        }
+    }
+    $n = count($items);
+    // Solo sirven los atributos que tienen TODOS los items de la familia y con valor real
+    // (si a uno le falta o trae un guion de relleno, la etiqueta saldría coja).
+    $usable = [];
+    foreach ($present as $key => $cnt) {
+        if ($cnt !== $n) continue;
+        $allSet = true;
+        foreach ($items as $code => $_) {
+            if (apiCleanAttrValue(apiPickLocale($attrsByCode[$code][$key]['value'] ?? [], 'es')) === '') { $allSet = false; break; }
+        }
+        if ($allSet) $usable[] = $key;
+    }
+    if (empty($usable)) return null;
+    // …y de esos, los que realmente distinguen unos items de otros.
+    $varying = [];
+    foreach ($usable as $key) {
+        $vals = [];
+        foreach ($items as $code => $_) $vals[apiCleanAttrValue(apiPickLocale($attrsByCode[$code][$key]['value'] ?? [], 'es'))] = true;
+        if (count($vals) > 1) $varying[] = $key;
+    }
+    if (empty($varying)) return null;
+    usort($varying, function ($a, $b) use ($order) {
+        $ra = apiAttrRank($a); $rb = apiAttrRank($b);
+        if ($ra !== $rb) return $ra <=> $rb;
+        return ($order[$a] ?? 0) <=> ($order[$b] ?? 0);
+    });
+
+    $build = function (array $keys, $loc) use ($items, $attrsByCode) {
+        $out = [];
+        foreach ($items as $code => $_) {
+            $parts = [];
+            foreach ($keys as $k) {
+                $v = apiCleanAttrValue(apiPickLocale($attrsByCode[$code][$k]['value'] ?? [], $loc));
+                if ($v === '') return null;              // etiqueta incompleta: este juego no vale
+                $parts[] = $v;
+            }
+            if (empty($parts)) return null;
+            $out[$code] = mb_substr(implode(' · ', $parts), 0, 64, 'UTF-8');
+        }
+        return $out;
+    };
+    // Prueba con 1 atributo, luego 2, luego 3, luego todos: el primero que dé etiquetas únicas gana.
+    $tries = [];
+    for ($k = 1; $k <= min(3, count($varying)); $k++) $tries[] = array_slice($varying, 0, $k);
+    if (count($varying) > 3) $tries[] = $varying;
+    foreach ($tries as $keys) {
+        $es = $build($keys, 'es');
+        if ($es === null) continue;
+        if (count(array_unique($es)) !== count($es)) continue;   // etiquetas repetidas: no vale
+        $en = $build($keys, 'en');
+        if ($en === null) $en = $es;
+        return [$es, $en];
+    }
+    return null;
+}
+
+$isAction = ($action === 'execute' || $action === 'dry_run' || $action === 'api_refresh');
 if ($isAction) {
     @header('X-Accel-Buffering: no');
     @header('Content-Type: text/html; charset=utf-8');
@@ -403,19 +573,34 @@ if ($isAction) {
 <table style="width:100%;"><tr><td>
 <div style="padding:20px;">
 <?php if ($isAction): ?>
-    <h2>Importador Lalizas — <?php echo $dryRun ? 'DRY-RUN (sin cambios)' : 'EJECUCIÓN REAL'; ?></h2>
+    <h2>Importador Lalizas — <?php echo $action === 'api_refresh' ? 'REFRESCANDO CACHÉ DE LA API' : ($dryRun ? 'DRY-RUN (sin cambios)' : 'EJECUCIÓN REAL'); ?></h2>
     <p><a href="<?php echo tep_href_link('import-lalizas-altas.php'); ?>" class="xbutton small hv9">← Volver</a></p>
     <div style="background:#fafafa;border:1px solid #ddd;border-radius:4px;margin-top:15px;max-height:600px;overflow-y:auto;">
 <?php
 echo str_pad('<!-- streaming pad -->', 4096) . "\n";
 @flush();
+
+// Refresco de la caché de la API: descarga el catálogo de lalizas.com y termina.
+if ($action === 'api_refresh') {
+    if (!file_exists(API_FETCH_PATH)) { logMsg("ERROR: falta " . API_FETCH_PATH); goto end_action; }
+    require_once API_FETCH_PATH;
+    logMsg("Descargando el catálogo de la API de Lalizas…");
+    $res = lalizasApiBuildCache('logMsg');
+    logMsg(!empty($res['ok'])
+        ? "Caché actualizada: {$res['parents']} padres / {$res['items']} items / {$res['categories']} categorías."
+        : "FALLÓ el refresco: " . ($res['error'] ?? 'error desconocido'));
+    goto end_action;
+}
+
 if (!empty($onlyCodes) && $max > 0) { $maxOverridden = $max; $max = 0; }
 
+$variantModeLabel = ['none' => 'sin agrupar (cada SKU suelto)', 'api' => 'AGRUPANDO por la API oficial',
+                     'api_lcp' => 'AGRUPANDO por la API + LCP para el resto', 'lcp' => 'AGRUPANDO por LCP (heurístico)'][$variantMode];
 logMsg("Modo: " . ($dryRun ? "dry-run" : "EXECUTE")
     . " | marca=" . ($selectedBrand === 'all' ? 'TODAS' : $selectedBrand)
     . (!empty($onlyCodes) ? " | codes=" . count($onlyCodes) : "")
     . ($skipTranslation ? " | sin traducción LLM" : "")
-    . ($groupVariants ? " | AGRUPANDO variantes (estricto)" : " | sin agrupar (cada SKU suelto)"));
+    . " | " . $variantModeLabel);
 
 $xlsx = findNewestXlsx(LALIZAS_DIR);
 if (!$xlsx) { logMsg("ERROR: no hay xlsx en " . LALIZAS_DIR); goto end_action; }
@@ -430,6 +615,16 @@ logMsg("XML: " . count($xmlByEan) . " por EAN / " . count($xmlByCode) . " por co
 $b2bDesc = file_exists(B2B_DESC_PATH) ? (json_decode(file_get_contents(B2B_DESC_PATH), true) ?: []) : [];
 $b2bDescCount = 0; foreach ($b2bDesc as $v) { if (trim((string)($v['desc'] ?? '')) !== '') $b2bDescCount++; }
 logMsg("B2B descripciones cacheadas: " . count($b2bDesc) . " (con texto usable: $b2bDescCount)");
+// Catálogo oficial de la API: jerarquía padre→items, atributos, títulos y descripciones por idioma.
+list($apiByCode, $apiParents, $apiMeta) = loadApiCache(API_CACHE_PATH);
+if (empty($apiByCode)) {
+    logMsg("API: SIN CACHÉ (" . basename(API_CACHE_PATH) . ") — se importa solo con xlsx + XML + B2B. Refréscala desde el formulario.");
+} else {
+    $gen = $apiMeta['generated'] ?? '';
+    $age = $gen !== '' ? round((time() - strtotime($gen)) / 86400, 1) : null;
+    logMsg("API: " . count($apiByCode) . " items / " . count($apiParents) . " padres"
+        . ($gen !== '' ? " (caché del " . date('d/m/Y H:i', strtotime($gen)) . ($age !== null ? ", $age días" : "") . ")" : ""));
+}
 
 $mysqli = new mysqli(DB_SERVER, DB_SERVER_USERNAME, DB_SERVER_PASSWORD, DB_DATABASE);
 if ($mysqli->connect_error) { logMsg("ERROR DB: " . $mysqli->connect_error); goto end_action; }
@@ -447,7 +642,8 @@ logMsg("  → " . count($existing) . " referencias ya en BD");
 
 $candidates = [];
 $skipExist = $skipNoRef = $skipNoName = $skipBadPrice = $skipNoImg = $skipNoDesc = $skipCodes = $skipBrand = 0;
-$descFromXml = $descFromB2b = 0;
+$descFromXml = $descFromB2b = $descFromApi = 0;
+$imgFromApi = $nameEnFromApi = $descBilingualApi = $inApi = 0;
 $selBrandKey = groupKey($selectedBrand);
 foreach ($rows as $row) {
     $ref = $row['REF']; $ean = $row['EAN'];
@@ -456,14 +652,25 @@ foreach ($rows as $row) {
     if (!empty($onlyCodes) && !isset($onlyCodes[strtoupper($ref)]) && !isset($onlyCodes[strtoupper($ean)])) { $skipCodes++; continue; }
     // Filtro por marca (Item Group). Ignorado si se piden codes específicos.
     if (empty($onlyCodes) && $selectedBrand !== 'all' && groupKey($row['GROUP']) !== $selBrandKey) { $skipBrand++; continue; }
-    // Imagen: del XML (obligatoria).
+
+    // Ficha de la API para esta referencia (el id de item de la API ES la ref de la xlsx).
+    $api       = ($ref !== '' && isset($apiByCode[$ref])) ? $apiByCode[$ref] : null;
+    $apiParent = $api ? ($apiParents[$api['parent']] ?? null) : null;
+    if ($api) $inApi++;
+
+    // Imagen: XML preferente (histórico); si falta, la de la API (item, y si no, la del padre).
     $media = $xmlByEan[$ean] ?? ($xmlByCode[strtolower($ref)] ?? null);
-    $img = $media['img'] ?? '';
+    $img = trim((string) ($media['img'] ?? ''));
+    $apiImgs = array_merge($api['images'] ?? [], $apiParent['images'] ?? []);
+    if ($img === '' && !empty($apiImgs)) { $img = array_shift($apiImgs); $imgFromApi++; }
     if ($img === '') { $skipNoImg++; continue; }
-    // Descripción: XML (ES) preferente; si no, B2B (EN, web de marca).
-    $xmlDescTxt = trim((string)($media['desc'] ?? ''));
-    $b2bDescTxt = trim((string)($b2bDesc[$ean]['desc'] ?? ''));
-    if ($xmlDescTxt === '' && $b2bDescTxt === '') { $skipNoDesc++; continue; }
+
+    // Descripción: XML (ES) → API (es/en, oficial) → B2B (EN, scraping de webs de marca).
+    $xmlDescTxt   = trim((string) ($media['desc'] ?? ''));
+    $apiDescEsTxt = trim((string) ($apiParent['description']['es'] ?? ''));
+    $apiDescEnTxt = trim((string) ($apiParent['description']['en'] ?? ''));
+    $b2bDescTxt   = trim((string) ($b2bDesc[$ean]['desc'] ?? ''));
+    if ($xmlDescTxt === '' && $apiDescEsTxt === '' && $apiDescEnTxt === '' && $b2bDescTxt === '') { $skipNoDesc++; continue; }
     // dedup
     if ($ref !== '' && isset($existing[strtolower($ref)])) { $skipExist++; continue; }
     if ($ean !== '' && isset($existing[strtolower($ean)])) { $skipExist++; continue; }
@@ -477,19 +684,65 @@ foreach ($rows as $row) {
     $row['_G1']     = roundToNickel(calcG1Price($row['_PRICE'], $cost));
     $row['_WEIGHT'] = 1.0;
     $row['_IMG']    = $img;
-    if ($xmlDescTxt !== '') { $row['_DESC_SRC'] = 'xml'; $row['_DESC_ES'] = cleanHtmlAggressive($xmlDescTxt); $row['_DESC_EN'] = ''; $descFromXml++; }
-    else                    { $row['_DESC_SRC'] = 'b2b'; $row['_DESC_EN'] = cleanHtmlAggressive($b2bDescTxt); $row['_DESC_ES'] = ''; $descFromB2b++; }
+    $row['_EXTRA_IMGS'] = $apiImgs;                       // resto de imágenes de la API → subimágenes
+    $row['_API_PARENT'] = $api['parent'] ?? '';
+    $row['_HAS_API']    = $api !== null;
+    // Nombre EN oficial de la API: evita una llamada al LLM y usa la terminología del fabricante.
+    $row['_NAME_EN'] = $api ? trim((string) ($api['title']['en'] ?? '')) : '';
+    if ($row['_NAME_EN'] !== '') $nameEnFromApi++;
+
+    $row['_DESC_BOTH'] = false;
+    if ($xmlDescTxt !== '') {
+        $row['_DESC_SRC'] = 'xml'; $row['_DESC_ES'] = cleanHtmlAggressive($xmlDescTxt); $row['_DESC_EN'] = ''; $descFromXml++;
+    } elseif ($apiDescEsTxt !== '' || $apiDescEnTxt !== '') {
+        $row['_DESC_SRC'] = 'api';
+        $row['_DESC_ES'] = cleanHtmlAggressive($apiDescEsTxt);
+        $row['_DESC_EN'] = cleanHtmlAggressive($apiDescEnTxt);
+        // Si la API da los dos idiomas no hace falta traducir: son textos oficiales.
+        if ($row['_DESC_ES'] !== '' && $row['_DESC_EN'] !== '') { $row['_DESC_BOTH'] = true; $descBilingualApi++; }
+        $descFromApi++;
+    } else {
+        $row['_DESC_SRC'] = 'b2b'; $row['_DESC_EN'] = cleanHtmlAggressive($b2bDescTxt); $row['_DESC_ES'] = ''; $descFromB2b++;
+    }
     $candidates[$ref !== '' ? $ref : $ean] = $row;
 }
-logMsg("Candidatos (con imagen + descripción [XML o B2B], no en BD): " . count($candidates) . " | desc XML=$descFromXml | desc B2B=$descFromB2b");
+logMsg("Candidatos (con imagen + descripción, no en BD): " . count($candidates)
+    . " | desc XML=$descFromXml · API=$descFromApi · B2B=$descFromB2b");
+if (!empty($apiByCode)) {
+    logMsg("  aporte API: $inApi candidatos en la API | imagen solo-API=$imgFromApi | nombre EN oficial=$nameEnFromApi | descripción bilingüe (sin LLM)=$descBilingualApi");
+}
 logMsg("  pre-skip: existentes=$skipExist | sin ref=$skipNoRef | sin nombre=$skipNoName | precio=$skipBadPrice | sin imagen=$skipNoImg | sin descripción=$skipNoDesc" . ($selectedBrand !== 'all' ? " | otra-marca=$skipBrand" : "") . (!empty($onlyCodes) ? " | fuera-de-codes=$skipCodes" : ""));
 
-// ---- Agrupación (opt-in, estricta) ----
-$families = []; $standalone = [];
-if ($skipVariants) {
-    $standalone = $candidates;
-} else {
-    $byKey = $candidates;
+// ---- Agrupación ----
+// Orden de preferencia: la jerarquía oficial de la API manda; la heurística LCP solo
+// se usa donde la API no llega (cubre ~1 de cada 4 referencias de la xlsx).
+$families = []; $familyIsApi = []; $pool = $candidates;
+
+if ($useApiGrouping) {
+    $byParent = [];
+    foreach ($pool as $code => $row) {
+        $p = (string) ($row['_API_PARENT'] ?? '');
+        if ($p !== '') $byParent[$p][$code] = $row;
+    }
+    $apiFam = $apiFamItems = $apiTooBig = 0;
+    foreach ($byParent as $p => $items) {
+        if (count($items) < 2) continue;                     // un item suelto no hace familia
+        if (count($items) > MAX_FAMILY_ITEMS) {
+            $apiTooBig++;
+            logMsg("  familia API " . substr($p, 0, 10) . "… con " . count($items) . " items > tope " . MAX_FAMILY_ITEMS . ": se dejan sueltos");
+            continue;
+        }
+        $key = array_key_first($items);
+        $families[$key] = $items; $familyIsApi[$key] = true;
+        foreach ($items as $c => $_) unset($pool[$c]);
+        $apiFam++; $apiFamItems += count($items);
+    }
+    logMsg("Agrupación API: $apiFam familias oficiales ($apiFamItems items)"
+        . ($apiTooBig ? " | $apiTooBig descartadas por superar " . MAX_FAMILY_ITEMS . " items" : ""));
+}
+
+if ($useLcpGrouping && !empty($pool)) {
+    $byKey = $pool;
     uasort($byKey, fn($a, $b) => strcmp($a['NAME'], $b['NAME']));
     $bucket = []; $allBuckets = [];
     foreach ($byKey as $code => $row) {
@@ -500,14 +753,17 @@ if ($skipVariants) {
         else { $allBuckets[]=$bucket; $bucket=[$code=>$row]; }
     }
     if (!empty($bucket)) $allBuckets[] = $bucket;
-    $fv=$fs=0;
+    $fv=$fs=0; $rest=[];
     foreach ($allBuckets as $b) {
-        if (count($b)===1){ foreach($b as $c=>$r)$standalone[$c]=$r; continue; }
+        if (count($b)===1){ foreach($b as $c=>$r)$rest[$c]=$r; continue; }
         if (isLegitimateFamily($b)){ $families[array_key_first($b)]=$b; $fv++; }
-        else { foreach($b as $c=>$r)$standalone[$c]=$r; $fs++; }
+        else { foreach($b as $c=>$r)$rest[$c]=$r; $fs++; }
     }
-    logMsg("Agrupación estricta: $fv familias | $fs grupos divididos en sueltos");
+    $pool = $rest;
+    logMsg("Agrupación LCP (resto): $fv familias | $fs grupos divididos en sueltos");
 }
+
+$standalone = $pool;
 if (!empty($onlyCodes)) {
     $famF=[]; foreach($families as $k=>$it){ foreach($it as $c=>$_){ if(isset($onlyCodes[strtoupper($c)])){$famF[$k]=$it;break;} } }
     $stdF=[]; foreach($standalone as $c=>$r){ if(isset($onlyCodes[strtoupper($c)]))$stdF[$c]=$r; }
@@ -516,33 +772,39 @@ if (!empty($onlyCodes)) {
 logMsg("Tras consolidar: " . count($families) . " familias + " . count($standalone) . " sueltos");
 
 $subcatCache = []; $labelTransCache = [];
-$nInserted=$nFam=$nStd=0; $counters=['skippedNoImg'=>0,'imgFail'=>0,'nWithImg'=>0,'nSubImgTotal'=>0,'nWithVar'=>0,'errors'=>0];
-$translateFail=$formatFail=0;
+$nInserted=$nFam=$nStd=0; $counters=['skippedNoImg'=>0,'imgFail'=>0,'nWithImg'=>0,'nSubImgTotal'=>0,'nWithVar'=>0,'errors'=>0,'apiLabels'=>0,'lcpLabels'=>0];
+$translateFail=$formatFail=$llmSaved=0;
 
-function buildContent($row, $skipTranslation, &$translateFail, &$formatFail) {
+function buildContent($row, $skipTranslation, &$translateFail, &$formatFail, &$llmSaved) {
     $nameEs = $row['NAME'];
-    // La descripción puede venir en ES (XML) o en EN (B2B / web de marca).
-    $src = $row['_DESC_SRC'] ?? 'xml';
-    $descEsRaw = $src === 'xml' ? (string)($row['_DESC_ES'] ?? '') : '';
-    $descEnRaw = $src === 'b2b' ? (string)($row['_DESC_EN'] ?? '') : '';
+    // La descripción puede venir en ES (XML), en EN (B2B) o en ambos (API oficial).
+    $descEsRaw = (string) ($row['_DESC_ES'] ?? '');
+    $descEnRaw = (string) ($row['_DESC_EN'] ?? '');
+    $nameEnApi = trim((string) ($row['_NAME_EN'] ?? ''));
 
     $nameEn = $nameEs;
     $descEs = nl2br(htmlspecialchars($descEsRaw !== '' ? $descEsRaw : $descEnRaw), false);
     $descEnHtml = nl2br(htmlspecialchars($descEnRaw !== '' ? $descEnRaw : $descEsRaw), false);
 
     if (!$skipTranslation) {
-        // Nombre: siempre ES (xlsx) → EN.
-        $tn = llmCall(LLM_PROMPT_NAME, $nameEs, 200);
-        if ($tn !== '') $nameEn = $tn; else $translateFail++;
-        // Completar el idioma que falte de la descripción.
-        if ($src === 'xml') {
-            $td = ($descEsRaw !== '') ? llmCall(LLM_PROMPT_DESC, $descEsRaw, 1500) : '';
+        // Nombre EN: el de la API si lo hay (oficial del fabricante); si no, traducción del ES.
+        if ($nameEnApi !== '') {
+            $nameEn = $nameEnApi; $llmSaved++;
+        } else {
+            $tn = llmCall(LLM_PROMPT_NAME, $nameEs, 200);
+            if ($tn !== '') $nameEn = $tn; else $translateFail++;
+        }
+        // Descripción: solo se traduce el idioma que falte. Si la API trae los dos, no se toca.
+        if ($descEsRaw !== '' && $descEnRaw !== '') {
+            $llmSaved++;
+        } elseif ($descEsRaw !== '') {
+            $td = llmCall(LLM_PROMPT_DESC, $descEsRaw, 1500);
             $descEnRaw = ($td !== '') ? $td : $descEsRaw;
-            if ($descEsRaw !== '' && $td === '') $translateFail++;
-        } else { // b2b: EN nativo → traducir a ES
-            $td = ($descEnRaw !== '') ? llmCall(LLM_PROMPT_DESC_EN2ES, $descEnRaw, 1500) : '';
+            if ($td === '') $translateFail++;
+        } elseif ($descEnRaw !== '') {
+            $td = llmCall(LLM_PROMPT_DESC_EN2ES, $descEnRaw, 1500);
             $descEsRaw = ($td !== '') ? $td : $descEnRaw;
-            if ($descEnRaw !== '' && $td === '') $translateFail++;
+            if ($td === '') $translateFail++;
         }
         // maquetar ES
         $inEs = mb_strlen(strip_tags($descEsRaw),'UTF-8');
@@ -565,7 +827,10 @@ function insertProduct($mysqli, $items, $isFamily, $mfgId, $parentCatId, $subcat
 
     if (trim((string)$cheap['_IMG']) === '') { $counters['skippedNoImg']++; logMsg("SKIP $cheapestCode: sin URL de imagen"); return false; }
     if (!is_dir(IMG_ABS_DIR)) @mkdir(IMG_ABS_DIR, 0775, true);
-    $tmpFiles = downloadImagesToTmp([$cheap['_IMG']], MAX_SUBIMAGES + 1);
+    // Principal + las que aporte la API (foto del item y del padre) como subimágenes.
+    // No se recorren las variantes: en una familia suelen repetir la misma foto.
+    $imgUrls = array_merge([$cheap['_IMG']], (array) ($cheap['_EXTRA_IMGS'] ?? []));
+    $tmpFiles = downloadImagesToTmp($imgUrls, MAX_SUBIMAGES + 1);
     if (empty($tmpFiles)) { $counters['skippedNoImg']++; $counters['imgFail']++; logMsg("SKIP $cheapestCode: imagen no descargable"); return false; }
 
     $mysqli->begin_transaction();
@@ -645,17 +910,33 @@ foreach ($families as $famKey => $items) {
     $cheap = $items[array_key_first($items)];
     $mfgId = lalResolveManufacturer($mysqli, $cheap['GROUP'], $dryRun, $mfgCache, $catCreatedLog);
     $subcatName = groupLabel($cheap['GROUP']);
+    // Etiquetas de variante: si la familia viene de la API se sacan de sus atributos
+    // (talla, longitud, diámetro…), que es dato oficial y no cuesta una llamada al LLM.
+    $isApiFam = !empty($familyIsApi[$famKey]);
+    $apiLabels = $isApiFam ? computeApiLabels($items, $apiByCode) : null;
     if ($dryRun) {
         $nInserted++; $nFam++;
-        if ($nFam <= 15) logMsg(sprintf("  WOULD FAMILIA key=%s (%dv) price=%.2f cost=%.2f g1=%.2f grupo=%s name='%s'", $famKey, count($items), $cheap['_PRICE'], $cheap['_COST'], $cheap['_G1'], $subcatName, mb_substr($cheap['NAME'],0,45,'UTF-8')));
+        if ($nFam <= 15) {
+            $tag = $isApiFam ? ($apiLabels ? 'API/attr' : 'API/nombre') : 'LCP';
+            $sample = $apiLabels ? ' etiquetas=[' . mb_substr(implode(', ', array_slice($apiLabels[0], 0, 4)), 0, 70, 'UTF-8') . ']' : '';
+            logMsg(sprintf("  WOULD FAMILIA [%s] key=%s (%dv) price=%.2f cost=%.2f g1=%.2f grupo=%s name='%s'%s",
+                $tag, $famKey, count($items), $cheap['_PRICE'], $cheap['_COST'], $cheap['_G1'], $subcatName,
+                mb_substr($cheap['NAME'],0,40,'UTF-8'), $sample));
+        }
         continue;
     }
     $subcatId = getOrCreateSubcategory($mysqli, $subcatName, $parentCatId, false, $subcatCache, $catCreatedLog);
-    // Etiquetas de variante: nativas en ES (del nombre ES); EN = traducción.
-    $labelsEs = computeLabels($items);
-    $labelsEn = [];
-    foreach ($labelsEs as $vc => $le) $labelsEn[$vc] = translateLabel($le, $labelTransCache, $skipTranslation);
-    [$nameEn, $descEn, $nameEs, $descEs] = buildContent($cheap, $skipTranslation, $translateFail, $formatFail);
+    if ($apiLabels !== null) {
+        [$labelsEs, $labelsEn] = $apiLabels;
+        $counters['apiLabels']++;
+    } else {
+        // Sin atributos utilizables: etiquetas nativas en ES (del nombre ES); EN = traducción.
+        $labelsEs = computeLabels($items);
+        $labelsEn = [];
+        foreach ($labelsEs as $vc => $le) $labelsEn[$vc] = translateLabel($le, $labelTransCache, $skipTranslation);
+        $counters['lcpLabels']++;
+    }
+    [$nameEn, $descEn, $nameEs, $descEs] = buildContent($cheap, $skipTranslation, $translateFail, $formatFail, $llmSaved);
     $pid = insertProduct($mysqli, $items, true, $mfgId, $parentCatId, $subcatId, $nameEn, $descEn, $nameEs, $descEs, $counters, $labelsEs, $labelsEn);
     if ($pid) { $nInserted++; $nFam++; }
 }
@@ -671,7 +952,7 @@ foreach ($standalone as $code => $row) {
         continue;
     }
     $subcatId = getOrCreateSubcategory($mysqli, $subcatName, $parentCatId, false, $subcatCache, $catCreatedLog);
-    [$nameEn, $descEn, $nameEs, $descEs] = buildContent($row, $skipTranslation, $translateFail, $formatFail);
+    [$nameEn, $descEn, $nameEs, $descEs] = buildContent($row, $skipTranslation, $translateFail, $formatFail, $llmSaved);
     $pid = insertProduct($mysqli, [$code => $row], false, $mfgId, $parentCatId, $subcatId, $nameEn, $descEn, $nameEs, $descEs, $counters);
     if ($pid) { $nInserted++; $nStd++; }
 }
@@ -679,7 +960,8 @@ foreach ($standalone as $code => $row) {
 logMsg("==================== RESUMEN ====================");
 logMsg("Insertados: $nInserted (familias=$nFam sueltos=$nStd)");
 logMsg("Con imagen: {$counters['nWithImg']} (sub: {$counters['nSubImgTotal']}) | fallos img: {$counters['imgFail']} | skip sin img: {$counters['skippedNoImg']}");
-logMsg("Familias con variantes: {$counters['nWithVar']} | Traducciones fallidas: $translateFail | maquetados fallidos: $formatFail | Errores INSERT: {$counters['errors']}");
+logMsg("Familias con variantes: {$counters['nWithVar']} | etiquetas por atributos API: {$counters['apiLabels']} | por nombre/LCP: {$counters['lcpLabels']}");
+logMsg("Llamadas al LLM ahorradas por la API: $llmSaved | Traducciones fallidas: $translateFail | maquetados fallidos: $formatFail | Errores INSERT: {$counters['errors']}");
 if (!empty($catCreatedLog)) { logMsg(($dryRun?"Se crearían":"Creados").": ".count($catCreatedLog)); foreach (array_slice($catCreatedLog,0,30) as $v) logMsg("  · $v"); }
 
 end_action:
@@ -689,14 +971,28 @@ end_action:
 <?php else: ?>
     <h2>Importador Lalizas (altas)</h2>
     <?php $xlsx = findNewestXlsx(LALIZAS_DIR); if (!$xlsx) echo '<p style="color:red;">No hay xlsx en ' . LALIZAS_DIR . '</p>'; else echo '<p style="color:#666;font-size:13px;">xlsx: <code>' . htmlspecialchars(basename($xlsx)) . '</code> | XML media: <code>' . (file_exists(XML_PATH)?basename(XML_PATH):'NO EXISTE') . '</code></p>'; ?>
+    <?php
+    $apiSt = apiCacheStatus(API_CACHE_PATH);
+    if ($apiSt['exists']) {
+        $days = floor((time() - $apiSt['mtime']) / 86400);
+        $col  = $days > 30 ? '#b45309' : '#15803d';
+        echo '<p style="font-size:13px;color:' . $col . ';">API oficial: <strong>' . number_format($apiSt['parents'], 0, ',', '.') . '</strong> padres / <strong>'
+           . number_format($apiSt['items'], 0, ',', '.') . '</strong> items en caché — actualizada el ' . date('d/m/Y H:i', $apiSt['mtime'])
+           . ' (' . ($days === 0 ? 'hoy' : "hace $days días") . ').' . ($days > 30 ? ' <strong>Conviene refrescarla.</strong>' : '') . '</p>';
+    } else {
+        echo '<p style="font-size:13px;color:#b91c1c;">API oficial: <strong>sin caché</strong>. Pulsa «Refrescar caché API» para descargar el catálogo; mientras tanto se importa solo con xlsx + XML + B2B.</p>';
+    }
+    ?>
     <p>
         Maestro = hoja <code>precios</code> del xlsx (Ref, nombre, Item Group=marca, EAN, <strong>F=coste neto</strong>, <strong>G=PVP sin IVA</strong>).
-        Imagen desde <code>lalizas.xml</code> (por EAN). Descripción: del XML (ES) o, si falta, del B2B/webs de marca (<code>b2b_desc.json</code>, EN). Crea productos en <strong><?php echo PARENT_CATEGORY_NAME_ES; ?></strong> con subcategorías por marca.
+        La <strong>API oficial</strong> aporta la jerarquía padre→variantes, los atributos (talla, longitud, diámetro…), el título en inglés y descripciones por idioma;
+        no trae precio, stock ni EAN, que siguen viniendo de la xlsx y de <code>lalizas.xml</code>. Se cruza por la referencia (col. A = <code>&lt;Code&gt;</code> del XML = id de item de la API).
+        Crea productos en <strong><?php echo PARENT_CATEGORY_NAME_ES; ?></strong> con subcategorías por marca.
     </p>
     <p style="background:#fffbe6;border:1px solid #ffd700;padding:10px;border-radius:4px;font-size:13px;">
-        <strong>Solo se importa si tiene imagen (XML) Y descripción (XML o B2B)</strong>. Skip si Ref o EAN ya existen en BD.<br>
+        <strong>Solo se importa si tiene imagen Y descripción</strong> (imagen: XML → API; descripción: XML ES → API es/en → B2B EN). Skip si Ref o EAN ya existen en BD.<br>
         <strong>Precio</strong>: coste=F, PVP=roundToNickel(G), G1=tiers por margen + piso ×<?php echo G1_FLOOR_FACTOR; ?>.<br>
-        <strong>Idiomas</strong>: nombre siempre ES (xlsx)→EN. Descripción XML es ES→EN; descripción B2B es EN→ES. Maquetado en ambos idiomas vía LLM.
+        <strong>Idiomas</strong>: nombre ES de la xlsx; el EN sale de la API si está, y si no del LLM. Solo se traduce el idioma que falte; si la API da los dos, no se traduce nada.
     </p>
     <form method="get" style="background:#f5f5f5;padding:15px;border-radius:5px;">
         <p>
@@ -717,16 +1013,32 @@ end_action:
             <textarea name="codes" rows="2" style="width:100%;font-family:monospace;"><?php echo htmlspecialchars($onlyCodesRaw); ?></textarea></p>
         <p><label><input type="checkbox" name="dry_run" value="1" checked> Dry-run (sin cambios)</label></p>
         <p><label><input type="checkbox" name="skip_translation" value="1"> Saltar traducción/maquetado LLM (EN = ES)</label></p>
-        <p><label><input type="checkbox" name="group_variants" value="1"> Agrupar variantes (LCP estricto) — <strong>⚠ opcional; por defecto cada SKU suelto</strong></label></p>
+        <p>
+            <strong>Agrupar variantes</strong>:
+            <select name="variant_mode" style="min-width:340px;">
+                <?php foreach ([
+                    'api'     => 'API oficial — jerarquía de Lalizas (recomendado)',
+                    'api_lcp' => 'API oficial + LCP heurístico para lo que no cubra',
+                    'none'    => 'No agrupar — cada SKU un producto suelto',
+                    'lcp'     => 'Solo LCP heurístico (comportamiento antiguo)',
+                ] as $vmKey => $vmLabel) {
+                    $dis = (!$apiCacheExists && ($vmKey === 'api' || $vmKey === 'api_lcp')) ? ' disabled' : '';
+                    echo '<option value="' . $vmKey . '"' . ($variantMode === $vmKey ? ' selected' : '') . $dis . '>' . htmlspecialchars($vmLabel) . ($dis ? ' — sin caché' : '') . '</option>';
+                } ?>
+            </select>
+        </p>
         <p>Inserts máximos (0 = sin límite): <input type="number" name="max" value="10" min="0" style="width:80px;"></p>
         <button type="submit" name="action" value="dry_run" class="xbutton small hv9">Dry-run</button>
         <button type="submit" name="action" value="execute" class="xbutton small hv9 verde" onclick="return confirm('¿Ejecutar de verdad? Insertará productos en la BD.');">Ejecutar</button>
+        <button type="submit" name="action" value="api_refresh" class="xbutton small hv9" style="margin-left:20px;" onclick="return confirm('Descargar de nuevo el catálogo de la API de Lalizas? Tarda unos segundos y solo reescribe la cache.');">Refrescar caché API</button>
     </form>
     <p style="margin-top:20px;color:#888;font-size:12px;">
         - Coste = col F (precio neto sin IVA). PVP = roundToNickel(col G). G1 = tiers margen + piso cost×<?php echo G1_FLOOR_FACTOR; ?>.<br>
         - Fabricante por Item Group (Lalizas 3 / Nuova Rade 96 / Lofrans 16 / Ocean 246 / MaxPower 376; Selection Items + Commercial Only → Lalizas; Arimar se crea).<br>
-        - Subcategorías por marca bajo <?php echo PARENT_CATEGORY_NAME_ES; ?>. Imagen (XML) + descripción (XML o B2B) obligatorias.<br>
-        - EAN del feed (col D). Stock no se toca (qty 0, status 2). Atributos opcionales y estrictos.<br>
+        - Subcategorías por marca bajo <?php echo PARENT_CATEGORY_NAME_ES; ?>. Imagen y descripción obligatorias (XML → API → B2B).<br>
+        - EAN del feed (col D). Stock no se toca (qty 0, status 2).<br>
+        - Variantes: la API manda; sus atributos dan la etiqueta (talla, longitud…). Familias de más de <?php echo MAX_FAMILY_ITEMS; ?> items se dejan sueltas y se avisa en el log.<br>
+        - Caché de la API en <code>import/Lalizas/cache/api_products.json</code>; token en <code>import/Lalizas/api_token.txt</code> (fuera del mirror de GitHub). CLI: <code>php import/Lalizas/lalizas_api_fetch.php</code>.<br>
     </p>
 <?php endif; ?>
 </div>

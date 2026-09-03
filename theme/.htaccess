@@ -1,0 +1,11 @@
+# Cacheo de estaticos del theme (auditoria 2026-09-02).
+# Se servian SIN Cache-Control ni Expires, asi que el navegador los revalidaba o
+# reaplicaba heuristicas en cada visita. Es seguro cachear fuerte porque
+# scripts_footer.php ya versiona las URLs con ?v=filemtime.
+# (La compresion gzip/brotli NO se puede activar aqui: el servidor no tiene
+#  cargados deflate_module ni brotli_module; requeriria recompilar EasyApache.)
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css|woff2?|ttf|eot|svg|png|jpe?g|gif|webp|ico)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>

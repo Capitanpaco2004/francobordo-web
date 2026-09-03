@@ -258,19 +258,27 @@
 
 			// Recorremos
 			foreach ($packages as $package) {
-				// Si nos envian un package en concreto
-				if ($argumentPackage !== false && $package->getName() != $argumentPackage) {
-					continue;
-				}
+				// Si nos envian un package en concreto, solo ESE se instala (install, sql,
+				// migrations). Pero cache/events.json se reescribe entero al final, asi que los
+				// event() de TODOS los paquetes se recogen siempre: antes se hacia `continue` y
+				// `composer installs kadevia/addon-x` dejaba el cache solo con los eventos de ese
+				// addon (los menus de verifactu, invoices, etc. desaparecian del admin).
+				$esObjetivo = ($argumentPackage === false || $package->getName() == $argumentPackage);
 
-				echo "\n\e[1;34m=== Instalando modulo: " . $package->getName() . " ===\e[0m\n";
 				// Obtenemos
 				$psr4Find = $package->getAutoload();
 
 				// Si no contiene continuamos
 				if (!isset($psr4Find['psr-4'])){
-					echo "\e[33m[AVISO]\e[0m El paquete no tiene autoload PSR-4, se omite.\n";
+					if ($esObjetivo) {
+						echo "\n\e[1;34m=== Instalando modulo: " . $package->getName() . " ===\e[0m\n";
+						echo "\e[33m[AVISO]\e[0m El paquete no tiene autoload PSR-4, se omite.\n";
+					}
 					continue;
+				}
+
+				if ($esObjetivo) {
+					echo "\n\e[1;34m=== Instalando modulo: " . $package->getName() . " ===\e[0m\n";
 				}
 
 				// Directorio de instalacion
@@ -290,17 +298,17 @@
 					// Instanciamos
 					$class = isset($class) ? $class : arrays::keyFirst($package->getAutoload()['psr-4']) . 'Services\AddonInstall';
 
-					// Ejecutamos install
-					if (method_exists($class, 'install')) {
+					// Ejecutamos install (solo el paquete objetivo)
+					if ($esObjetivo && method_exists($class, 'install')) {
 						$class::install();
 					}
 
-					// Ejecutamos SQL
-					if (method_exists($class, 'sql')) {
+					// Ejecutamos SQL (solo el paquete objetivo)
+					if ($esObjetivo && method_exists($class, 'sql')) {
 						$class::sql();
 					}
 
-					// Ejecutamos Eventos
+					// Ejecutamos Eventos: de todos los paquetes, el cache se regenera entero
 					if (method_exists($class, 'event')) {
 						// Obtenemos
 						$cacheEvents = array_merge_recursive($cacheEvents, $class::event());
@@ -309,8 +317,8 @@
 
 				unset($class);
 
-				// Si contiene migrations
-				if (is_dir($installPath . '/Migrations')) {
+				// Si contiene migrations (solo el paquete objetivo)
+				if ($esObjetivo && is_dir($installPath . '/Migrations')) {
 					// Recorremos
 					foreach (glob($installPath . '/Migrations/*.php') as $file)
 					{

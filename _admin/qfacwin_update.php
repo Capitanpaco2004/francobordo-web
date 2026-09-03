@@ -229,7 +229,7 @@ if ($procesarwartic){
 								} 
 							} //parafarmaweb 
 								
-							$strsql .=  " products_price = " .  $row["NPV".$ntarifaqfac]  . "  ";		
+							if ($intcltrac != 116) { $strsql .=  " products_price = " .  $row["NPV".$ntarifaqfac]  . "  "; } else { $strsql .=  " products_id = products_id  "; } // FB-VETO 2026-09: precios SOLO en la web		
 							
 							//busquem id producte per acvtualitzar tarifes SPPC per grups
 							$idproducte = 0;
@@ -248,7 +248,7 @@ if ($procesarwartic){
 										$strsql2  = "update " . $strnomdb . $strprefixtaules . "products_groups  set " ;
 										$strsql2 .=  " customers_group_price = " .  $row["NPV".$pr]   ;
 										$strsql2 .=  " where products_id = " . $idproducte .  " and customers_group_id = " . $strgrupcli[$pr];
-										$result2 = mysqli_query( $link, $strsql2)  or die ("update  products_groups " . mysqli_errno( $link ).": ".mysqli_error( $link ). $crlf .$strsql2);
+										if ($intcltrac == 116) { $result2 = TRUE; /* FB-VETO 2026-09: tarifas de grupo SOLO en la web */ } else { $result2 = mysqli_query( $link, $strsql2)  or die ("update  products_groups " . mysqli_errno( $link ).": ".mysqli_error( $link ). $crlf .$strsql2); }
 										$strmensa .= 'NPV'.$pr.": ". $row["NPV".$pr]. ", ";
 								} //grup no buit 
 								$pr ++;

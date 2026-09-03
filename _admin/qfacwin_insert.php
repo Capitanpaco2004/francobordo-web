@@ -785,7 +785,7 @@ while ($data = fgetcsv($fp, filesize($filename), ";")) {
 				}
 
 				// $strsql .=  " products_price = " .  $row["NPV0"]  . " , ";
-				$strsql .= " products_price = " . $row["NPV" . $ntarifaqfac] . " , ";
+				if ($intcltrac != 116) { $strsql .= " products_price = " . $row["NPV" . $ntarifaqfac] . " , "; } // FB-VETO 2026-09: precios SOLO en la web (el alta entra a precio 0)
 
 				//tarifes
 				$pr = 1;
@@ -955,7 +955,7 @@ while ($data = fgetcsv($fp, filesize($filename), ";")) {
 
 
 				// $strsql .=  " products_price = " .  $row["NPV0"]  . " , ";
-				$strsql .= " products_price = " . $row["NPV" . $ntarifaqfac] . " , ";
+				if ($intcltrac != 116) { $strsql .= " products_price = " . $row["NPV" . $ntarifaqfac] . " , "; } // FB-VETO 2026-09: no pisar el precio web
 
 
 				//tarifes en camps de la taula products
@@ -1059,7 +1059,7 @@ while ($data = fgetcsv($fp, filesize($filename), ";")) {
 							$strsql .= " customers_group_id = " . $strgrupcli[$pr] . " , ";
 							$strsql .= " products_id = " . $idproducte . " , ";
 							$strsql .= " customers_group_price = " . $row["NPV" . $pr];
-							$result = mysqli_query($link, $strsql) or die ($crlf . "INS products_groups " . mysqli_errno($link) . ": " . mysqli_error($link) . $crlf . $strsql);
+							if ($intcltrac != 116) { $result = mysqli_query($link, $strsql) or die ($crlf . "INS products_groups " . mysqli_errno($link) . ": " . mysqli_error($link) . $crlf . $strsql); } // FB-VETO 2026-09: QFac no crea tarifas de grupo
 							//echo $strsql.'<br>';
 						} else { //grup ja existeix l'afegim imodifiquem el preu
 
@@ -1072,7 +1072,7 @@ while ($data = fgetcsv($fp, filesize($filename), ";")) {
 							$strsql = "update " . $strnomdb . $strprefixtaules . "products_groups  set ";
 							$strsql .= " customers_group_price = " . $row["NPV" . $pr];
 							$strsql .= " where products_id = " . $idproducte . " and customers_group_id = " . $strgrupcli[$pr];
-							$result = mysqli_query($link, $strsql) or die ("update  products_groups " . mysqli_errno($link) . ": " . mysqli_error($link) . $crlf . $strsql);
+							if ($intcltrac != 116) { $result = mysqli_query($link, $strsql) or die ("update  products_groups " . mysqli_errno($link) . ": " . mysqli_error($link) . $crlf . $strsql); } // FB-VETO 2026-09: QFac no pisa tarifas de grupo
 
 						}//grup ja existeix
 					} //grup no buit

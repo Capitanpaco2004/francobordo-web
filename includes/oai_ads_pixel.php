@@ -217,7 +217,9 @@ if (!function_exists('fb_oai_pixel_footer')) {
             // Pegamento CMP: como GoogleTagsConsentModeListener pero para oaiq. subscribeEventAccept
             // se dispara en CUALQUIER guardado del banner (aceptar, rechazar, guardar ajustes).
             $js .= '(function(){var CAT="' . $cat . '";'
-                 . 'function ap(){try{var c=window.cookieAdviseBlocker;if(!c||!Array.isArray(c.categories))return;'
+                 . 'function ap(){try{'
+                 . 'if(document.cookie.indexOf("advise_blocker=")===-1)return;'   // sin decision del banner aun -> gate PENDIENTE (no confundir con rechazo)
+                 . 'var c=window.cookieAdviseBlocker;if(!c||!Array.isArray(c.categories))return;'
                  . 'FrancobordoOpenAIAdsGate.setConsent(c.categories.some(function(x){return String(x)===CAT;}));}catch(e){}}'
                  . 'function rd(){return window.cookieAdviseBlockerPopup&&window.cookieAdviseBlocker;}'
                  . 'function arm(){ap();try{cookieAdviseBlockerPopup.subscribeEventAccept(ap);}catch(e){}}'

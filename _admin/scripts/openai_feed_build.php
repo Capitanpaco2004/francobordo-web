@@ -44,7 +44,7 @@ $OUT_COLS = array('id', 'title', 'description', 'link', 'image_link', 'price', '
                   'is_eligible_search', 'is_eligible_checkout', 'is_ads_eligible');
 fwrite($out, implode("\t", $OUT_COLS) . "\n");
 
-$n = 0; $sinGtin = 0;
+$n = 0; $sinGtin = 0; $sinPrecio = 0; $brandFallback = 0; $descFallback = 0;
 while (($line = fgets($in)) !== false) {
     $f = explode("\t", rtrim($line, "\r\n"));
     if (count($f) < 2) continue;
@@ -61,9 +61,19 @@ while (($line = fgets($in)) !== false) {
     $desc  = str_replace("\xC2\xA0", ' ', html_entity_decode($get('description'), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     $desc  = mb_substr(trim(preg_replace('/[ \t]+/', ' ', $desc)), 0, 5000);
 
+    // precio <=0: producto no anunciable, fuera del feed (la validacion de OpenAI lo rechaza)
+    $price = trim($get('price'));
+    $pv = (float) str_replace(',', '.', preg_replace('/[^0-9.,]/', '', $price));
+    if ($pv <= 0) { $sinPrecio++; continue; }
+
+    // brand y description son obligatorias en la spec: fallbacks para no perder la fila
+    $brand = trim($get('brand'));
+    if ($brand === '') { $brand = 'Francobordo'; $brandFallback++; }
+    if ($desc === '')  { $desc = $title; $descFallback++; }
+
     $row = array(
-        $get('id'), $title, $desc, $get('link'), $get('image_link'), $get('price'), $av,
-        $get('brand'), $gtin, $get('mpn'), ($get('condition') !== '' ? $get('condition') : 'new'),
+        $get('id'), $title, $desc, $get('link'), $get('image_link'), $price, $av,
+        $brand, $gtin, $get('mpn'), ($get('condition') !== '' ? $get('condition') : 'new'),
         $get('product_type'), $get('google_product_category'),
         'true', 'false', 'true',
     );
@@ -73,4 +83,4 @@ while (($line = fgets($in)) !== false) {
 fclose($in);
 fclose($out);
 rename($tmp, DST);
-echo date('c') . " OpenAI feed: $n ofertas (" . round(filesize(DST) / 1048576, 1) . " MB), $sinGtin sin gtin GS1 (van con mpn)\n";
+echo date('c') . " OpenAI feed: $n ofertas (" . round(filesize(DST) / 1048576, 1) . " MB), $sinGtin sin gtin GS1 (van con mpn), $sinPrecio excluidas por precio<=0, $brandFallback brand->Francobordo, $descFallback desc->titulo\n";

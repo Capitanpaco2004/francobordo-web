@@ -400,13 +400,44 @@
 	}
 
     //Subir fichero adjunto
-    
-/**
- * Note: This file may contain artifacts of previous malicious infection.
- * However, the dangerous code has been removed, and the file is now safe to use.
- */
+    // OJO: Imunify360 vació este bloque en jul-2026 (un copy($_FILES) sin validar le parecía
+    // un dropper). Mantener la validación de extensión + basename + move_uploaded_file o el
+    // AV puede volver a vaciarlo (ver memoria imunify360-falsos-positivos).
+    $nombre_products_fileupload = $_POST['products_fileupload'] ?? ($_POST['products_fileupload_anterior'] ?? '');
 
+    if( !empty($_FILES['products_fileupload']['tmp_name']) && is_uploaded_file( $_FILES['products_fileupload']['tmp_name'] ) )
+    {
+        $sNombreAdjunto = basename( (string)$_FILES['products_fileupload']['name'] );
+        $sExtAdjunto = strtolower( pathinfo( $sNombreAdjunto, PATHINFO_EXTENSION ) );
 
+        if( strpos( strtolower( $sNombreAdjunto ), '.php' ) === false
+            && in_array( $sExtAdjunto, array( 'pdf', 'zip', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'jpg', 'jpeg', 'png', 'gif', 'webp' ), true )
+            && move_uploaded_file( $_FILES['products_fileupload']['tmp_name'], '../images/upload/' . $sNombreAdjunto ) )
+        {
+            @chmod( '../images/upload/' . $sNombreAdjunto, 0644 );
+            $nombre_products_fileupload = $sNombreAdjunto;
+        }
+        else
+            $messageStack->add_session( 'Documentación NO guardada: extensión no permitida (' . htmlspecialchars( $sNombreAdjunto ) . ')', 'error' );
+    }
+
+    $nombre_products_pdfupload = $_POST['products_pdfupload'] ?? ($_POST['products_pdfupload_anterior'] ?? '');
+
+    if( !empty($_FILES['products_pdfupload']['tmp_name']) && is_uploaded_file( $_FILES['products_pdfupload']['tmp_name'] ) )
+    {
+        $sNombrePdf = basename( (string)$_FILES['products_pdfupload']['name'] );
+        $sExtPdf = strtolower( pathinfo( $sNombrePdf, PATHINFO_EXTENSION ) );
+
+        if( strpos( strtolower( $sNombrePdf ), '.php' ) === false
+            && $sExtPdf === 'pdf'
+            && move_uploaded_file( $_FILES['products_pdfupload']['tmp_name'], DIR_FS_CATALOG_MANUALS . $sNombrePdf ) )
+        {
+            @chmod( DIR_FS_CATALOG_MANUALS . $sNombrePdf, 0644 );
+            $nombre_products_pdfupload = $sNombrePdf;
+        }
+        else
+            $messageStack->add_session( 'Ficha PDF NO guardada: solo se admite .pdf (' . htmlspecialchars( $sNombrePdf ) . ')', 'error' );
+    }
     // final fichero adjunto
 
 	//Formas de pago/envio por productos

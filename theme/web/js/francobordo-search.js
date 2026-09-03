@@ -72,7 +72,9 @@
   const DEBOUNCE_MS  = 150;
   const MIN_CHARS    = 2;
   const PAGE_SIZE    = 24;
-  const FALLBACK_IMG = '/images/placeholder.png';
+  // /images/placeholder.png NO existe (devolvia 404 en cada tarjeta sin foto).
+  const FALLBACK_IMG = 'data:image/svg+xml;charset=utf-8,'
+    + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
 
   // ---------- helpers ----------
   function $ (sel, root) { return (root || document).querySelector(sel); }
@@ -219,6 +221,10 @@
     if (/^\d{6,}$/.test(trimmed)) return 0;
     if (words.length === 1)              return 0.05;
     if (words.length <= 3 && chars <= 25) return 0.20;
+    // Restaurado a 0,40 el 2026-09-02 por la noche: el indice vectorial se
+    // reconstruyo con el reindex completo (al barrer los documentos fantasma que
+    // aun tenian vectores de 1024 dims del modelo anterior). Verificado: consultas
+    // distintas devuelven resultados distintos y relevantes, con score 0,80-0,85.
     return 0.40;
   }
 
@@ -274,6 +280,9 @@
   function buildModal() {
     modalEl = document.createElement('div');
     modalEl.className = 'fb-modal';
+    modalEl.setAttribute('role', 'dialog');
+    modalEl.setAttribute('aria-modal', 'true');
+    modalEl.setAttribute('aria-label', T.placeholder || 'Buscador');
     modalEl.innerHTML = `
       <div class="fb-modal-body">
         <div class="fb-hd">
@@ -299,7 +308,7 @@
           </aside>
           <section class="fb-main">
             <div class="fb-toolbar">
-              <div><span class="fb-counter"></span><span class="fb-timing"></span></div>
+              <div role="status" aria-live="polite"><span class="fb-counter"></span><span class="fb-timing"></span></div>
               <select class="fb-sort">
                 <option value="">${T.relevancia}</option>
                 <option value="price:asc">${T.precio_asc}</option>
@@ -386,6 +395,9 @@
     refreshModal();
   }
   function closeModal() {
+    // Devolver el foco a quien abrio el overlay: sin esto el usuario de teclado
+    // volvia al principio del documento.
+    try { if (anchorInput && document.body.contains(anchorInput)) anchorInput.focus({ preventScroll: true }); } catch (e) {}
     if (!modalEl) return;
     modalEl.classList.remove('open');
     $('.fb-facets', modalEl).classList.remove('open');
@@ -407,6 +419,17 @@
     if (!modalEl) return;
     searchGen++;                              // nueva generación de búsqueda
     if (inflightCtrl) inflightCtrl.abort();   // cancela cualquier petición en vuelo
+    // MIN_CHARS estaba declarado y NUNCA se aplicaba: se buscaba desde la primera
+    // letra y hasta con la query vacia al enfocar el input. Cada pulsacion es una
+    // peticion completa al proxy, a Meili y al embedder.
+    const _q = (state.q || '').trim();
+    if (_q.length > 0 && _q.length < MIN_CHARS) {
+      $('.fb-results', modalEl).innerHTML = '';
+      $('.fb-pager', modalEl).innerHTML = '';
+      $('.fb-counter', modalEl).innerHTML = '';
+      $('.fb-timing', modalEl).textContent = '';
+      return;
+    }
     // Reset estado del scroll infinito al hacer una nueva búsqueda/filtro
     state.page = 0;
     cardPositionCounter = 0;   // re-numerar posiciones desde 1
@@ -501,6 +524,8 @@
     const myGen = searchGen;                  // generación al lanzar la sugerencia
     let alt;
     try {
+      // Ratio 1.0 restaurado: con el indice vectorial sano vuelve a ser util
+      // justo cuando el cliente no encuentra nada por texto.
       alt = await meiliSearch({ q, limit: 8, semanticRatio: 1.0 });
     } catch (e) { return; }
     if (myGen !== searchGen) return;          // búsqueda superada: no inyectar sugerencias viejas
@@ -616,8 +641,9 @@
     };
 
     // Click/focus en el input abre el modal anclado bajo él
+    // Antes habia focus+mousedown: al hacer clic saltaban los dos y se lanzaban
+    // dos busquedas identicas. focus cubre teclado y raton.
     input.addEventListener('focus', setAnchorAndOpen);
-    input.addEventListener('mousedown', setAnchorAndOpen);
 
     // Tecleo: actualizar query (debounced) y refrescar resultados
     input.addEventListener('input', () => {
@@ -640,7 +666,12 @@
         anchorInput = input;
         // Match único (EAN/MPN exacto o 1 sólo resultado) → al producto
         try {
-          const data = await meiliSearch({ q, limit: 2 });
+          // Tope de 1,2 s: si el backend tarda, nos vamos igualmente a la pagina de
+          // resultados en vez de dejar el Enter aparentemente colgado.
+          const ac = new AbortController();
+          const to = setTimeout(() => ac.abort(), 1200);
+          const data = await meiliSearch({ q, limit: 2, signal: ac.signal });
+          clearTimeout(to);
           const hits  = data.hits || [];
           const total = data.estimatedTotalHits ?? hits.length;
           if (hits.length >= 1) {
@@ -706,7 +737,13 @@
   function init() {
     injectStyles();
     $$('[data-fb-search="true"]').forEach(attach);
-    const obs = new MutationObserver(() => $$('[data-fb-search="true"]').forEach(attach));
+    // Throttle: el observer corria en CADA mutacion del DOM y esta pagina tiene
+    // chatbot y SalesManago moviendolo sin parar.
+    let obsT = null;
+    const obs = new MutationObserver(() => {
+      if (obsT) return;
+      obsT = setTimeout(() => { obsT = null; $$('[data-fb-search="true"]').forEach(attach); }, 300);
+    });
     obs.observe(document.body, { childList: true, subtree: true });
   }
 
