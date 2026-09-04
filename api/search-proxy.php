@@ -304,6 +304,11 @@ if ($resp === null) {
     if ($endpoint === 'search' && is_array($bodyJson)) {
         $bodyJson = fb_inject_brand_exclusions($bodyJson);
         $bodyJson['showRankingScore'] = true;
+        // matchingStrategy 'frequency' en vez del 'last' por defecto: cuando ningun
+        // producto casa TODOS los terminos, Meili descarta uno. Con 'last' descartaba
+        // el ULTIMO (el especifico) y devolvia el generico: "kit palau" -> 1.804 kits.
+        // Con 'frequency' descarta el MAS FRECUENTE ("kit") y deja el que discrimina.
+        $bodyJson['matchingStrategy'] = 'frequency';
         $bodyJson = fb_harden_body($bodyJson);   // topes + campos devueltos
         $body = json_encode($bodyJson);
 

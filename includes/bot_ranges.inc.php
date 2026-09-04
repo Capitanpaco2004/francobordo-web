@@ -1,8 +1,8 @@
 <?php
 // GENERADO AUTOMATICAMENTE por _admin/scripts/cron_bot_ranges_update.php — NO EDITAR A MANO.
-// 2026-09-03 04:25:04 — 1161 prefijos IPv4 de 8 familias.
+// 2026-09-04 04:25:04 — 1161 prefijos IPv4 de 8 familias.
 return array (
-  'generated_at' => 1788402304,
+  'generated_at' => 1788488704,
   'families' => 
   array (
     'gptbot' => 
