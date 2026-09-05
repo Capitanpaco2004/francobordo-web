@@ -343,7 +343,7 @@ function llmFormatOsculatiHtml($html) {
 		],
 		'chat_template_kwargs' => ['enable_thinking' => false],
 		'max_tokens' => 1500,
-		'temperature' => 0.2,
+		'temperature' => 0.2, 'top_p' => 0.8, 'top_k' => 20,
 	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	for ($i = 0; $i <= 2; $i++) {
 		$ch = curl_init(LLM_URL);
@@ -489,7 +489,7 @@ function oscLlmTranslateSpecTerms(array $terms) {
 			['role' => 'user',   'content' => json_encode(array_values($terms), JSON_UNESCAPED_UNICODE)],
 		],
 		'chat_template_kwargs' => ['enable_thinking' => false],
-		'max_tokens' => 2000, 'temperature' => 0.1,
+		'max_tokens' => 2000, 'temperature' => 0.1, 'top_p' => 0.8, 'top_k' => 20,
 	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	for ($i = 0; $i <= 2; $i++) {
 		$ch = curl_init(LLM_URL);
@@ -533,7 +533,7 @@ function oscLlmTranslateSpecTermsEn(array $terms) {
 			['role' => 'user',   'content' => json_encode(array_values($terms), JSON_UNESCAPED_UNICODE)],
 		],
 		'chat_template_kwargs' => ['enable_thinking' => false],
-		'max_tokens' => 2000, 'temperature' => 0.1,
+		'max_tokens' => 2000, 'temperature' => 0.1, 'top_p' => 0.8, 'top_k' => 20,
 	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 	for ($i = 0; $i <= 2; $i++) {
 		$ch = curl_init(LLM_URL);
@@ -663,7 +663,7 @@ function translateITto($text, $targetLang = 'es') {
 		],
 		'chat_template_kwargs' => ['enable_thinking' => false],
 		'max_tokens' => 2000,
-		'temperature' => 0.3,
+		'temperature' => 0.3, 'top_p' => 0.8, 'top_k' => 20,
 	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
 
 	$ch = curl_init(LLM_URL);

@@ -43,7 +43,7 @@ function llmCall($systemPrompt, $userText, $maxRetries = 3, $maxTokens = 2500) {
 			['role' => 'system', 'content' => $systemPrompt],
 			['role' => 'user',   'content' => $userText],
 		],
-		'temperature' => 0.2,
+		'temperature' => 0.2, 'top_p' => 0.8, 'top_k' => 20,
 		'max_tokens' => $maxTokens,
 		'chat_template_kwargs' => ['enable_thinking' => false],
 	], JSON_UNESCAPED_UNICODE);

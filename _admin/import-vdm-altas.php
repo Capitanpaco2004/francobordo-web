@@ -434,7 +434,7 @@ function llmTranslate($text, $maxRetries = 2, $maxOutChars = 0, $sysPrompt = nul
 			['role' => 'system', 'content' => $sysPrompt !== null ? $sysPrompt : LLM_PROMPT],
 			['role' => 'user',   'content' => $text],
 		],
-		'temperature' => 0.2,
+		'temperature' => 0.2, 'top_p' => 0.8, 'top_k' => 20,
 		'repetition_penalty' => 1.15, // frena los bucles degenerados del NVFP4
 		'max_tokens' => $sysPrompt !== null ? 200 : 1500, // etiquetas/cabeceras cortas vs descripciones
 		'chat_template_kwargs' => ['enable_thinking' => false],

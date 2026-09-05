@@ -54,7 +54,7 @@ function looksSpanish($text) {
 
 function llmCall($sys, $user, $maxRetries = 3, $maxTokens = 200) {
 	if (trim((string) $user) === '') return '';
-	$payload = json_encode(['model' => 'qwen36-sakamaki-nvfp4', 'messages' => [['role' => 'system', 'content' => $sys], ['role' => 'user', 'content' => $user]], 'temperature' => 0.2, 'max_tokens' => $maxTokens, 'chat_template_kwargs' => ['enable_thinking' => false]], JSON_UNESCAPED_UNICODE);
+	$payload = json_encode(['model' => 'qwen36-sakamaki-nvfp4', 'messages' => [['role' => 'system', 'content' => $sys], ['role' => 'user', 'content' => $user]], 'temperature' => 0.2, 'top_p' => 0.8, 'top_k' => 20, 'max_tokens' => $maxTokens, 'chat_template_kwargs' => ['enable_thinking' => false]], JSON_UNESCAPED_UNICODE);
 	for ($i = 0; $i <= $maxRetries; $i++) {
 		$ch = curl_init('http://217.127.199.171:28001/v1/chat/completions');
 		curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $payload, CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60]);

@@ -51,7 +51,7 @@ function translateITboth($text) {
 		],
 		'chat_template_kwargs' => ['enable_thinking' => false],
 		'max_tokens'  => 200,
-		'temperature' => 0.1,
+		'temperature' => 0.1, 'top_p' => 0.8, 'top_k' => 20,
 	], JSON_UNESCAPED_UNICODE);
 	$ch = curl_init(LLM_URL);
 	curl_setopt_array($ch, [

@@ -184,7 +184,7 @@ function llmTranslate($text, $maxRetries = 2) {
 			['role' => 'system', 'content' => LLM_PROMPT],
 			['role' => 'user',   'content' => $text],
 		],
-		'temperature' => 0.2,
+		'temperature' => 0.2, 'top_p' => 0.8, 'top_k' => 20,
 		'max_tokens' => 1500,
 		'chat_template_kwargs' => ['enable_thinking' => false],
 	], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);

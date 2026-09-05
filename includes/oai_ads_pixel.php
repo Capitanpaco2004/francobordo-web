@@ -165,6 +165,39 @@ if (!function_exists('fb_oai_pixel_footer')) {
         return array('type' => 'contents', 'amount' => $amount, 'currency' => 'EUR', 'contents' => $contents);
     }
 
+    /**
+     * Coincidencia avanzada (opcion B, decidida por el usuario 2026-09-02): email_sha256 +
+     * external_id_sha256 del cliente IDENTIFICADO, SOLO si el consentimiento de marketing ya
+     * esta concedido (cookie advise_blocker del CMP con la categoria Marketing). El hash se
+     * calcula en servidor: el email en claro NUNCA aparece en el HTML ni viaja a OpenAI.
+     * Normalizacion segun spec: email trim+minusculas; external_id trim conservando mayusculas.
+     */
+    function fb_oai_user_data($cat) {
+        try {
+            $cid = isset($_SESSION['customer_id']) ? (int) $_SESSION['customer_id'] : 0;
+            if ($cid <= 0) return null;
+            if (empty($_COOKIE['advise_blocker']) || !is_string($_COOKIE['advise_blocker'])) return null;
+            $raw = (string) $_COOKIE['advise_blocker'];
+            $ok  = false;
+            $j = json_decode($raw, true);
+            if (!is_array($j)) $j = json_decode(urldecode($raw), true);
+            if (is_array($j) && isset($j['categories']) && is_array($j['categories'])) {
+                foreach ($j['categories'] as $c) { if ((string) $c === (string) $cat) { $ok = true; break; } }
+            } elseif (preg_match('/"categories"\s*:\s*\[([^\]]*)\]/', $raw, $m)) {
+                $ok = (bool) preg_match('/(^|[^0-9])' . preg_quote((string) $cat, '/') . '([^0-9]|$)/', $m[1]);
+            }
+            if (!$ok || !function_exists('tep_db_query')) return null;
+            $tc = defined('TABLE_CUSTOMERS') ? TABLE_CUSTOMERS : 'customers';
+            $q = tep_db_query("select customers_email_address from " . $tc . " where customers_id = '" . $cid . "' limit 1");
+            if (!$q) return null;
+            $r = tep_db_fetch_array($q);
+            $email = $r ? strtolower(trim((string) $r['customers_email_address'])) : '';
+            $u = array('external_id_sha256' => hash('sha256', trim((string) $cid)));
+            if ($email !== '' && strpos($email, '@') !== false) $u['email_sha256'] = hash('sha256', $email);
+            return $u;
+        } catch (\Throwable $e) { return null; }
+    }
+
     /** Bloque completo del footer: stub + consent + init + pegamento CMP + eventos de la pagina. */
     function fb_oai_pixel_footer() {
         if (PHP_SAPI === 'cli') return '';
@@ -200,7 +233,10 @@ if (!function_exists('fb_oai_pixel_footer')) {
         $js  = "\n<!-- OpenAI Ads Measurement Pixel (anadido 2026-09-01) -->\n<script>\n";
         $js .= '(function(w,d,s,u){if(w.oaiq)return;var q=function(){q.q.push(arguments);};q.q=[];w.oaiq=q;var j=d.createElement(s);j.async=true;j.src=u;var f=d.getElementsByTagName(s)[0];f.parentNode.insertBefore(j,f);})(window,document,"script","https://bzrcdn.openai.com/sdk/oaiq.min.js");' . "\n";
         $js .= 'oaiq("consent",false);' . "\n";
-        $js .= 'oaiq("init",{pixelId:"' . FB_OAI_PIXEL_ID . '",debug:false});' . "\n";
+        $init = array('pixelId' => FB_OAI_PIXEL_ID, 'debug' => false);
+        $user = $cmpActive ? fb_oai_user_data($cat) : null;   // coincidencia avanzada (opcion B)
+        if ($user) $init['user'] = $user;
+        $js .= 'oaiq("init",' . fb_oai_json($init) . ');' . "\n";
         // GATE de consentimiento (correccion 2026-09-01): el SDK DESCARTA los measure
         // recibidos con consent=false y NO los reproduce al concederse (literal en
         // oaiq.min.js: "event dropped because consent is not granted"). El gate retiene

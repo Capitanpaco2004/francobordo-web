@@ -51,6 +51,7 @@
 		<?php echo tep_admin_files_boxes('importador_stock_aributo.php', '<i class="bullet"></i> Importador Stock Atributos'); ?>
 		<?php echo tep_admin_files_boxes('backfill_ean_internos.php', '<i class="bullet"></i> Backfill EAN internos'); ?>
 		<?php echo tep_admin_files_boxes('import_blacklist_admin.php', '<i class="bullet"></i> Lista negra de reimportación'); ?>
+		<?php echo tep_admin_files_boxes('import-universal-altas.php', '<i class="bullet"></i> Importador Universal (por URL)'); ?>
 		<div>
 			<a class="prnt" href="javascript:void(0);"><i class="bullet"></i> Osculati <i class="fa fa-angle-right"></i></a>
 			<div class="sbmn">

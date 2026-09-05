@@ -252,7 +252,7 @@ function llmCall($systemPrompt, $userText, $maxTokens = 700, $maxRetries = 2) {
     $payload = json_encode([
         'model' => LLM_MODEL,
         'messages' => [['role'=>'system','content'=>$systemPrompt],['role'=>'user','content'=>$userText]],
-        'temperature' => 0.4, 'max_tokens' => $maxTokens,
+        'temperature' => 0.4, 'top_p' => 0.8, 'top_k' => 20, 'max_tokens' => $maxTokens,
         'chat_template_kwargs' => ['enable_thinking' => false],
     ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     for ($i=0; $i<=$maxRetries; $i++) {
